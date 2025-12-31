@@ -1,0 +1,51 @@
+[tools]
+python = "3.13.2"
+uv = "0.9.22"
+pipx = "1.8.0"
+"pipx:keymap-drawer" = "0.22.1"
+
+# Keep format/lint tool versions here so they stay pinned without being installed by default.
+[env]
+NODE_VERSION = "24.12.0"
+STYLUA_VERSION = "2.3.1"
+TAPLO_VERSION = "0.10.0"
+PRETTIER_VERSION = "3.7.4"
+MBAKE_VERSION = "1.4.4"
+RUFF_VERSION = "0.14.10"
+CLANG_FORMAT_VERSION = "21.1.8"
+TY_VERSION = "0.0.9"
+VITALY_VERSION = "0.1.29"
+
+[tasks.format]
+description = "Format code"
+run = """
+mise exec node@${NODE_VERSION} stylua@${STYLUA_VERSION} taplo@${TAPLO_VERSION} npm:prettier@${PRETTIER_VERSION} pipx:mbake@${MBAKE_VERSION} pipx:ruff@${RUFF_VERSION} pipx:clang-format@${CLANG_FORMAT_VERSION} -- bash <<'EOF'
+  set -e
+  SUBMODULES=("qmk_firmware")
+  EXCLUDE_ARGS=()
+  for submodule in "${SUBMODULES[@]}"; do
+    EXCLUDE_ARGS+=("--exclude" "$submodule")
+  done
+  ruff format "${EXCLUDE_ARGS[@]}" .
+  git ls-files Makefile "*.mk" | xargs mbake format --config .mbake.toml
+  git ls-files "*.md" "*.yaml" "*.json" | grep -v '.gemini/.*' | xargs prettier --write
+  git ls-files "*.toml" | xargs taplo fmt
+  git ls-files "*.c" "*.h" | xargs clang-format -i
+  git ls-files "*.lua" | xargs stylua
+EOF
+"""
+
+[tasks.lint]
+description = "Lint code"
+run = """
+mise exec pipx:ruff@${RUFF_VERSION} pipx:ty@${TY_VERSION} -- bash <<'EOF'
+  set -e
+  SUBMODULES=("qmk_firmware")
+  EXCLUDE_ARGS=()
+  for submodule in "${SUBMODULES[@]}"; do
+    EXCLUDE_ARGS+=("--exclude" "$submodule")
+  done
+  ruff check --fix "${EXCLUDE_ARGS[@]}" .
+  ty check --extra-search-path typings "${EXCLUDE_ARGS[@]}" src scripts tests
+EOF
+"""

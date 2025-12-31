@@ -1,0 +1,44 @@
+[project]
+name = "keymap-overlay"
+version = "0.1.0"
+description = "Keymap overlay for Hammerspoon showing QMK layers"
+
+readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = ["License :: OSI Approved :: MIT License"]
+requires-python = ">=3.12"
+dependencies = [
+  "argcomplete>=3.6.3",
+  "colorama>=0.4.6",
+  "dotty-dict>=1.3.1",
+  "hjson>=3.1.0",
+  "jsonschema>=4.25.1",
+  "milc>=1.9.1",
+  "pillow>=12.1.0",
+  "pydantic>=2.0.0",
+  "pygments>=2.19.2",
+  "pyyaml>=6.0.3",
+  "typer>=0.12.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+extend-exclude = ["qmk_firmware/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "ANN"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["scripts", "src"]
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=9.0.2"]

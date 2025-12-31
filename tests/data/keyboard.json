@@ -1,0 +1,17 @@
+{
+  "keyboard_name": "Test Keyboard",
+  "manufacturer": "Test Man",
+  "usb": {
+    "vid": "0xFEED",
+    "pid": "0x0001",
+    "device_version": "0.0.1"
+  },
+  "layouts": {
+    "LAYOUT": {
+      "layout": [
+        { "x": 0, "y": 0, "matrix": [0, 0] },
+        { "x": 1, "y": 0, "matrix": [0, 1] }
+      ]
+    }
+  }
+}

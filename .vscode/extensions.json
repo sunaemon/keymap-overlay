@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "johnnymorganz.stylua",
+    "coderabbit.coderabbit-vscode",
+    "bierner.markdown-preview-github-styles",
+    "xaver.clang-format",
+    "editorconfig.editorconfig",
+    "charliermarsh.ruff",
+    "esbenp.prettier-vscode",
+    "tamasfe.even-better-toml"
+  ]
+}
