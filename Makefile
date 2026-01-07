@@ -58,7 +58,7 @@ KEYMAP_DRAWER_YAML := $(BUILD_DIR)/keymap-drawer.yaml
 # Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_keycodes.py' scanning QMK firmware.
-# Used by: 'generate_qmk_keymap_postprocess.py', 'generate_qmk_keymap_from_vitaly.py' for name resolution.
+# Used by: 'generate_qmk_keymap_postprocess.py' for name resolution.
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
 # [Custom Keycodes JSON]
@@ -279,7 +279,7 @@ ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
-	$(UV) run scripts/generate_qmk_keymap_from_vitaly.py --vitaly-json $(VITALY_JSON) --keycodes-json "$(KEYCODES_JSON)" --keyboard-json "$(KEYBOARD_JSON)" > $@ || (rm -f $@ && exit 1)
+	$(UV) run scripts/generate_qmk_keymap_from_vitaly.py --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" > $@ || (rm -f $@ && exit 1)
 else
 	@echo "Compiling QMK JSON from source..."
 	$(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) > $@ || (rm -f $@ && exit 1)
