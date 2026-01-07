@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 
-from src.types import KeycodesJson, QmkKeycodesSpec
+from src.types import KeycodesJson, QmkKeycodesSpec, print_json
 from src.util import get_logger
 
 logger = get_logger(__name__)
@@ -93,7 +93,7 @@ def read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
         os.chdir(original_cwd)
 
 
-def generate_keycodes_file(qmk_dir: Path, keycodes_json: Path) -> None:
+def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
     spec = read_latest_qmk_spec(qmk_dir)
 
     code_to_name: dict[int, str] = {}
@@ -137,13 +137,8 @@ def generate_keycodes_file(qmk_dir: Path, keycodes_json: Path) -> None:
         output_dict[f"0x{code:04X}"] = code_to_name[code]
 
     keycodes_model = KeycodesJson.model_validate(output_dict)
-    try:
-        keycodes_json.write_text(keycodes_model.model_dump_json(indent=4) + "\n")
-        logger.info(
-            f"Successfully generated {keycodes_json} with {len(sorted_codes)} keycodes."
-        )
-    except OSError as exc:
-        raise OSError(f"Failed to write {keycodes_json}") from exc
+    logger.info("Generated %d keycodes.", len(sorted_codes))
+    return keycodes_model
 
 
 @app.command()
@@ -152,18 +147,14 @@ def main(
         Path,
         typer.Option(help="Path to qmk_firmware directory"),
     ],
-    keycodes_json: Annotated[
-        Path,
-        typer.Option(help="Path to output JSON file"),
-    ],
 ) -> None:
     """
-    Generate keycodes.json from QMK Firmware
+    Generate keycodes JSON from QMK Firmware and emit it to stdout.
     """
     try:
-        generate_keycodes_file(qmk_dir, keycodes_json)
+        print_json(generate_keycodes(qmk_dir))
     except Exception:
-        logger.exception("Failed to generate keycodes JSON: %s", keycodes_json)
+        logger.exception("Failed to generate keycodes JSON")
         raise typer.Exit(code=1) from None
 
 

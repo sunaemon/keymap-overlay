@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
-import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from pydantic import TypeAdapter
 
-from src.types import QmkKeyboardJson, VialJson, VialLayouts, VialMatrix
+from src.types import (
+    KeyboardJson,
+    VialJson,
+    VialLayouts,
+    VialMatrix,
+    parse_json,
+    print_json,
+)
 from src.util import get_logger
 
 logger = get_logger(__name__)
@@ -17,50 +22,38 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-@app.command()
-def main(
-    keyboard_json: Annotated[Path, typer.Option(help="Path to input keyboard.json")],
-    vial_json: Annotated[Path, typer.Option(help="Path to output vial.json")],
-) -> None:
-    """
-    Convert QMK info.json (keyboard.json) to Vial JSON
-    """
-    try:
-        raw_data = json.loads(keyboard_json.read_text())
-        qmk_data = TypeAdapter(QmkKeyboardJson).validate_python(raw_data)
-    except Exception:
-        logger.exception("Failed to read %s", keyboard_json)
-        raise typer.Exit(code=1) from None
+def generate_vial(keyboard_json: Path) -> VialJson:
+    keyboard_data = parse_json(KeyboardJson, keyboard_json)
 
     # 1. Extract Metadata
     vendor_id = "0x0000"
     product_id = "0x0000"
 
-    if qmk_data.usb:
-        vendor_id = qmk_data.usb.vid
-        product_id = qmk_data.usb.pid
+    if keyboard_data.usb:
+        vendor_id = keyboard_data.usb.vid
+        product_id = keyboard_data.usb.pid
 
     # 2. Extract Matrix Info
     rows_count = 0
     cols_count = 0
 
-    if qmk_data.matrix_pins:
-        if qmk_data.matrix_pins.rows:
-            rows_count = len(qmk_data.matrix_pins.rows)
-        if qmk_data.matrix_pins.cols:
-            cols_count = len(qmk_data.matrix_pins.cols)
+    if keyboard_data.matrix_pins:
+        if keyboard_data.matrix_pins.rows:
+            rows_count = len(keyboard_data.matrix_pins.rows)
+        if keyboard_data.matrix_pins.cols:
+            cols_count = len(keyboard_data.matrix_pins.cols)
 
     # 3. Process Layout
     layout_name = "LAYOUT"
-    if layout_name not in qmk_data.layouts:
+    if layout_name not in keyboard_data.layouts:
         # Fallback to first layout
-        if qmk_data.layouts:
-            layout_name = next(iter(qmk_data.layouts))
+        if keyboard_data.layouts:
+            layout_name = next(iter(keyboard_data.layouts))
         else:
             logger.critical("No layouts found in %s", keyboard_json)
             raise typer.Exit(code=1)
 
-    layout_data = qmk_data.layouts[layout_name].layout
+    layout_data = keyboard_data.layouts[layout_name].layout
 
     # Determine max rows/cols from layout data if not set
     max_row = 0
@@ -133,21 +126,28 @@ def main(
 
         kle_rows.append(kle_row)
 
-    vial_data = VialJson(
-        name=qmk_data.keyboard_name,
+    return VialJson(
+        name=keyboard_data.keyboard_name,
         vendorId=vendor_id,
         productId=product_id,
         matrix=matrix,
         layouts=VialLayouts(keymap=kle_rows),
     )
 
-    # 5. Write Output
+
+@app.command()
+def main(
+    keyboard_json: Annotated[Path, typer.Option(help="Path to input keyboard.json")],
+) -> None:
+    """
+    Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout.
+    """
     try:
-        vial_json.parent.mkdir(parents=True, exist_ok=True)
-        vial_json.write_text(vial_data.model_dump_json(indent=2) + "\n")
-        logger.info(f"Generated {vial_json} from {keyboard_json}")
-    except OSError:
-        logger.exception("Failed to write %s", vial_json)
+        vial_data = generate_vial(keyboard_json)
+        print_json(vial_data)
+        logger.info("Generated Vial JSON from %s", keyboard_json)
+    except Exception:
+        logger.exception("Failed to generate Vial JSON from %s", keyboard_json)
         raise typer.Exit(code=1) from None
 
 

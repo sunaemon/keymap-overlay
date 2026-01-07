@@ -3,11 +3,12 @@
 # SPDX-License-Identifier: MIT
 import re
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
-from src.types import CustomKeycodesJson, KeycodesJson
-from src.util import get_logger
+from src.types import CustomKeycodesJson, KeycodesJson, parse_json, print_json
+from src.util import get_logger, strip_c_comments
 
 logger = get_logger(__name__)
 
@@ -31,9 +32,7 @@ def parse_keymap_c(keymap_path: Path, safe_range_start: int) -> CustomKeycodesJs
     current_code: int = safe_range_start
     keycodes: dict[str, str] = {}
 
-    # Remove comments
-    enum_block = re.sub(r"//.*", "", enum_block)
-    enum_block = re.sub(r"/\*.*?\*/", "", enum_block, flags=re.DOTALL)
+    enum_block = strip_c_comments(enum_block)
 
     entries: list[str] = [e.strip() for e in enum_block.split(",") if e.strip()]
 
@@ -54,40 +53,34 @@ def parse_keymap_c(keymap_path: Path, safe_range_start: int) -> CustomKeycodesJs
 
 
 def get_safe_range_start(keycodes_json: Path) -> int:
-    try:
-        data = KeycodesJson.model_validate_json(keycodes_json.read_text())
-    except Exception as e:
-        raise OSError(f"Failed to load keycodes from {keycodes_json}: {e}") from e
+    keycodes_data = parse_json(KeycodesJson, keycodes_json)
 
-    for code, name in data.root.items():
+    for code, name in keycodes_data.root.items():
         if name == "SAFE_RANGE":
             return int(code, 16)
     raise ValueError(f"SAFE_RANGE not found in {keycodes_json}")
 
 
+def generate_custom_keycodes(keymap_c: Path, keycodes_json: Path) -> CustomKeycodesJson:
+    safe_range_start = get_safe_range_start(keycodes_json)
+    return parse_keymap_c(keymap_c, safe_range_start)
+
+
 @app.command()
 def main(
-    keymap_c: Path = typer.Argument(..., help="Path to keymap.c"),
-    custom_keycodes_json: Path = typer.Argument(
-        ..., help="Path to output custom_keycodes.json"
-    ),
-    keycodes_json: Path = typer.Option(
-        ..., "--keycodes-json", help="Path to keycodes.json to read SAFE_RANGE"
-    ),
+    keymap_c: Annotated[Path, typer.Argument(help="Path to keymap.c")],
+    keycodes_json: Annotated[
+        Path,
+        typer.Option(help="Path to keycodes.json to read SAFE_RANGE"),
+    ],
 ) -> None:
     """
-    Sync custom keycodes from keymap.c to custom_keycodes.json
+    Sync custom keycodes from keymap.c and emit JSON to stdout.
     """
     try:
-        safe_range_start = get_safe_range_start(keycodes_json)
-
-        custom_keycodes = parse_keymap_c(keymap_c, safe_range_start)
-        custom_keycodes_json.write_text(
-            custom_keycodes.model_dump_json(indent=4) + "\n"
-        )
-        logger.info(
-            f"Successfully generated {custom_keycodes_json} with {len(custom_keycodes.root)} keycodes."
-        )
+        custom_keycodes = generate_custom_keycodes(keymap_c, keycodes_json)
+        print_json(custom_keycodes)
+        logger.info("Generated %d custom keycodes.", len(custom_keycodes.root))
     except Exception:
         logger.exception("Failed to sync custom keycodes from %s", keymap_c)
         raise typer.Exit(code=1) from None

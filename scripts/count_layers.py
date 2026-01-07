@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from src.types import QmkKeymapJson
+from src.types import QmkKeymapJson, parse_json
 from src.util import get_logger
 
 logger = get_logger(__name__)
@@ -15,12 +15,9 @@ app = typer.Typer()
 
 
 def count_layers(qmk_keymap_json: Path) -> int:
-    try:
-        keymap = QmkKeymapJson.model_validate_json(qmk_keymap_json.read_text())
-    except Exception as e:
-        raise RuntimeError(f"Failed to parse QMK keymap JSON: {e}") from e
+    keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
 
-    layers = keymap.layers
+    layers = keymap_data.layers
     if not layers:
         return 0
 

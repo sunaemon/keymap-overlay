@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.vitaly_to_qmk import (
+from scripts.generate_qmk_keymap_from_vitaly import (
     flatten_layer,
     load_layout_map,
     parse_layers,

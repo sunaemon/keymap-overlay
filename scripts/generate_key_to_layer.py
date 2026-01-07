@@ -7,18 +7,12 @@ from typing import Annotated
 
 import typer
 
-from src.types import KeyToLayerJson
-from src.util import get_logger
+from src.types import KeyToLayerJson, print_json
+from src.util import get_logger, strip_c_comments
 
 logger = get_logger(__name__)
 
 app = typer.Typer()
-
-
-def strip_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    text = re.sub(r"//[^\n]*", "", text)
-    return text
 
 
 def parse_notifier_keys(content: str) -> list[str]:
@@ -30,7 +24,7 @@ def parse_notifier_keys(content: str) -> list[str]:
     if not match:
         raise ValueError("notifier_key_to_layer array not found")
 
-    raw_entries = strip_comments(match.group(1))
+    raw_entries = strip_c_comments(match.group(1))
     notifier_keys = [entry.strip() for entry in raw_entries.split(",") if entry.strip()]
     if not notifier_keys:
         raise ValueError("notifier_key_to_layer array is empty")
@@ -53,31 +47,26 @@ def build_mapping(notifier_keys: list[str]) -> KeyToLayerJson:
     return KeyToLayerJson.model_validate(mapping)
 
 
-def process(keymap_c: Path, key_to_layer_json: Path) -> None:
+def process(keymap_c: Path) -> KeyToLayerJson:
     content = keymap_c.read_text()
-    try:
-        notifier_keys = parse_notifier_keys(content)
-        key_to_layer_content = build_mapping(notifier_keys)
-    except ValueError as exc:
-        raise ValueError(f"Failed to parse {keymap_c}") from exc
+    notifier_keys = parse_notifier_keys(content)
+    key_to_layer_content = build_mapping(notifier_keys)
 
-    key_to_layer_json.write_text(key_to_layer_content.model_dump_json(indent=4) + "\n")
+    return key_to_layer_content
 
 
 @app.command()
 def main(
     keymap_c: Annotated[Path, typer.Option(help="Path to keymap.c")],
-    key_to_layer_json: Annotated[
-        Path, typer.Option(help="Path to output key-to-layer.json")
-    ],
 ) -> None:
     """
-    Generate key-to-layer.json from keymap.c
+    Generate key-to-layer JSON from keymap.c and emit it to stdout.
     """
 
     try:
-        process(keymap_c, key_to_layer_json)
-        logger.info(f"Successfully generated {key_to_layer_json}")
+        key_to_layer = process(keymap_c)
+        print_json(key_to_layer)
+        logger.info("Generated key-to-layer mapping.")
     except Exception:
         logger.exception("Failed to generate key-to-layer mapping from %s", keymap_c)
         raise typer.Exit(code=1) from None

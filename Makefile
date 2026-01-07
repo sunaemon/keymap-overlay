@@ -27,7 +27,7 @@ QMK_KEYMAP := layer-notify
 
 # [QMK Keyboard JSON]
 # QMK keyboard definition (matrix/layouts/metadata).
-# Type: src/types.py:QmkKeyboardJson
+# Type: src/types.py:KeyboardJson
 KEYBOARD_JSON := $(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json
 QMK_KEYMAP_C := keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/keymap.c
 
@@ -43,8 +43,8 @@ BUILD_DIR := build
 # [QMK Keymap JSON]
 # Contains the full keymap definition (layers, keycodes) in QMK format.
 # Type: src/types.py:QmkKeymapJson
-# Generated from: 'qmk c2json' (source) or 'vitaly_to_qmk.py' (VIAL).
-# Used by: 'keymap-drawer' (visuals), 'update_vitaly_layout.py' (flashing).
+# Generated from: 'qmk c2json' (source) or 'generate_qmk_keymap_from_vitaly.py' (VIAL).
+# Used by: 'keymap-drawer' (visuals), 'generate_vitaly_layout.py' (flashing).
 QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
 
 # [Keymap Drawer YAML]
@@ -58,20 +58,20 @@ KEYMAP_DRAWER_YAML := $(BUILD_DIR)/keymap-drawer.yaml
 # Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_keycodes.py' scanning QMK firmware.
-# Used by: 'postprocess_keymap.py', 'vitaly_to_qmk.py' for name resolution.
+# Used by: 'generate_qmk_keymap_postprocess.py', 'generate_qmk_keymap_from_vitaly.py' for name resolution.
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
 # [Custom Keycodes JSON]
 # Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from keymap.c.
 # Type: src/types.py:CustomKeycodesJson
-# Generated from: 'sync_keycodes.py' parsing 'keymap.c'.
-# Used by: 'postprocess_keymap.py', 'update_vitaly_layout.py' to preserve custom codes.
+# Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c'.
+# Used by: 'generate_qmk_keymap_postprocess.py', 'generate_vitaly_layout.py' to preserve custom codes.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 
 # [Vial JSON]
 # VIAL-compatible keyboard definition (matrix, layout, VID/PID).
 # Type: src/types.py:VialJson
-# Generated from: 'qmk_info_to_vial.py' using keyboard.json.
+# Generated from: 'generate_vial.py' using keyboard.json.
 # Used by: 'qmk compile' (embedded in firmware) for VIAL support.
 VIAL_JSON := $(BUILD_DIR)/vial.json
 
@@ -79,7 +79,7 @@ VIAL_JSON := $(BUILD_DIR)/vial.json
 # Temporary dump of the keyboard's current VIAL configuration.
 # Type: src/types.py:VitalyJson
 # Generated from: 'vitaly save' (downloaded from device).
-# Used by: 'vitaly_to_qmk.py' (source for rebuild), 'update_vitaly_layout.py' (base for merge).
+# Used by: 'generate_qmk_keymap_from_vitaly.py' (source for rebuild), 'generate_vitaly_layout.py' (base for merge).
 VITALY_JSON := $(BUILD_DIR)/vitaly.json
 
 # [Key to Layer JSON]
@@ -147,7 +147,8 @@ _copy_firmware:
 	mkdir -p "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)"
 	install -C keyboards/$(QMK_KEYBOARD)/config.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h"
 	install -C keyboards/$(QMK_KEYBOARD)/keyboard.json "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json"
-	$(UV) run scripts/qmk_info_to_vial.py --keyboard-json keyboards/$(QMK_KEYBOARD)/keyboard.json --vial-json $(VIAL_JSON)
+	$(UV) run scripts/generate_vial.py --keyboard-json keyboards/$(QMK_KEYBOARD)/keyboard.json > "$(VIAL_JSON).tmp" || (rm -f "$(VIAL_JSON).tmp" && exit 1)
+	mv "$(VIAL_JSON).tmp" "$(VIAL_JSON)"
 	install -C $(VIAL_JSON) "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/vial.json"
 	install -C keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/* "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/"
 
@@ -156,7 +157,7 @@ compile: _copy_firmware
 	qmk compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
 
 .PHONY: flash
-flash: _copy_firmware
+flash: compile
 	qmk flash -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
 
 .PHONY: flash-keymap
@@ -165,12 +166,13 @@ flash-keymap: $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 	$(VITALY) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
 	@echo "Merging QMK keymap into Vitaly configuration..."
-	$(UV) run scripts/update_vitaly_layout.py \
+	$(UV) run scripts/generate_vitaly_layout.py \
 		--qmk-keymap-json "$(QMK_KEYMAP_JSON)" \
 		--vitaly-json "$(VITALY_JSON)" \
 		--keyboard-json "keyboards/$(QMK_KEYBOARD)/keyboard.json" \
 		--custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" \
-		--output "$(BUILD_DIR)/vitaly_ready.json"
+		> "$(BUILD_DIR)/vitaly_ready.json.tmp" || (rm -f "$(BUILD_DIR)/vitaly_ready.json.tmp" && exit 1)
+	mv "$(BUILD_DIR)/vitaly_ready.json.tmp" "$(BUILD_DIR)/vitaly_ready.json"
 	@echo "Loading new configuration to device..."
 	$(VITALY) load -f $(BUILD_DIR)/vitaly_ready.json
 
@@ -267,7 +269,7 @@ $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
 .PHONY: _force_build
 _force_build:
 
-QMK_KEYMAP_JSON_DEPS := scripts/postprocess_keymap.py $(KEYCODES_JSON) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C)
+QMK_KEYMAP_JSON_DEPS := scripts/generate_qmk_keymap_postprocess.py $(KEYCODES_JSON) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C)
 ifeq ($(VIAL),true)
 QMK_KEYMAP_JSON_DEPS += _force_build
 endif
@@ -277,18 +279,22 @@ ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
-	$(UV) run scripts/vitaly_to_qmk.py --vitaly-json $(VITALY_JSON) --keycodes-json "$(KEYCODES_JSON)" --keyboard-json "$(KEYBOARD_JSON)" > $@ || (rm -f $@ && exit 1)
+	$(UV) run scripts/generate_qmk_keymap_from_vitaly.py --vitaly-json $(VITALY_JSON) --keycodes-json "$(KEYCODES_JSON)" --keyboard-json "$(KEYBOARD_JSON)" > $@ || (rm -f $@ && exit 1)
 else
 	@echo "Compiling QMK JSON from source..."
 	$(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) > $@ || (rm -f $@ && exit 1)
 endif
-	$(UV) run scripts/postprocess_keymap.py $@ --custom-keycodes-json $(CUSTOM_KEYCODES_JSON) || (rm -f $@ && exit 1)
+	$(UV) run scripts/generate_qmk_keymap_postprocess.py $@ --custom-keycodes-json $(CUSTOM_KEYCODES_JSON) > "$@.tmp" || (rm -f "$@.tmp" "$@" && exit 1)
+	mv "$@.tmp" "$@"
 
 $(KEYCODES_JSON): scripts/generate_keycodes.py | $(BUILD_DIR)
-	$(UV) run scripts/generate_keycodes.py --qmk-dir "$(QMK_HOME)" --keycodes-json "$@"
+	$(UV) run scripts/generate_keycodes.py --qmk-dir "$(QMK_HOME)" > "$@.tmp" || (rm -f "$@.tmp" && exit 1)
+	mv "$@.tmp" "$@"
 
-$(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) scripts/sync_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
-	$(UV) run scripts/sync_keycodes.py "$(QMK_KEYMAP_C)" "$@" --keycodes-json "$(KEYCODES_JSON)"
+$(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) scripts/generate_custom_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
+	$(UV) run scripts/generate_custom_keycodes.py "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)" > "$@.tmp" || (rm -f "$@.tmp" && exit 1)
+	mv "$@.tmp" "$@"
 
 $(KEY_TO_LAYER_JSON): $(QMK_KEYMAP_C) scripts/generate_key_to_layer.py | $(BUILD_DIR)
-	$(UV) run scripts/generate_key_to_layer.py --keymap-c "$(QMK_KEYMAP_C)" --key-to-layer-json "$@"
+	$(UV) run scripts/generate_key_to_layer.py --keymap-c "$(QMK_KEYMAP_C)" > "$@.tmp" || (rm -f "$@.tmp" && exit 1)
+	mv "$@.tmp" "$@"

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
-import json
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from pydantic import TypeAdapter
 
-from src.types import CustomKeycodesJson, QmkKeymapJson
+from src.types import CustomKeycodesJson, QmkKeymapJson, parse_json, print_json
 from src.util import get_logger
 
 logger = get_logger(__name__)
@@ -39,9 +37,8 @@ def apply_custom_keycodes(
     keymap: QmkKeymapJson, custom_keycodes_path: Path
 ) -> QmkKeymapJson:
     try:
-        raw_data = json.loads(custom_keycodes_path.read_text())
-        custom_keycodes = CustomKeycodesJson.model_validate(raw_data)
-        custom_map = custom_keycodes.root
+        custom_keycodes_data = parse_json(CustomKeycodesJson, custom_keycodes_path)
+        custom_map = custom_keycodes_data.root
     except Exception as e:
         logger.warning(
             "Could not load custom keycodes from %s: %s", custom_keycodes_path, e
@@ -83,28 +80,27 @@ def apply_custom_keycodes(
     return keymap
 
 
+def process_keymap(qmk_keymap_json: Path, custom_keycodes_json: Path) -> QmkKeymapJson:
+    keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
+    keymap_data = apply_custom_keycodes(keymap_data, custom_keycodes_json)
+    return resolve_transparency(keymap_data)
+
+
 @app.command()
 def main(
     qmk_keymap_json: Annotated[
         Path, typer.Argument(help="Path to the QMK keymap JSON file")
     ],
     custom_keycodes_json: Annotated[
-        Path | None, typer.Option(help="Path to custom_keycodes.json")
-    ] = None,
+        Path, typer.Option(help="Path to custom_keycodes.json")
+    ],
 ) -> None:
     """
-    Process QMK keymap JSON: resolve transparency and apply custom keycodes.
+    Process QMK keymap JSON and emit the result to stdout.
     """
     try:
-        raw_data = json.loads(qmk_keymap_json.read_text())
-        keymap = TypeAdapter(QmkKeymapJson).validate_python(raw_data)
-
-        if custom_keycodes_json:
-            keymap = apply_custom_keycodes(keymap, custom_keycodes_json)
-
-        resolved_keymap = resolve_transparency(keymap)
-
-        qmk_keymap_json.write_text(resolved_keymap.model_dump_json(indent=4) + "\n")
+        resolved_keymap = process_keymap(qmk_keymap_json, custom_keycodes_json)
+        print_json(resolved_keymap)
 
     except FileNotFoundError:
         logger.exception("File not found: %s", qmk_keymap_json)

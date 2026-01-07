@@ -1,5 +1,8 @@
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+from pathlib import Path
+from typing import Type, TypeVar
+
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
@@ -54,7 +57,7 @@ class SplitConfig(BaseModelAllow):
     matrix_pins: dict[str, MatrixPins] | None = None
 
 
-class QmkKeyboardJson(BaseModelAllow):
+class KeyboardJson(BaseModelAllow):
     keyboard_name: str
     layouts: dict[str, Layout]
     manufacturer: str | None = None
@@ -101,9 +104,32 @@ class VialJson(BaseModelAllow):
 
 
 class VitalyJson(BaseModelAllow):
-    layers: list[list[list[str | int]]] | None = None
+    # dimensions: layer -> row -> col
     layout: list[list[list[str | int]]] | None = None
 
 
 class KeyToLayerJson(RootModel[dict[str, str]]):
     pass
+
+
+T = TypeVar("T", bound=BaseModel)
+
+
+def parse_json(model: Type[T], path: Path) -> T:
+    try:
+        return model.model_validate_json(path.read_text())
+    except OSError as e:
+        raise RuntimeError(f"Failed to read JSON from {path}") from e
+    except Exception as e:
+        raise RuntimeError(f"Failed to parse JSON from {path}") from e
+
+
+def write_json(model: BaseModel, path: Path) -> None:
+    try:
+        path.write_text(model.model_dump_json(indent=2) + "\n")
+    except OSError as e:
+        raise RuntimeError(f"Failed to write JSON to {path}") from e
+
+
+def print_json(model: BaseModel) -> None:
+    print(model.model_dump_json(indent=4) + "\n")
