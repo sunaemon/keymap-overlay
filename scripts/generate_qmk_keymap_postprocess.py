@@ -102,9 +102,6 @@ def main(
         resolved_keymap = process_keymap(qmk_keymap_json, custom_keycodes_json)
         print_json(resolved_keymap)
 
-    except FileNotFoundError:
-        logger.exception("File not found: %s", qmk_keymap_json)
-        raise typer.Exit(code=1) from None
     except Exception:
         logger.exception("Failed to process %s", qmk_keymap_json)
         raise typer.Exit(code=1) from None

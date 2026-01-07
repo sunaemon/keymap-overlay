@@ -1,7 +1,7 @@
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
 from pathlib import Path
-from typing import Type, TypeVar
+from typing import Annotated, Type, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -16,13 +16,13 @@ class QmkKeycodeSpecEntry(BaseModelAllow):
 
 
 class QmkKeycodesSpec(BaseModelAllow):
-    keycodes: dict[str, QmkKeycodeSpecEntry] = Field(default_factory=dict)
+    keycodes: Annotated[dict[str, QmkKeycodeSpecEntry], Field(default_factory=dict)]
 
 
 class LayoutKey(BaseModelAllow):
     x: float
     y: float
-    matrix: tuple[int, int] | None = None
+    matrix: Annotated[tuple[int, int], Field(description="Row, Column")]
     w: float = 1.0
     h: float = 1.0
     label: str | None = None
@@ -74,7 +74,8 @@ class KeyboardJson(BaseModelAllow):
 
 class QmkKeymapJson(BaseModelAllow):
     version: int | None = None
-    layers: list[list[str | int]] | None = None
+    # dimesion: layer -> flattened index
+    layers: list[list[str]] | None = None
     layout: str | None = None
 
 
@@ -105,7 +106,8 @@ class VialJson(BaseModelAllow):
 
 class VitalyJson(BaseModelAllow):
     # dimensions: layer -> row -> col
-    layout: list[list[list[str | int]]] | None = None
+    # cf. https://github.com/bskaplou/vitaly/blob/93f08de4b6022007f4e3e655b6d76682e275f4cc/src/protocol.rs#L454
+    layout: list[list[list[str]]]
 
 
 class KeyToLayerJson(RootModel[dict[str, str]]):
@@ -126,7 +128,7 @@ def parse_json(model: Type[T], path: Path) -> T:
 
 def write_json(model: BaseModel, path: Path) -> None:
     try:
-        path.write_text(model.model_dump_json(indent=2) + "\n")
+        path.write_text(model.model_dump_json(indent=4) + "\n")
     except OSError as e:
         raise RuntimeError(f"Failed to write JSON to {path}") from e
 
