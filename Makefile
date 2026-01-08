@@ -7,13 +7,13 @@ SHELL := /bin/bash
 VIAL ?= false
 
 # ================= TOOLS CONFIGURATION =================
-RSVG ?= resvg
+RSVG ?= $(MISE) exec -- resvg
 MISE ?= mise
 VITALY_VERSION := $(shell awk -F' *= *' '/^VITALY_VERSION *=/ {gsub(/"/,"",$$2); print $$2}' mise.toml)
 ifeq ($(strip $(VITALY_VERSION)),)
 $(error VITALY_VERSION is missing from mise.toml)
 endif
-QMK ?= $(MISE) exec pipx:qmk -- qmk
+QMK ?= $(MISE) exec -- qmk
 KEYMAP ?= $(MISE) exec -- keymap
 UV ?= $(MISE) exec -- uv
 VITALY ?= $(MISE) exec cargo:vitaly@$(VITALY_VERSION) -- vitaly

@@ -6,7 +6,6 @@ pipx = "1.8.0"
 "pipx:keymap-drawer" = "0.22.1"
 "cargo:resvg" = "0.45.1"
 
-
 # Keep format/lint tool versions here so they stay pinned without being installed by default.
 [env]
 NODE_VERSION = "24.12.0"
