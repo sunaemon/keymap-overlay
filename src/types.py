@@ -157,9 +157,12 @@ def parse_json(model: Type[T], path: Path) -> T:
 
 
 def write_json(model: BaseModel, path: Path) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
     try:
-        path.write_text(model.model_dump_json(indent=4) + "\n")
+        tmp_path.write_text(model.model_dump_json(indent=4) + "\n")
+        tmp_path.replace(path)
     except OSError as e:
+        tmp_path.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to write JSON to {path}") from e
 
 

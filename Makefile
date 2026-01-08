@@ -281,12 +281,13 @@ ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
-	$(UV) run scripts/generate_qmk_keymap_from_vitaly.py --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)" > $@ || (rm -f $@ && exit 1)
+	$(UV) run scripts/generate_qmk_keymap_from_vitaly.py --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)" > "$@.raw.tmp" || (rm -f "$@.raw.tmp" && exit 1)
 else
 	@echo "Compiling QMK JSON from source..."
-	$(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) > $@ || (rm -f $@ && exit 1)
+	$(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) > "$@.raw.tmp" || (rm -f "$@.raw.tmp" && exit 1)
 endif
-	$(UV) run scripts/generate_qmk_keymap_postprocess.py $@ --custom-keycodes-json $(CUSTOM_KEYCODES_JSON) > "$@.tmp" || (rm -f "$@.tmp" "$@" && exit 1)
+	$(UV) run scripts/generate_qmk_keymap_postprocess.py "$@.raw.tmp" --custom-keycodes-json $(CUSTOM_KEYCODES_JSON) > "$@.tmp" || (rm -f "$@.tmp" "$@.raw.tmp" && exit 1)
+	rm -f "$@.raw.tmp"
 	mv "$@.tmp" "$@"
 
 $(KEYCODES_JSON): scripts/generate_keycodes.py | $(BUILD_DIR)
