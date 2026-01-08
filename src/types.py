@@ -48,13 +48,13 @@ class USBConfig(BaseModelAllow):
 
 
 class MatrixPins(BaseModelAllow):
-    cols: list[str | None] | None = None
-    rows: list[str | None] | None = None
+    cols: list[str | None]
+    rows: list[str | None]
 
 
 class SplitConfig(BaseModelAllow):
     enabled: bool = False
-    matrix_pins: dict[str, MatrixPins] | None = None
+    matrix_pins: dict[str, MatrixPins]
 
 
 class KeyboardJson(BaseModelAllow):
@@ -67,8 +67,8 @@ class KeyboardJson(BaseModelAllow):
     bootloader: str | None = None
     diode_direction: str | None = None
     features: Features | None = None
-    usb: USBConfig | None = None
-    matrix_pins: MatrixPins | None = None
+    usb: USBConfig
+    matrix_pins: MatrixPins
     split: SplitConfig | None = None
 
 

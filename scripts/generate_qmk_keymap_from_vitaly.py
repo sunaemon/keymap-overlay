@@ -56,6 +56,8 @@ def flatten_layer(
     layer_data: list[list[str]],
     layout_map: dict[tuple[int, int], int],
 ) -> list[str]:
+    if not layout_map:
+        raise ValueError("Layout map is empty")
     max_flattened_idx = max(layout_map.values())
     flattened_layer = ["KC_NO" for _ in range(max_flattened_idx + 1)]
     for r, row in enumerate(layer_data):

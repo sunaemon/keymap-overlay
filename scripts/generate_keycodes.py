@@ -75,6 +75,7 @@ def read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
         raise FileNotFoundError(f"QMK lib path not found at {qmk_lib_path}")
 
     sys.path.insert(0, str(qmk_lib_path))
+    sys.modules["milc"] = types.ModuleType("milc")  # Dummy module for milc dependency
     sys.modules["milc.cli"] = types.ModuleType(
         "milc.cli"
     )  # Dummy module for milc dependency

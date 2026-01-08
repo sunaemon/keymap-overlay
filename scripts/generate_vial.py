@@ -25,56 +25,49 @@ app = typer.Typer()
 def generate_vial(keyboard_json: Path) -> VialJson:
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
 
-    # 1. Extract Metadata
-    vendor_id = "0x0000"
-    product_id = "0x0000"
+    if not keyboard_data.usb:
+        raise ValueError("No USB info found in keyboard.json")
+    vendor_id = keyboard_data.usb.vid
+    product_id = keyboard_data.usb.pid
 
-    if keyboard_data.usb:
-        vendor_id = keyboard_data.usb.vid
-        product_id = keyboard_data.usb.pid
-
-    # 2. Extract Matrix Info
     rows_count = 0
     cols_count = 0
 
-    if keyboard_data.matrix_pins:
-        if keyboard_data.matrix_pins.rows:
-            rows_count = len(keyboard_data.matrix_pins.rows)
-        if keyboard_data.matrix_pins.cols:
-            cols_count = len(keyboard_data.matrix_pins.cols)
+    if not keyboard_data.matrix_pins:
+        raise ValueError("No matrix pins info found in keyboard.json")
 
-    # 3. Process Layout
+    rows_count = len(keyboard_data.matrix_pins.rows)
+    cols_count = len(keyboard_data.matrix_pins.cols)
+
+    if keyboard_data.split and keyboard_data.split.enabled:
+        if len(keyboard_data.split.matrix_pins) != 1:
+            raise ValueError("multiple split sides not supported yet")
+        split_side, matrix_pins = next(iter(keyboard_data.split.matrix_pins.items()))
+        if split_side != "left" and split_side != "right":
+            raise ValueError(
+                "only left and right side split configurations are supported yet"
+            )
+        rows_count += len(matrix_pins.rows)
+
     layout_name = "LAYOUT"
     if layout_name not in keyboard_data.layouts:
-        # Fallback to first layout
-        if keyboard_data.layouts:
-            layout_name = next(iter(keyboard_data.layouts))
-        else:
-            logger.critical("No layouts found in %s", keyboard_json)
-            raise typer.Exit(code=1)
+        raise ValueError(f"Layout {layout_name} not found in keyboard.json")
 
     layout_data = keyboard_data.layouts[layout_name].layout
 
-    # Determine max rows/cols from layout data if not set
-    max_row = 0
-    max_col = 0
     for key in layout_data:
         if key.matrix:
             r, c = key.matrix
-            if r > max_row:
-                max_row = r
-            if c > max_col:
-                max_col = c
+            if r > rows_count:
+                raise ValueError("Matrix rows count is inconsistent with layout data")
+            if c > cols_count:
+                raise ValueError(
+                    "Matrix columns count is inconsistent with layout data"
+                )
 
-    if rows_count == 0:
-        rows_count = max_row + 1
-    if cols_count == 0:
-        cols_count = max_col + 1
-
-    # Update matrix info in vial_data
     matrix = VialMatrix(
-        rows=max(rows_count, max_row + 1),
-        cols=max(cols_count, max_col + 1),
+        rows=rows_count,
+        cols=cols_count,
     )
 
     # 4. Convert to KLE Format
