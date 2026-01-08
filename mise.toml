@@ -24,12 +24,7 @@ run = """
 mise exec node@${NODE_VERSION} stylua@${STYLUA_VERSION} taplo@${TAPLO_VERSION} npm:prettier@${PRETTIER_VERSION} pipx:mbake@${MBAKE_VERSION} pipx:ruff@${RUFF_VERSION} pipx:clang-format@${CLANG_FORMAT_VERSION} -- bash <<'EOF'
   set -e
   uv sync
-  SUBMODULES=("qmk_firmware")
-  EXCLUDE_ARGS=()
-  for submodule in "${SUBMODULES[@]}"; do
-    EXCLUDE_ARGS+=("--exclude" "$submodule")
-  done
-  ruff format "${EXCLUDE_ARGS[@]}" .
+  ruff format .
   git ls-files Makefile "*.mk" | xargs mbake format --config .mbake.toml
   git ls-files "*.md" "*.yaml" "*.json" | grep -v '.gemini/.*' | xargs prettier --write
   git ls-files "*.toml" | xargs taplo fmt
@@ -44,12 +39,7 @@ run = """
 mise exec pipx:ruff@${RUFF_VERSION} pipx:ty@${TY_VERSION} -- bash <<'EOF'
   set -e
   uv sync
-  SUBMODULES=("qmk_firmware")
-  EXCLUDE_ARGS=()
-  for submodule in "${SUBMODULES[@]}"; do
-    EXCLUDE_ARGS+=("--exclude" "$submodule")
-  done
-  ruff check --fix "${EXCLUDE_ARGS[@]}" .
-  ty check --extra-search-path typings "${EXCLUDE_ARGS[@]}" src scripts tests
+  ruff check --fix .
+  ty check --extra-search-path typings .
 EOF
 """
