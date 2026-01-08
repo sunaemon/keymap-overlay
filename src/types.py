@@ -132,6 +132,12 @@ class KeyboardJson(BaseModelAllow):
             raise ValueError("Layout mapping is empty")
         rows, cols = self.matrix_dimensions()
         for r, c in mapping:
+            if r < 0 or c < 0:
+                if layout_name:
+                    raise ValueError(
+                        f"Layout {layout_name} mapping contains negative indices"
+                    )
+                raise ValueError("Layout mapping contains negative indices")
             if r >= rows or c >= cols:
                 if layout_name:
                     raise ValueError(
