@@ -92,8 +92,19 @@ class VialMatrix(BaseModelAllow):
     cols: int
 
 
+class KleKeyProps(BaseModelAllow):
+    x: float | None = None
+    w: float | None = None
+    h: float | None = None
+
+
+type KleKey = str | KleKeyProps
+type KleRow = list[KleKey]
+type KleLayout = list[KleRow]
+
+
 class VialLayouts(BaseModelAllow):
-    keymap: list[list[str | dict[str, float]]]
+    keymap: KleLayout
 
 
 class VialJson(BaseModelAllow):
@@ -133,5 +144,5 @@ def write_json(model: BaseModel, path: Path) -> None:
         raise RuntimeError(f"Failed to write JSON to {path}") from e
 
 
-def print_json(model: BaseModel) -> None:
-    print(model.model_dump_json(indent=4) + "\n")
+def print_json(model: BaseModel, exclude_none: bool = False) -> None:
+    print(model.model_dump_json(indent=4, exclude_none=exclude_none) + "\n")
