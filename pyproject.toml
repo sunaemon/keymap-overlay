@@ -26,8 +26,11 @@ target-version = "py312"
 extend-exclude = ["qmk_firmware/*"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "ANN"]
+select = ["E", "F", "I", "ANN", "C90"]
 ignore = ["E501"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.lint.isort]
 known-first-party = ["scripts", "src"]

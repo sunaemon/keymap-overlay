@@ -21,6 +21,54 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
+def _get_layout_mapping(
+    keyboard_data: KeyboardJson,
+    layout_name: str,
+) -> list[tuple[int, int]]:
+    layout_keys = get_layout_keys(keyboard_data, layout_name)
+    return [key.matrix for key in layout_keys]
+
+
+def _matrix_dimensions(mapping: list[tuple[int, int]]) -> tuple[int, int]:
+    max_row = 0
+    max_col = 0
+    for r, c in mapping:
+        max_row = max(max_row, r)
+        max_col = max(max_col, c)
+    return max_row + 1, max_col + 1
+
+
+def _init_layer_grid(rows: int, cols: int) -> list[list[str]]:
+    return [["KC_NO" for _ in range(cols)] for _ in range(rows)]
+
+
+def _apply_custom_keycode(keycode: str, custom_map: dict[str, str]) -> str:
+    return custom_map.get(keycode, keycode)
+
+
+def _build_layer_grid(
+    flat_layer: list[str],
+    mapping: list[tuple[int, int]],
+    rows: int,
+    cols: int,
+    layer_idx: int,
+    custom_map: dict[str, str],
+) -> list[list[str]]:
+    layer_grid = _init_layer_grid(rows, cols)
+
+    for key_idx, keycode in enumerate(flat_layer):
+        if key_idx >= len(mapping):
+            logger.warning(
+                "Layer %d has more keys than the layout definition", layer_idx
+            )
+            continue
+
+        r, c = mapping[key_idx]
+        layer_grid[r][c] = _apply_custom_keycode(keycode, custom_map)
+
+    return layer_grid
+
+
 def generate_vitaly_layout(
     qmk_keymap_json: Path,
     vitaly_json: Path,
@@ -35,43 +83,15 @@ def generate_vitaly_layout(
 
     custom_map = {v: k for k, v in custom_keycodes_data.root.items()}
 
-    layout_keys = get_layout_keys(keyboard_data, layout_name)
-
-    mapping = [key.matrix for key in layout_keys]
-
-    max_row = 0
-    max_col = 0
-    for r, c in mapping:
-        max_row = max(max_row, r)
-        max_col = max(max_col, c)
-
-    rows = max_row + 1
-    cols = max_col + 1
+    mapping = _get_layout_mapping(keyboard_data, layout_name)
+    rows, cols = _matrix_dimensions(mapping)
 
     qmk_layers = qmk_keymap_data.layers or []
 
-    new_vitaly_layout = []
-
-    for layer_idx, flat_layer in enumerate(qmk_layers):
-        layer_grid: list[list[str]] = [
-            ["KC_NO" for _ in range(cols)] for _ in range(rows)
-        ]
-
-        for key_idx, keycode in enumerate(flat_layer):
-            if key_idx >= len(mapping):
-                logger.warning(
-                    "Layer %d has more keys than the layout definition", layer_idx
-                )
-                continue
-
-            r, c = mapping[key_idx]
-
-            if keycode in custom_map:
-                keycode = custom_map[keycode]
-
-            layer_grid[r][c] = keycode
-
-        new_vitaly_layout.append(layer_grid)
+    new_vitaly_layout = [
+        _build_layer_grid(flat_layer, mapping, rows, cols, layer_idx, custom_map)
+        for layer_idx, flat_layer in enumerate(qmk_layers)
+    ]
 
     vitaly_data.layout = new_vitaly_layout
     return vitaly_data

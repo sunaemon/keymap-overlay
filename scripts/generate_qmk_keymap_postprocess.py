@@ -33,49 +33,56 @@ def resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
     return keymap
 
 
-def apply_custom_keycodes(
-    keymap: QmkKeymapJson, custom_keycodes_path: Path
-) -> QmkKeymapJson:
+def _load_custom_keycodes(custom_keycodes_path: Path) -> dict[int, str] | None:
     try:
         custom_keycodes_data = parse_json(CustomKeycodesJson, custom_keycodes_path)
-        custom_map = custom_keycodes_data.root
     except Exception as e:
         logger.warning(
             "Could not load custom keycodes from %s: %s", custom_keycodes_path, e
         )
-        return keymap
+        return None
 
-    # Convert generated "0xABCD" keys to integer for easier matching
     int_map: dict[int, str] = {}
-    for k, v in custom_map.items():
+    for k, v in custom_keycodes_data.root.items():
         try:
-            code = int(k, 16)
-            int_map[code] = v
+            int_map[int(k, 16)] = v
         except ValueError:
             continue
+    return int_map
 
-    if not keymap.layers:
+
+def _parse_keycode_value(key: str | int) -> int | None:
+    if isinstance(key, int):
+        return key
+    if key.startswith(("0x", "0X")):
+        try:
+            return int(key, 16)
+        except ValueError:
+            return None
+    if key.isdigit():
+        try:
+            return int(key)
+        except ValueError:
+            return None
+    return None
+
+
+def _apply_custom_map_to_layer(layer: list[str], int_map: dict[int, str]) -> None:
+    for idx, key in enumerate(layer):
+        code_val = _parse_keycode_value(key)
+        if code_val is not None and code_val in int_map:
+            layer[idx] = int_map[code_val]
+
+
+def apply_custom_keycodes(
+    keymap: QmkKeymapJson, custom_keycodes_path: Path
+) -> QmkKeymapJson:
+    int_map = _load_custom_keycodes(custom_keycodes_path)
+    if not int_map or not keymap.layers:
         return keymap
 
     for layer in keymap.layers:
-        for idx, key in enumerate(layer):
-            code_val: int | None = None
-            if isinstance(key, int):
-                code_val = key
-            elif isinstance(key, str):
-                if key.startswith("0x") or key.startswith("0X"):
-                    try:
-                        code_val = int(key, 16)
-                    except ValueError:
-                        pass
-                elif key.isdigit():
-                    try:
-                        code_val = int(key)
-                    except ValueError:
-                        pass
-
-            if code_val is not None and code_val in int_map:
-                layer[idx] = int_map[code_val]
+        _apply_custom_map_to_layer(layer, int_map)
 
     return keymap
 

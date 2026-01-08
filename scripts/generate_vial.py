@@ -32,15 +32,8 @@ def round_unit(x: float) -> float:
     return round(x * (1 << PRECISION)) / (1 << PRECISION)
 
 
-def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
-    keyboard_data = parse_json(KeyboardJson, keyboard_json)
-
-    vendor_id = keyboard_data.usb.vid
-    product_id = keyboard_data.usb.pid
-
-    matrix_rows = len(keyboard_data.matrix_pins.rows)
-    matrix_cols = len(keyboard_data.matrix_pins.cols)
-
+def _get_matrix_rows(keyboard_data: KeyboardJson) -> int:
+    rows = len(keyboard_data.matrix_pins.rows)
     if keyboard_data.split and keyboard_data.split.enabled:
         if len(keyboard_data.split.matrix_pins) != 1:
             raise ValueError("multiple split sides not supported yet")
@@ -49,13 +42,24 @@ def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
             raise ValueError(
                 "only left and right side split configurations are supported yet"
             )
-        matrix_rows += len(matrix_pins.rows)
+        rows += len(matrix_pins.rows)
+    return rows
 
+
+def _get_layout_data(
+    keyboard_data: KeyboardJson,
+    layout_name: str,
+) -> list[LayoutKey]:
     if layout_name not in keyboard_data.layouts:
         raise ValueError(f"Layout {layout_name} not found in keyboard.json")
+    return keyboard_data.layouts[layout_name].layout
 
-    layout_data = keyboard_data.layouts[layout_name].layout
 
+def _validate_layout_matrix(
+    layout_data: list[LayoutKey],
+    matrix_rows: int,
+    matrix_cols: int,
+) -> None:
     for key in layout_data:
         r, c = key.matrix
         if r >= matrix_rows:
@@ -63,62 +67,76 @@ def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
         if c >= matrix_cols:
             raise ValueError("Matrix columns count is inconsistent with layout data")
 
-    matrix = VialMatrix(
-        rows=matrix_rows,
-        cols=matrix_cols,
-    )
 
+def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[int, list[LayoutKey]]:
     rows: dict[int, list[LayoutKey]] = {}
-
     for key in layout_data:
         row_index = int(key.y)
         if row_index != round_unit(key.y):
             raise ValueError("Non-integer key y position is not supported")
+        rows.setdefault(row_index, []).append(key)
+    return rows
 
-        if row_index not in rows:
-            rows[row_index] = []
-        rows[row_index].append(key)
 
-    sorted_y = sorted(rows.keys())
+def _build_kle_row(row_keys: list[LayoutKey]) -> KleRow:
+    row_keys = sorted(row_keys, key=lambda k: k.x)
+    kle_row: KleRow = []
+    current_x = 0.0
 
+    for key in row_keys:
+        key_x = round_unit(key.x)
+        key_w = round_unit(key.w)
+        key_h = round_unit(key.h)
+
+        props = KleKeyProps()
+
+        if key_x != current_x:
+            props.x = key_x - current_x
+
+        if key_w != 1:
+            props.w = key_w
+
+        if key_h != 1:
+            props.h = key_h
+
+        if props.has_values():
+            kle_row.append(props)
+
+        r, c = key.matrix
+        kle_row.append(f"{r},{c}")
+
+        current_x = key_x + key_w
+
+    return kle_row
+
+
+def _build_kle_rows(rows_by_y: dict[int, list[LayoutKey]]) -> KleLayout:
     kle_rows: KleLayout = []
+    for y in sorted(rows_by_y.keys()):
+        kle_rows.append(_build_kle_row(rows_by_y[y]))
+    return kle_rows
 
-    for y in sorted_y:
-        row_keys = sorted(rows[y], key=lambda k: k.x)
-        kle_row: KleRow = []
-        current_x = 0.0
 
-        for key in row_keys:
-            key_x = round_unit(key.x)
-            key_w = round_unit(key.w)
-            key_h = round_unit(key.h)
+def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
+    keyboard_data = parse_json(KeyboardJson, keyboard_json)
 
-            props = KleKeyProps()
+    vendor_id = keyboard_data.usb.vid
+    product_id = keyboard_data.usb.pid
 
-            if key_x != current_x:
-                props.x = key_x - current_x
+    matrix_rows = _get_matrix_rows(keyboard_data)
+    matrix_cols = len(keyboard_data.matrix_pins.cols)
 
-            if key_w != 1:
-                props.w = key_w
+    layout_data = _get_layout_data(keyboard_data, layout_name)
+    _validate_layout_matrix(layout_data, matrix_rows, matrix_cols)
 
-            if key_h != 1:
-                props.h = key_h
-
-            if props.has_values():
-                kle_row.append(props)
-
-            r, c = key.matrix
-            kle_row.append(f"{r},{c}")
-
-            current_x = key_x + key_w
-
-        kle_rows.append(kle_row)
+    rows_by_y = _group_layout_rows(layout_data)
+    kle_rows = _build_kle_rows(rows_by_y)
 
     return VialJson(
         name=keyboard_data.keyboard_name,
         vendorId=vendor_id,
         productId=product_id,
-        matrix=matrix,
+        matrix=VialMatrix(rows=matrix_rows, cols=matrix_cols),
         layouts=VialLayouts(keymap=kle_rows),
     )
 

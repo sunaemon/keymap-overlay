@@ -9,7 +9,7 @@ from typing import Annotated
 
 import typer
 
-from src.types import KeycodesJson, QmkKeycodesSpec, print_json
+from src.types import KeycodesJson, QmkKeycodeSpecEntry, QmkKeycodesSpec, print_json
 from src.util import get_logger
 
 logger = get_logger(__name__)
@@ -98,6 +98,34 @@ def read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
         os.chdir(original_cwd)
 
 
+def _name_rank(name: str) -> tuple[int, int]:
+    if name in PREFERRED_NAMES:
+        return (0, len(name))
+    if name in {"KC_TRNS", "KC_NO"}:
+        return (1, len(name))
+    return (2, len(name))
+
+
+def _choose_best_name(current: str | None, candidate: str) -> str:
+    if current is None:
+        return candidate
+    return min(current, candidate, key=_name_rank)
+
+
+def _parse_hex_code(hex_code: str) -> int | None:
+    try:
+        return int(hex_code, 16)
+    except ValueError:
+        return None
+
+
+def _get_names(info: QmkKeycodeSpecEntry) -> list[str]:
+    names: list[str | None] = [info.key]
+    if info.aliases:
+        names.extend(info.aliases)
+    return [name for name in names if name]
+
+
 def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
     spec = read_latest_qmk_spec(qmk_dir)
 
@@ -105,35 +133,19 @@ def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
 
     # New structure: "0x0004": { "key": "KC_A", "aliases": [...] }
     for hex_code, info in spec.keycodes.items():
-        try:
-            code = int(hex_code, 16)
-        except ValueError:
+        code = _parse_hex_code(hex_code)
+        if code is None:
             continue
 
-        names: list[str | None] = [info.key]
-        if info.aliases:
-            names.extend(info.aliases)
+        names = _get_names(info)
+        if not names:
+            continue
 
-        for name in names:
-            if not name:
-                continue
+        best = names[0]
+        for name in names[1:]:
+            best = _choose_best_name(best, name)
 
-            if code in code_to_name:
-                current_name = code_to_name[code]
-                if current_name in PREFERRED_NAMES:
-                    continue
-                if name in PREFERRED_NAMES:
-                    code_to_name[code] = name
-                    continue
-                if name == "KC_TRNS" or name == "KC_NO":
-                    code_to_name[code] = name
-                elif current_name == "KC_TRNS" or current_name == "KC_NO":
-                    pass
-                else:
-                    if len(name) < len(current_name):
-                        code_to_name[code] = name
-            else:
-                code_to_name[code] = name
+        code_to_name[code] = _choose_best_name(code_to_name.get(code), best)
 
     sorted_codes = sorted(code_to_name.keys())
 
