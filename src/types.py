@@ -1,9 +1,17 @@
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import re
 from pathlib import Path
 from typing import Annotated, Type, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    field_validator,
+    model_validator,
+)
 
 
 class BaseModelAllow(BaseModel):
@@ -71,20 +79,84 @@ class KeyboardJson(BaseModelAllow):
     matrix_pins: MatrixPins
     split: SplitConfig | None = None
 
+    def layout_keys(self, layout_name: str) -> list[LayoutKey]:
+        """Return layout keys for a named layout in keyboard.json."""
+        layouts = self.layouts
+        if layout_name not in layouts:
+            raise ValueError(f"Layout {layout_name} not found in keyboard.json")
+        return layouts[layout_name].layout
+
+    def _validate_layout_mapping(
+        self,
+        mapping: list[tuple[int, int]],
+        layout_name: str | None = None,
+    ) -> None:
+        """Validate layout mapping against matrix dimensions."""
+        if not mapping:
+            if layout_name:
+                raise ValueError(f"Layout {layout_name} mapping is empty")
+            raise ValueError("Layout mapping is empty")
+        rows, cols = self.matrix_dimensions()
+        for r, c in mapping:
+            if r >= rows or c >= cols:
+                if layout_name:
+                    raise ValueError(
+                        f"Layout {layout_name} mapping exceeds matrix dimensions"
+                    )
+                raise ValueError("Layout mapping exceeds matrix dimensions")
+
+    def matrix_rows(self) -> int:
+        """Return total matrix rows, including split configuration rows."""
+        rows = len(self.matrix_pins.rows)
+        if self.split and self.split.enabled:
+            if len(self.split.matrix_pins) != 1:
+                raise ValueError("multiple split sides not supported yet")
+            split_side, matrix_pins = next(iter(self.split.matrix_pins.items()))
+            if split_side != "left" and split_side != "right":
+                raise ValueError(
+                    "only left and right side split configurations are supported yet"
+                )
+            rows += len(matrix_pins.rows)
+        return rows
+
+    def matrix_cols(self) -> int:
+        """Return total matrix columns."""
+        return len(self.matrix_pins.cols)
+
+    def matrix_dimensions(self) -> tuple[int, int]:
+        """Return (rows, cols) for the matrix."""
+        return self.matrix_rows(), self.matrix_cols()
+
+    @model_validator(mode="after")
+    def _validate_layouts(self) -> "KeyboardJson":
+        for name, layout in self.layouts.items():
+            mapping = [key.matrix for key in layout.layout]
+            self._validate_layout_mapping(mapping, layout_name=name)
+        return self
+
 
 class QmkKeymapJson(BaseModelAllow):
     version: int | None = None
     # dimension: layer -> flattened index
-    layers: list[list[str]] | None = None
+    layers: list[list[str]]
     layout: str | None = None
 
 
+HEX_KEY_RE = re.compile(r"0x[0-9A-Fa-f]{1,4}")
+
+
+def _validate_hex_map(v: dict[str, str]) -> dict[str, str]:
+    bad = [k for k in v if not HEX_KEY_RE.fullmatch(k)]
+    if bad:
+        raise ValueError(f"invalid keys: {bad}")
+    return v
+
+
 class KeycodesJson(RootModel[dict[str, str]]):
-    pass
-
-
-class CustomKeycodesJson(RootModel[dict[str, str]]):
-    pass
+    @field_validator("root", mode="before")
+    @classmethod
+    def parse_hex_map(cls, v: dict[str, str]) -> dict[str, str]:
+        return _validate_hex_map(v)
 
 
 class VialMatrix(BaseModelAllow):

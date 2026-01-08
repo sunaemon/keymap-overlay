@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from src.types import CustomKeycodesJson, KeycodesJson, parse_json, print_json
+from src.types import KeycodesJson, parse_json, print_json
 from src.util import get_logger, strip_c_comments
 
 logger = get_logger(__name__)
@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> CustomKeycodesJson:
+def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> KeycodesJson:
     content = keymap_path.read_text()
 
     # Regex to find the enum custom_keycodes block
@@ -49,7 +49,7 @@ def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> CustomKeycodesJ
         keycodes[f"0x{current_code:04X}"] = name
         current_code += 1
 
-    return CustomKeycodesJson.model_validate(keycodes)
+    return KeycodesJson.model_validate(keycodes)
 
 
 def _get_safe_range_start(keycodes_json: Path) -> int:
@@ -61,7 +61,7 @@ def _get_safe_range_start(keycodes_json: Path) -> int:
     raise ValueError(f"SAFE_RANGE not found in {keycodes_json}")
 
 
-def generate_custom_keycodes(keymap_c: Path, keycodes_json: Path) -> CustomKeycodesJson:
+def generate_custom_keycodes(keymap_c: Path, keycodes_json: Path) -> KeycodesJson:
     """Generate custom keycodes JSON from keymap.c and keycodes.json."""
     safe_range_start = _get_safe_range_start(keycodes_json)
     return _parse_keymap_c(keymap_c, safe_range_start)

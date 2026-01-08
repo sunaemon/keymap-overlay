@@ -19,11 +19,10 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-def flatten_layer(
+def _flatten_layer(
     layer_data: list[list[str]],
     layout_map: dict[tuple[int, int], int],
 ) -> list[str]:
-    """Flatten a matrix layer into a QMK list using the layout map."""
     if not layout_map:
         raise ValueError("Layout map is empty")
     max_flattened_idx = max(layout_map.values())
@@ -31,8 +30,9 @@ def flatten_layer(
     for r, row in enumerate(layer_data):
         for c, key in enumerate(row):
             flattened_idx = layout_map.get((r, c))
-            if flattened_idx is not None:
-                flattened_layer[flattened_idx] = key
+            if flattened_idx is None:
+                raise ValueError(f"No mapping for matrix position ({r}, {c})")
+            flattened_layer[flattened_idx] = key
     return flattened_layer
 
 
@@ -55,7 +55,7 @@ def generate_qmk_keymap_from_vitaly(
 
     vitaly_data = parse_json(VitalyJson, vitaly_json)
 
-    layers = [flatten_layer(layer, layout_map) for layer in vitaly_data.layout]
+    layers = [_flatten_layer(layer, layout_map) for layer in vitaly_data.layout]
     return QmkKeymapJson(
         version=1,
         layers=layers,
