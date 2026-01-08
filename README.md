@@ -47,7 +47,7 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
    brew install --cask hammerspoon
    ```
 
-4. Set up the mise and UV environment:
+4. Set up the mise and uv environment:
 
    ```bash
    mise install
@@ -70,7 +70,7 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
    make install
    ```
 
-7. Flash firmware with the `layer-notify` keymap to your keyboard:
+7. Flash firmware with the `layer-notify` keymap and VIAL to your insixty_en keyboard:
 
    ```bash
    make flash
@@ -78,13 +78,15 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 
 ### Use VIAL
 
-1. To use the current keymap from your keyboard's EEPROM (requires VIAL-enabled firmware):
+These commands are for users who have VIAL-enabled firmware on their keyboard.
+
+1. Generate keymap images and install them to `~/.hammerspoon` but use the current keymap in EEPROM instead of the compiled keymap:
 
    ```bash
    make install VIAL=true
    ```
 
-2. If only the keymap is updated, you can update it with VIAL:
+2. Parse keymap.c and write the keymap to EEPROM:
 
    ```bash
    make flash-keymap
