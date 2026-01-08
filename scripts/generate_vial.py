@@ -60,9 +60,9 @@ def generate_vial(keyboard_json: Path) -> VialJson:
     for key in layout_data:
         if key.matrix:
             r, c = key.matrix
-            if r > matrix_rows:
+            if r >= matrix_rows:
                 raise ValueError("Matrix rows count is inconsistent with layout data")
-            if c > matrix_cols:
+            if c >= matrix_cols:
                 raise ValueError(
                     "Matrix columns count is inconsistent with layout data"
                 )
