@@ -45,6 +45,7 @@ def _run_output(output: Path, command: list[str]) -> None:
         if result.returncode != 0:
             stderr = (result.stderr or "").strip()
             if stderr:
+                logger.error("Command stderr: %s", stderr)
                 raise RuntimeError(
                     f"Command failed with exit code {result.returncode}: {stderr}"
                 )

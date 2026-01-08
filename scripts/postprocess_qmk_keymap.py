@@ -22,8 +22,9 @@ def main(
         Path, typer.Argument(help="Path to the QMK keymap JSON file")
     ],
     custom_keycodes_json: Annotated[
-        Path, typer.Option(help="Path to custom_keycodes.json")
-    ],
+        Path | None,
+        typer.Option(help="Path to custom_keycodes.json (optional)"),
+    ] = None,
 ) -> None:
     initialize_logging()
     try:
@@ -37,7 +38,7 @@ def main(
 
 
 def postprocess_qmk_keymap(
-    qmk_keymap_json: Path, custom_keycodes_json: Path
+    qmk_keymap_json: Path, custom_keycodes_json: Path | None
 ) -> QmkKeymapJson:
     """Process QMK keymap JSON."""
     keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
@@ -47,8 +48,10 @@ def postprocess_qmk_keymap(
 
 def _apply_custom_keycodes(
     keymap: QmkKeymapJson,
-    custom_keycodes_path: Path,
+    custom_keycodes_path: Path | None,
 ) -> QmkKeymapJson:
+    if custom_keycodes_path is None:
+        return keymap
     int_map = _load_custom_keycodes(custom_keycodes_path)
     if not int_map or not keymap.layers:
         return keymap
@@ -60,7 +63,11 @@ def _apply_custom_keycodes(
     return keymap
 
 
-def _load_custom_keycodes(custom_keycodes_path: Path) -> dict[int, str] | None:
+def _load_custom_keycodes(
+    custom_keycodes_path: Path | None,
+) -> dict[int, str] | None:
+    if custom_keycodes_path is None:
+        return None
     try:
         custom_keycodes_data = parse_json(KeycodesJson, custom_keycodes_path)
     except Exception as e:

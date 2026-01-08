@@ -130,6 +130,7 @@ def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
     import qmk.keycodes as qmk_keycodes  # type: ignore
 
     original_cwd = Path.cwd()
+    # QMK keycodes loader assumes the repo root as cwd; acceptable in this CLI because it runs single-threaded.
     os.chdir(qmk_dir)
 
     try:
