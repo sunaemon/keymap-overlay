@@ -60,7 +60,7 @@ def _parse_keycode_value(key: str | int) -> int | None:
             return int(key, 16)
         except ValueError:
             return None
-    if key.isdigit():
+    if key.isascii() and key.isdigit():
         try:
             return int(key)
         except ValueError:

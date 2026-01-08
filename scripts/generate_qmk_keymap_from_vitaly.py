@@ -47,6 +47,10 @@ def generate_qmk_keymap_from_vitaly(
     layout_map: dict[tuple[int, int], int] = {}
     for i, entry in enumerate(layout_list):
         row, col = entry.matrix
+        if (row, col) in layout_map:
+            logger.warning(
+                f"Duplicate matrix position ({row}, {col}) at index {i} in layout '{layout_name}'"
+            )
         layout_map[(row, col)] = i
 
     vitaly_data = parse_json(VitalyJson, vitaly_json)
