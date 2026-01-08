@@ -15,9 +15,9 @@ app = typer.Typer()
 
 
 def count_layers(qmk_keymap_json: Path) -> int:
-    keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
+    qmk_keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
 
-    layers = keymap_data.layers
+    layers = qmk_keymap_data.layers
     if not layers:
         return 0
 
