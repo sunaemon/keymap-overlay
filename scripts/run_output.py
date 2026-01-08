@@ -25,13 +25,13 @@ def main(
     """Run a command and atomically write its stdout to the output path."""
     initialize_logging()
     try:
-        _run_to_tmp(output, command)
+        _run_output(output, command)
     except Exception:
         logger.exception("Failed to run command for %s", output)
         raise typer.Exit(code=1) from None
 
 
-def _run_to_tmp(output: Path, command: list[str]) -> None:
+def _run_output(output: Path, command: list[str]) -> None:
     if not command:
         raise ValueError("Command is required")
 

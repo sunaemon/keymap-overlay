@@ -139,8 +139,9 @@ Use one-line triple-quoted docstrings for functions and classes, e.g.:
 
 - Use `pathlib.Path` for all path manipulations. Do not use string concatenation or `os.path`.
 - Use `Typer` for all CLI scripts.
+- Scripts are internal; invoke them via `python -m scripts.<name>` from the Makefile and do not add `[project.scripts]` entrypoints.
 - Prefer `Annotated[...]` style for Typer CLI parameters (e.g., `Annotated[Path, typer.Option(...)]`) for consistent typing and CLI metadata.
-- Use `logger.info` for status messages, `logger.warning` for non-fatal issues, `logger.error` for recoverable errors, `logger.exception` inside `except` blocks to include stack traces, and `logger.critical` for fatal errors. Configure the logger via `src.util.get_logger`. The default log level is set to `INFO`.
+- Use `logger.info` for status messages, `logger.warning` for non-fatal issues, `logger.error` for recoverable errors, `logger.exception` inside `except` blocks to include stack traces, and `logger.critical` for fatal errors. Initialize logging in CLI entrypoints with `src.util.initialize_logging()`. The default log level is `INFO`.
 - Use modern type hints (Python 3.10+):
   - Use `| None` instead of `Optional[T]`.
   - Use built-in generic types like `dict` and `list` instead of `Dict` and `List` from the `typing` module.

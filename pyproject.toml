@@ -14,18 +14,6 @@ dependencies = [
   "jsonschema>=4.25.1",
 ]
 
-[project.scripts]
-count-layers = "scripts.count_layers:app"
-generate-custom-keycodes = "scripts.generate_custom_keycodes:app"
-generate-key-to-layer = "scripts.generate_key_to_layer:app"
-generate-keycodes = "scripts.generate_keycodes:app"
-generate-qmk-keymap-from-vitaly = "scripts.generate_qmk_keymap_from_vitaly:app"
-generate-vial = "scripts.generate_vial:app"
-generate-vitaly-layout = "scripts.generate_vitaly_layout:app"
-postprocess-qmk-keymap = "scripts.postprocess_qmk_keymap:app"
-run-output = "scripts.run_to_tmp:app"
-run-to-tmp = "scripts.run_to_tmp:app"
-
 [dependency-groups]
 dev = ["pytest>=9.0.2"]
 
