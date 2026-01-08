@@ -35,6 +35,9 @@ max-complexity = 10
 [tool.ruff.lint.isort]
 known-first-party = ["scripts", "src"]
 
+[tool.ty.src]
+exclude = ["qmk_firmware"]
+
 [build-system]
 requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
