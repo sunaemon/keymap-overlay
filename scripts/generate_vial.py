@@ -32,9 +32,7 @@ def main(
     keyboard_json: Annotated[Path, typer.Option(help="Path to input keyboard.json")],
     layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
-    """
-    Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout.
-    """
+    """Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout."""
     try:
         vial_data = generate_vial(keyboard_json, layout_name)
         print_json(vial_data, exclude_none=True)

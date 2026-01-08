@@ -123,10 +123,9 @@ def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
         raise FileNotFoundError(f"QMK lib path not found at {qmk_lib_path}")
 
     sys.path.insert(0, str(qmk_lib_path))
-    sys.modules["milc"] = types.ModuleType("milc")  # Dummy module for milc dependency
-    sys.modules["milc.cli"] = types.ModuleType(
-        "milc.cli"
-    )  # Dummy module for milc dependency
+    # Dummy module for milc dependency
+    sys.modules["milc"] = types.ModuleType("milc")
+    sys.modules["milc.cli"] = types.ModuleType("milc.cli")
     import qmk.keycodes as qmk_keycodes  # type: ignore
 
     original_cwd = Path.cwd()
@@ -136,10 +135,8 @@ def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
         versions = qmk_keycodes.list_versions()
         if versions is None or not versions:
             raise ValueError("No QMK keycodes versions found")
-        # Load the latest version
         raw_spec = qmk_keycodes.load_spec(versions[-1])
 
-        # Use Pydantic to validate the spec
         spec = QmkKeycodesSpec.model_validate(raw_spec)
         return spec
     finally:

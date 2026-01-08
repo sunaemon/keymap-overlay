@@ -24,7 +24,7 @@ class QmkKeycodeSpecEntry(BaseModelAllow):
 
 
 class QmkKeycodesSpec(BaseModelAllow):
-    keycodes: Annotated[dict[str, QmkKeycodeSpecEntry], Field(default_factory=dict)]
+    keycodes: Annotated[dict[str, QmkKeycodeSpecEntry], Field()]
 
 
 class LayoutKey(BaseModelAllow):

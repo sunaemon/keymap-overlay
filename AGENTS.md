@@ -129,6 +129,12 @@ Prefer Top-Down ordering for all code changes:
 
 Note: CLI `main` functions are part of the public API and should appear with other public functions, not at the very end.
 
+### Docstrings
+
+Use one-line triple-quoted docstrings for functions and classes, e.g.:
+
+`"""Returns a logger instance with the given name."""`
+
 ### Python
 
 - Use `pathlib.Path` for all path manipulations. Do not use string concatenation or `os.path`.

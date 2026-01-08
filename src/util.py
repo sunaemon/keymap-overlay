@@ -18,16 +18,12 @@ logging.basicConfig(
 
 
 def get_logger(name: str) -> logging.Logger:
-    """
-    Returns a logger instance with the given name.
-    """
+    """Returns a logger instance with the given name."""
     return logging.getLogger(name)
 
 
 def strip_c_comments(text: str) -> str:
-    """
-    Remove C-style // and /* */ comments from text.
-    """
+    """Remove C-style // and /* */ comments from text."""
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     text = re.sub(r"//[^\n]*", "", text)
     return text
