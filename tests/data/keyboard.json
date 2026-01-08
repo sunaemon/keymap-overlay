@@ -6,6 +6,10 @@
     "pid": "0x0001",
     "device_version": "0.0.1"
   },
+  "matrix_pins": {
+    "rows": ["D0", "D1"],
+    "cols": ["D2", "D3"]
+  },
   "layouts": {
     "LAYOUT": {
       "layout": [

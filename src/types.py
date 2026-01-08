@@ -74,7 +74,7 @@ class KeyboardJson(BaseModelAllow):
 
 class QmkKeymapJson(BaseModelAllow):
     version: int | None = None
-    # dimesion: layer -> flattened index
+    # dimension: layer -> flattened index
     layers: list[list[str]] | None = None
     layout: str | None = None
 
@@ -116,7 +116,7 @@ class VialJson(BaseModelAllow):
 
 
 class VitalyJson(BaseModelAllow):
-    # dimensions: layer -> row -> col
+    # dimension: layer -> row -> col
     # cf. https://github.com/bskaplou/vitaly/blob/93f08de4b6022007f4e3e655b6d76682e275f4cc/src/protocol.rs#L454
     layout: list[list[list[str]]]
 
