@@ -101,7 +101,7 @@ def read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
 def _name_rank(name: str) -> tuple[int, int]:
     if name in PREFERRED_NAMES:
         return (0, len(name))
-    if name in {"KC_TRNS", "KC_NO"}:
+    if name == "KC_NO":
         return (1, len(name))
     return (2, len(name))
 

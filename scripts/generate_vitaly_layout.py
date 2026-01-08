@@ -30,6 +30,8 @@ def _get_layout_mapping(
 
 
 def _matrix_dimensions(mapping: list[tuple[int, int]]) -> tuple[int, int]:
+    if not mapping:
+        raise ValueError("Layout mapping is empty")
     max_row = 0
     max_col = 0
     for r, c in mapping:
@@ -40,10 +42,6 @@ def _matrix_dimensions(mapping: list[tuple[int, int]]) -> tuple[int, int]:
 
 def _init_layer_grid(rows: int, cols: int) -> list[list[str]]:
     return [["KC_NO" for _ in range(cols)] for _ in range(rows)]
-
-
-def _apply_custom_keycode(keycode: str, custom_map: dict[str, str]) -> str:
-    return custom_map.get(keycode, keycode)
 
 
 def _build_layer_grid(
@@ -64,7 +62,7 @@ def _build_layer_grid(
             continue
 
         r, c = mapping[key_idx]
-        layer_grid[r][c] = _apply_custom_keycode(keycode, custom_map)
+        layer_grid[r][c] = custom_map.get(keycode, keycode)
 
     return layer_grid
 
@@ -81,7 +79,16 @@ def generate_vitaly_layout(
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
     custom_keycodes_data = parse_json(CustomKeycodesJson, custom_keycodes_json)
 
-    custom_map = {v: k for k, v in custom_keycodes_data.root.items()}
+    custom_map: dict[str, str] = {}
+    for code, name in custom_keycodes_data.root.items():
+        if name in custom_map:
+            logger.warning(
+                "Custom keycode %s already mapped to %s; overwriting with %s",
+                name,
+                custom_map[name],
+                code,
+            )
+        custom_map[name] = code
 
     mapping = _get_layout_mapping(keyboard_data, layout_name)
     rows, cols = _matrix_dimensions(mapping)

@@ -19,7 +19,7 @@ def resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
         return keymap
 
     layers = keymap.layers
-    TRANS_KEYS = {"KC_TRNS", "KC_TRANSPARENT", "_______", "KC_TRANS"}
+    TRANS_KEYS = {"KC_TRNS", "KC_TRANSPARENT", "_______"}
 
     for i in range(1, len(layers)):
         for idx in range(len(layers[i])):
@@ -47,6 +47,7 @@ def _load_custom_keycodes(custom_keycodes_path: Path) -> dict[int, str] | None:
         try:
             int_map[int(k, 16)] = v
         except ValueError:
+            logger.warning("Skipping non-hex custom keycode entry: %s", k)
             continue
     return int_map
 
@@ -108,6 +109,7 @@ def main(
     try:
         resolved_keymap = process_keymap(qmk_keymap_json, custom_keycodes_json)
         print_json(resolved_keymap)
+        logger.info("Processed QMK keymap JSON from %s", qmk_keymap_json)
 
     except Exception:
         logger.exception("Failed to process %s", qmk_keymap_json)
