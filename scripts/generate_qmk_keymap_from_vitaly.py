@@ -74,7 +74,14 @@ def _flatten_layer(
         for c, key in enumerate(row):
             flattened_idx = layout_map.get((r, c))
             if flattened_idx is None:
-                raise ValueError(f"No mapping for matrix position ({r}, {c})")
+                if key != "KC_NO":
+                    logger.warning(
+                        "No mapping for matrix position (%d, %d); skipping %s",
+                        r,
+                        c,
+                        key,
+                    )
+                continue
             flattened_layer[flattened_idx] = key
     return flattened_layer
 
