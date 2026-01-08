@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
 import logging

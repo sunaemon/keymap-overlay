@@ -18,7 +18,7 @@ dependencies = [
 dev = ["pytest>=9.0.2"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src", "scripts"]
+packages = ["src"]
 
 [tool.ruff]
 line-length = 88
