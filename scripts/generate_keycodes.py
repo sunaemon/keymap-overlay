@@ -9,7 +9,7 @@ from typing import Annotated
 
 import typer
 
-from src.types import KeycodesJson, QmkKeycodeSpecEntry, QmkKeycodesSpec, print_json
+from src.types import KeycodesJson, QmkKeycodesSpec, print_json
 from src.util import get_logger, parse_hex_keycode
 
 logger = get_logger(__name__)
@@ -106,40 +106,24 @@ def _name_rank(name: str) -> tuple[int, int]:
     return (2, len(name))
 
 
-def _choose_best_name(current: str | None, candidate: str) -> str:
-    if current is None:
-        return candidate
-    return min(current, candidate, key=_name_rank)
-
-
-def _get_names(info: QmkKeycodeSpecEntry) -> list[str]:
-    names: list[str | None] = [info.key]
-    if info.aliases:
-        names.extend(info.aliases)
-    return [name for name in names if name]
-
-
 def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
     """Generate the keycodes JSON from QMK firmware sources."""
     spec = _read_latest_qmk_spec(qmk_dir)
 
     code_to_name: dict[int, str] = {}
 
-    # New structure: "0x0004": { "key": "KC_A", "aliases": [...] }
     for hex_code, info in spec.keycodes.items():
         code = parse_hex_keycode(hex_code)
         if code is None:
+            logger.warning(f"Invalid hex keycode in spec: {hex_code}")
             continue
 
-        names = _get_names(info)
-        if not names:
-            continue
+        names = [info.key]
+        if info.aliases:
+            names.extend(info.aliases)
 
-        best = names[0]
-        for name in names[1:]:
-            best = _choose_best_name(best, name)
-
-        code_to_name[code] = _choose_best_name(code_to_name.get(code), best)
+        names = sorted(names, key=_name_rank)
+        code_to_name[code] = names[0]
 
     sorted_codes = sorted(code_to_name.keys())
 
@@ -147,9 +131,7 @@ def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
     for code in sorted_codes:
         output_dict[f"0x{code:04X}"] = code_to_name[code]
 
-    keycodes_model = KeycodesJson.model_validate(output_dict)
-    logger.info("Generated %d keycodes.", len(sorted_codes))
-    return keycodes_model
+    return KeycodesJson.model_validate(output_dict)
 
 
 @app.command()
@@ -161,7 +143,11 @@ def main(
 ) -> None:
     try:
         print_json(generate_keycodes(qmk_dir))
-        logger.info("Generated keycodes JSON from QMK firmware at %s", qmk_dir)
+        logger.info(
+            "Generated %d keycodes JSON from QMK firmware at %s",
+            len(generate_keycodes(qmk_dir).root),
+            qmk_dir,
+        )
     except Exception:
         logger.exception("Failed to generate keycodes JSON")
         raise typer.Exit(code=1) from None

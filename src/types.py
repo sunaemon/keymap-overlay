@@ -19,7 +19,7 @@ class BaseModelAllow(BaseModel):
 
 
 class QmkKeycodeSpecEntry(BaseModelAllow):
-    key: str | None = None
+    key: str
     aliases: list[str] | None = None
 
 
