@@ -86,6 +86,18 @@ class KeyboardJson(BaseModelAllow):
             raise ValueError(f"Layout {layout_name} not found in keyboard.json")
         return layouts[layout_name].layout
 
+    def layout_mapping(self, layout_name: str) -> list[tuple[int, int]]:
+        """Return (row, col) mapping for a named layout."""
+        return [key.matrix for key in self.layout_keys(layout_name)]
+
+    def layout_mapping_dimensions(
+        self, layout_name: str
+    ) -> tuple[list[tuple[int, int]], int, int]:
+        """Return layout mapping and matrix (rows, cols)."""
+        mapping = self.layout_mapping(layout_name)
+        rows, cols = self.matrix_dimensions()
+        return mapping, rows, cols
+
     def _validate_layout_mapping(
         self,
         mapping: list[tuple[int, int]],

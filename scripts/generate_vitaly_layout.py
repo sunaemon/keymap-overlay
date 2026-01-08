@@ -21,14 +21,6 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-def _get_layout_mapping(
-    keyboard_data: KeyboardJson,
-    layout_name: str,
-) -> list[tuple[int, int]]:
-    layout_keys = keyboard_data.layout_keys(layout_name)
-    return [key.matrix for key in layout_keys]
-
-
 def _init_layer_grid(rows: int, cols: int) -> list[list[str]]:
     return [["KC_NO" for _ in range(cols)] for _ in range(rows)]
 
@@ -80,8 +72,7 @@ def generate_vitaly_layout(
             )
         custom_map[name] = code
 
-    mapping = _get_layout_mapping(keyboard_data, layout_name)
-    rows, cols = keyboard_data.matrix_dimensions()
+    mapping, rows, cols = keyboard_data.layout_mapping_dimensions(layout_name)
 
     qmk_layers = qmk_keymap_data.layers or []
 
