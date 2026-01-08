@@ -32,6 +32,7 @@ def main(
             layout_name,
         )
         print_json(output)
+        logger.info("Generated QMK keymap JSON from %s", vitaly_json)
     except Exception:
         logger.exception("Failed to generate QMK keymap from %s", vitaly_json)
         raise typer.Exit(code=1) from None

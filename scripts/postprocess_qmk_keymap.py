@@ -83,7 +83,8 @@ def _resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
     if not keymap.layers:
         return keymap
 
-    layers = keymap.layers
+    keymap_copy = keymap.model_copy(deep=True)
+    layers = keymap_copy.layers
 
     for i in range(1, len(layers)):
         for idx in range(len(layers[i])):
@@ -94,7 +95,7 @@ def _resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
                         if prev_key not in TRANS_KEYS:
                             layers[i][idx] = prev_key
                             break
-    return keymap
+    return keymap_copy
 
 
 if __name__ == "__main__":

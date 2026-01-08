@@ -39,8 +39,15 @@ def _run_output(output: Path, command: list[str]) -> None:
 
     try:
         with tmp_path.open("w") as handle:
-            result = subprocess.run(command, stdout=handle, check=False)
+            result = subprocess.run(
+                command, stdout=handle, stderr=subprocess.PIPE, text=True, check=False
+            )
         if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            if stderr:
+                raise RuntimeError(
+                    f"Command failed with exit code {result.returncode}: {stderr}"
+                )
             raise RuntimeError(f"Command failed with exit code {result.returncode}")
         tmp_path.replace(output)
     except Exception:

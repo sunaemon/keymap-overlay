@@ -33,11 +33,7 @@ def count_layers(qmk_keymap_json: Path) -> int:
     """Return the number of layers in a QMK keymap JSON file."""
     qmk_keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
 
-    layers = qmk_keymap_data.layers
-    if not layers:
-        return 0
-
-    return len(layers)
+    return len(qmk_keymap_data.layers or [])
 
 
 if __name__ == "__main__":
