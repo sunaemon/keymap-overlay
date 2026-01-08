@@ -128,13 +128,29 @@ class KeyToLayerJson(RootModel[dict[str, str]]):
 T = TypeVar("T", bound=BaseModel)
 
 
+class JSONReadError(RuntimeError):
+    """Failed to read JSON file."""
+
+    def __init__(self, path: Path, cause: Exception) -> None:
+        super().__init__(f"Failed to read JSON from {path}")
+        self.__cause__ = cause
+
+
+class JSONParseError(RuntimeError):
+    """Failed to parse JSON content."""
+
+    def __init__(self, path: Path, cause: Exception) -> None:
+        super().__init__(f"Failed to parse JSON from {path}")
+        self.__cause__ = cause
+
+
 def parse_json(model: Type[T], path: Path) -> T:
     try:
         return model.model_validate_json(path.read_text())
     except OSError as e:
-        raise RuntimeError(f"Failed to read JSON from {path}") from e
+        raise JSONReadError(path, e) from e
     except Exception as e:
-        raise RuntimeError(f"Failed to parse JSON from {path}") from e
+        raise JSONParseError(path, e) from e
 
 
 def write_json(model: BaseModel, path: Path) -> None:

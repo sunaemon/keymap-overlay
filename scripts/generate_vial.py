@@ -24,23 +24,19 @@ logger = get_logger(__name__)
 
 app = typer.Typer()
 
-# We handle up to the quarter precision for key positions and sizes so we need up to 2 decimal places
-PRESISION = 2
 
-# We ignore differences smaller than EPS when comparing floating point numbers
-EPS = 10 ** (-PRESISION)
+PRESCISON = 2  # We handle key positions with 1<<2 = 4 subdivisions per unit
+
+
+def round_unit(x: float) -> float:
+    return round(x * (1 << PRESCISON)) / (1 << PRESCISON)
 
 
 def generate_vial(keyboard_json: Path) -> VialJson:
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
 
-    if not keyboard_data.usb:
-        raise ValueError("No USB info found in keyboard.json")
     vendor_id = keyboard_data.usb.vid
     product_id = keyboard_data.usb.pid
-
-    if not keyboard_data.matrix_pins:
-        raise ValueError("No matrix pins info found in keyboard.json")
 
     matrix_rows = len(keyboard_data.matrix_pins.rows)
     matrix_cols = len(keyboard_data.matrix_pins.cols)
@@ -62,14 +58,11 @@ def generate_vial(keyboard_json: Path) -> VialJson:
     layout_data = keyboard_data.layouts[layout_name].layout
 
     for key in layout_data:
-        if key.matrix:
-            r, c = key.matrix
-            if r >= matrix_rows:
-                raise ValueError("Matrix rows count is inconsistent with layout data")
-            if c >= matrix_cols:
-                raise ValueError(
-                    "Matrix columns count is inconsistent with layout data"
-                )
+        r, c = key.matrix
+        if r >= matrix_rows:
+            raise ValueError("Matrix rows count is inconsistent with layout data")
+        if c >= matrix_cols:
+            raise ValueError("Matrix columns count is inconsistent with layout data")
 
     matrix = VialMatrix(
         rows=matrix_rows,
@@ -80,7 +73,7 @@ def generate_vial(keyboard_json: Path) -> VialJson:
 
     for key in layout_data:
         row_index = int(key.y)
-        if row_index - int(key.y) > EPS:
+        if row_index != round_unit(key.y):
             raise ValueError("Non-integer key y position is not supported")
 
         if row_index not in rows:
@@ -97,24 +90,23 @@ def generate_vial(keyboard_json: Path) -> VialJson:
         current_x = 0.0
 
         for key in row_keys:
-            key_x = key.x
-            key_w = key.w
-            key_h = key.h
+            key_x = round_unit(key.x)
+            key_w = round_unit(key.w)
+            key_h = round_unit(key.h)
 
             props = KleKeyProps()
 
-            x_diff = key_x - current_x
-            if abs(x_diff) > EPS:
-                props.x = round(x_diff, PRESISION)
+            if key_x != current_x:
+                props.x = key_x
 
-            if abs(key_w - 1) > EPS:
-                props.w = round(key_w, PRESISION)
+            if key_w != 1:
+                props.w = key_w
 
-            if abs(key_h - 1) > EPS:
-                props.h = round(key_h, PRESISION)
+            if key_h != 1:
+                props.h = key_h
 
-            if props != KleKeyProps():
-                kle_row.append(KleKeyProps.model_validate(props))
+            if props.x is not None or props.w is not None or props.h is not None:
+                kle_row.append(props)
 
             r, c = key.matrix
             kle_row.append(f"{r},{c}")
