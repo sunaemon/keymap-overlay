@@ -14,7 +14,7 @@ The goal of this project is to provide a seamless way to visualize QMK keyboard 
 - `count_layers.py`: Counts the number of layers in a QMK keymap JSON.
 - `generate_key_to_layer.py`: Parses `keymap.c` to identify which keys trigger which layers.
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
-- `generate_qmk_keymap_postprocess.py`: Cleans up and prepares the QMK keymap JSON for rendering (resolves transparency).
+- `postprocess_qmk_keymap.py`: Cleans up and prepares the QMK keymap JSON for rendering (resolves transparency).
 - `generate_vial.py`: Converts QMK `keyboard.json` to VIAL-compatible `vial.json`.
 - `generate_custom_keycodes.py`: Synchronizes custom keycodes between `keymap.c` and configuration files.
 - `generate_vitaly_layout.py`: Merges QMK layer data into a VIAL configuration dump.
