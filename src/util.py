@@ -33,6 +33,29 @@ def strip_c_comments(text: str) -> str:
     return text
 
 
+def parse_hex_keycode(key: str) -> int | None:
+    """Parse a hex keycode string like 0x1A2B into an int."""
+    if key.startswith(("0x", "0X")):
+        try:
+            return int(key, 16)
+        except ValueError:
+            return None
+    return None
+
+
+def parse_keycode_value(key: str) -> int | None:
+    """Parse hex or decimal keycode string into an int."""
+    value = parse_hex_keycode(key)
+    if value is not None:
+        return value
+    if key.isdigit():
+        try:
+            return int(key)
+        except ValueError:
+            return None
+    return None
+
+
 def load_layout_keys(
     keyboard_json: Path,
     layout_name: str,

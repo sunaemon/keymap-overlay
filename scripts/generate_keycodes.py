@@ -166,11 +166,9 @@ def main(
         typer.Option(help="Path to qmk_firmware directory"),
     ],
 ) -> None:
-    """
-    Generate keycodes JSON from QMK Firmware and emit it to stdout.
-    """
     try:
         print_json(generate_keycodes(qmk_dir))
+        logger.info("Generated keycodes JSON from QMK firmware at %s", qmk_dir)
     except Exception:
         logger.exception("Failed to generate keycodes JSON")
         raise typer.Exit(code=1) from None

@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from src.types import KeycodesJson, parse_json, print_json
-from src.util import get_logger, strip_c_comments
+from src.util import get_logger, parse_hex_keycode, strip_c_comments
 
 logger = get_logger(__name__)
 
@@ -57,7 +57,10 @@ def _get_safe_range_start(keycodes_json: Path) -> int:
 
     for code, name in keycodes_data.root.items():
         if name == "SAFE_RANGE":
-            return int(code, 16)
+            parsed = parse_hex_keycode(code)
+            if parsed is None:
+                raise ValueError(f"Invalid SAFE_RANGE keycode: {code}")
+            return parsed
     raise ValueError(f"SAFE_RANGE not found in {keycodes_json}")
 
 
@@ -75,9 +78,6 @@ def main(
         typer.Option(help="Path to keycodes.json to read SAFE_RANGE"),
     ],
 ) -> None:
-    """
-    Sync custom keycodes from keymap.c and emit JSON to stdout.
-    """
     try:
         custom_keycodes = generate_custom_keycodes(keymap_c, keycodes_json)
         print_json(custom_keycodes)

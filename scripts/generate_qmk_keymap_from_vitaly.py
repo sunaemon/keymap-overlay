@@ -72,7 +72,6 @@ def main(
     ],
     layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
-    """Generate QMK keymap JSON from a Vitaly dump and emit to stdout."""
     try:
         output = generate_qmk_keymap_from_vitaly(
             vitaly_json,

@@ -58,14 +58,14 @@ KEYMAP_DRAWER_YAML := $(BUILD_DIR)/keymap-drawer.yaml
 # Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_keycodes.py' scanning QMK firmware.
-# Used by: 'generate_qmk_keymap_postprocess.py' for name resolution.
+# Used by: 'postprocess_qmk_keymap.py' for name resolution.
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
 # [Custom Keycodes JSON]
 # Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from keymap.c.
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c'.
-# Used by: 'generate_qmk_keymap_postprocess.py', 'generate_vitaly_layout.py' to preserve custom codes.
+# Used by: 'postprocess_qmk_keymap.py', 'generate_vitaly_layout.py' to preserve custom codes.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 
 # [Vial JSON]
@@ -267,7 +267,7 @@ $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
 .PHONY: _force_build
 _force_build:
 
-QMK_KEYMAP_JSON_DEPS := scripts/generate_qmk_keymap_postprocess.py $(KEYCODES_JSON) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C)
+QMK_KEYMAP_JSON_DEPS := scripts/postprocess_qmk_keymap.py $(KEYCODES_JSON) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C)
 ifeq ($(VIAL),true)
 QMK_KEYMAP_JSON_DEPS += _force_build
 endif
@@ -282,7 +282,7 @@ else
 	@echo "Compiling QMK JSON from source..."
 	$(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) > "$@.raw.tmp" || (rm -f "$@.raw.tmp" && exit 1)
 endif
-	$(UV) run scripts/generate_qmk_keymap_postprocess.py "$@.raw.tmp" --custom-keycodes-json $(CUSTOM_KEYCODES_JSON) > "$@.tmp" || (rm -f "$@.tmp" "$@.raw.tmp" && exit 1)
+	$(UV) run scripts/postprocess_qmk_keymap.py "$@.raw.tmp" --custom-keycodes-json $(CUSTOM_KEYCODES_JSON) > "$@.tmp" || (rm -f "$@.tmp" "$@.raw.tmp" && exit 1)
 	rm -f "$@.raw.tmp"
 	mv "$@.tmp" "$@"
 

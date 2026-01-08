@@ -47,7 +47,8 @@ def _build_mapping(notifier_keys: list[str]) -> KeyToLayerJson:
     return KeyToLayerJson.model_validate(mapping)
 
 
-def _process(keymap_c: Path) -> KeyToLayerJson:
+def generate_key_to_layer(keymap_c: Path) -> KeyToLayerJson:
+    """Generate key-to-layer mapping from keymap.c."""
     content = keymap_c.read_text()
     notifier_keys = _parse_notifier_keys(content)
     key_to_layer_content = _build_mapping(notifier_keys)
@@ -59,12 +60,8 @@ def _process(keymap_c: Path) -> KeyToLayerJson:
 def main(
     keymap_c: Annotated[Path, typer.Option(help="Path to keymap.c")],
 ) -> None:
-    """
-    Generate key-to-layer JSON from keymap.c and emit it to stdout.
-    """
-
     try:
-        key_to_layer = _process(keymap_c)
+        key_to_layer = generate_key_to_layer(keymap_c)
         print_json(key_to_layer)
         logger.info("Generated key-to-layer mapping.")
     except Exception:
