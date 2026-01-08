@@ -28,7 +28,7 @@ app = typer.Typer()
 PRECISION = 2  # We handle key positions with 1<<2 = 4 subdivisions per unit
 
 
-def round_unit(x: float) -> float:
+def _round_unit(x: float) -> float:
     return round(x * (1 << PRECISION)) / (1 << PRECISION)
 
 
@@ -72,7 +72,7 @@ def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[int, list[LayoutKey
     rows: dict[int, list[LayoutKey]] = {}
     for key in layout_data:
         row_index = int(key.y)
-        if row_index != round_unit(key.y):
+        if row_index != _round_unit(key.y):
             raise ValueError("Non-integer key y position is not supported")
         rows.setdefault(row_index, []).append(key)
     return rows
@@ -84,9 +84,9 @@ def _build_kle_row(row_keys: list[LayoutKey]) -> KleRow:
     current_x = 0.0
 
     for key in row_keys:
-        key_x = round_unit(key.x)
-        key_w = round_unit(key.w)
-        key_h = round_unit(key.h)
+        key_x = _round_unit(key.x)
+        key_w = _round_unit(key.w)
+        key_h = _round_unit(key.h)
 
         props = KleKeyProps()
 
@@ -118,6 +118,7 @@ def _build_kle_rows(rows_by_y: dict[int, list[LayoutKey]]) -> KleLayout:
 
 
 def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
+    """Convert QMK keyboard.json to a Vial-compatible JSON structure."""
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
 
     vendor_id = keyboard_data.usb.vid

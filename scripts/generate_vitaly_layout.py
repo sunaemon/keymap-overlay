@@ -74,6 +74,7 @@ def generate_vitaly_layout(
     custom_keycodes_json: Path,
     layout_name: str,
 ) -> VitalyJson:
+    """Update Vitaly layout data from a QMK keymap JSON."""
     qmk_keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
     vitaly_data = parse_json(VitalyJson, vitaly_json)
     keyboard_data = parse_json(KeyboardJson, keyboard_json)

@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-def resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
+def _resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
     if not keymap.layers:
         return keymap
 
@@ -75,7 +75,7 @@ def _apply_custom_map_to_layer(layer: list[str], int_map: dict[int, str]) -> Non
             layer[idx] = int_map[code_val]
 
 
-def apply_custom_keycodes(
+def _apply_custom_keycodes(
     keymap: QmkKeymapJson, custom_keycodes_path: Path
 ) -> QmkKeymapJson:
     int_map = _load_custom_keycodes(custom_keycodes_path)
@@ -88,10 +88,10 @@ def apply_custom_keycodes(
     return keymap
 
 
-def process_keymap(qmk_keymap_json: Path, custom_keycodes_json: Path) -> QmkKeymapJson:
+def _process_keymap(qmk_keymap_json: Path, custom_keycodes_json: Path) -> QmkKeymapJson:
     keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
-    keymap_data = apply_custom_keycodes(keymap_data, custom_keycodes_json)
-    return resolve_transparency(keymap_data)
+    keymap_data = _apply_custom_keycodes(keymap_data, custom_keycodes_json)
+    return _resolve_transparency(keymap_data)
 
 
 @app.command()
@@ -107,7 +107,7 @@ def main(
     Process QMK keymap JSON and emit the result to stdout.
     """
     try:
-        resolved_keymap = process_keymap(qmk_keymap_json, custom_keycodes_json)
+        resolved_keymap = _process_keymap(qmk_keymap_json, custom_keycodes_json)
         print_json(resolved_keymap)
         logger.info("Processed QMK keymap JSON from %s", qmk_keymap_json)
 

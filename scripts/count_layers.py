@@ -15,6 +15,7 @@ app = typer.Typer()
 
 
 def count_layers(qmk_keymap_json: Path) -> int:
+    """Return the number of layers in a QMK keymap JSON file."""
     qmk_keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
 
     layers = qmk_keymap_data.layers
@@ -30,6 +31,7 @@ def main(
         Path, typer.Argument(help="Path to the QMK keymap JSON file")
     ],
 ) -> None:
+    """Count layers in a QMK keymap JSON file and print the result."""
     try:
         print(count_layers(qmk_keymap_json))
     except Exception:

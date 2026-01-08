@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-def parse_notifier_keys(content: str) -> list[str]:
+def _parse_notifier_keys(content: str) -> list[str]:
     match = re.search(
         r"notifier_key_to_layer\s*\[[^\]]+\]\s*=\s*\{(.*?)\};",
         content,
@@ -32,25 +32,25 @@ def parse_notifier_keys(content: str) -> list[str]:
     return notifier_keys
 
 
-def normalize_keycode(entry: str) -> str:
+def _normalize_keycode(entry: str) -> str:
     match = re.fullmatch(r"(?:KC_)?F(\d+)", entry)
     if not match:
         raise ValueError(f"Unsupported notifier keycode: {entry}")
     return f"f{int(match.group(1))}"
 
 
-def build_mapping(notifier_keys: list[str]) -> KeyToLayerJson:
+def _build_mapping(notifier_keys: list[str]) -> KeyToLayerJson:
     mapping: dict[str, str] = {}
     for idx, entry in enumerate(notifier_keys):
-        key_name = normalize_keycode(entry)
+        key_name = _normalize_keycode(entry)
         mapping[key_name] = f"L{idx}"
     return KeyToLayerJson.model_validate(mapping)
 
 
-def process(keymap_c: Path) -> KeyToLayerJson:
+def _process(keymap_c: Path) -> KeyToLayerJson:
     content = keymap_c.read_text()
-    notifier_keys = parse_notifier_keys(content)
-    key_to_layer_content = build_mapping(notifier_keys)
+    notifier_keys = _parse_notifier_keys(content)
+    key_to_layer_content = _build_mapping(notifier_keys)
 
     return key_to_layer_content
 
@@ -64,7 +64,7 @@ def main(
     """
 
     try:
-        key_to_layer = process(keymap_c)
+        key_to_layer = _process(keymap_c)
         print_json(key_to_layer)
         logger.info("Generated key-to-layer mapping.")
     except Exception:

@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-def parse_keymap_c(keymap_path: Path, safe_range_start: int) -> CustomKeycodesJson:
+def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> CustomKeycodesJson:
     content = keymap_path.read_text()
 
     # Regex to find the enum custom_keycodes block
@@ -52,7 +52,7 @@ def parse_keymap_c(keymap_path: Path, safe_range_start: int) -> CustomKeycodesJs
     return CustomKeycodesJson.model_validate(keycodes)
 
 
-def get_safe_range_start(keycodes_json: Path) -> int:
+def _get_safe_range_start(keycodes_json: Path) -> int:
     keycodes_data = parse_json(KeycodesJson, keycodes_json)
 
     for code, name in keycodes_data.root.items():
@@ -62,8 +62,9 @@ def get_safe_range_start(keycodes_json: Path) -> int:
 
 
 def generate_custom_keycodes(keymap_c: Path, keycodes_json: Path) -> CustomKeycodesJson:
-    safe_range_start = get_safe_range_start(keycodes_json)
-    return parse_keymap_c(keymap_c, safe_range_start)
+    """Generate custom keycodes JSON from keymap.c and keycodes.json."""
+    safe_range_start = _get_safe_range_start(keycodes_json)
+    return _parse_keymap_c(keymap_c, safe_range_start)
 
 
 @app.command()

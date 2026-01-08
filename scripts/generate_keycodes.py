@@ -69,7 +69,7 @@ PREFERRED_NAMES = {
 }
 
 
-def read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
+def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
     qmk_lib_path = qmk_dir / "lib" / "python"
     if not qmk_lib_path.exists():
         raise FileNotFoundError(f"QMK lib path not found at {qmk_lib_path}")
@@ -127,7 +127,8 @@ def _get_names(info: QmkKeycodeSpecEntry) -> list[str]:
 
 
 def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
-    spec = read_latest_qmk_spec(qmk_dir)
+    """Generate the keycodes JSON from QMK firmware sources."""
+    spec = _read_latest_qmk_spec(qmk_dir)
 
     code_to_name: dict[int, str] = {}
 

@@ -23,6 +23,7 @@ def flatten_layer(
     layer_data: list[list[str]],
     layout_map: dict[tuple[int, int], int],
 ) -> list[str]:
+    """Flatten a matrix layer into a QMK list using the layout map."""
     if not layout_map:
         raise ValueError("Layout map is empty")
     max_flattened_idx = max(layout_map.values())
@@ -40,6 +41,7 @@ def generate_qmk_keymap_from_vitaly(
     keyboard_json: Path,
     layout_name: str,
 ) -> QmkKeymapJson:
+    """Convert a Vitaly JSON dump into a QMK keymap JSON."""
     layout_list = load_layout_keys(keyboard_json, layout_name)
 
     layout_map: dict[tuple[int, int], int] = {}
@@ -66,6 +68,7 @@ def main(
     ],
     layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
+    """Generate QMK keymap JSON from a Vitaly dump and emit to stdout."""
     try:
         output = generate_qmk_keymap_from_vitaly(
             vitaly_json,
