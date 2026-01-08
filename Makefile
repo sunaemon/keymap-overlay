@@ -7,13 +7,13 @@ SHELL := /bin/bash
 VIAL ?= false
 
 # ================= TOOLS CONFIGURATION =================
-RSVG ?= rsvg-convert
+RSVG ?= resvg
 MISE ?= mise
 VITALY_VERSION := $(shell awk -F' *= *' '/^VITALY_VERSION *=/ {gsub(/"/,"",$$2); print $$2}' mise.toml)
 ifeq ($(strip $(VITALY_VERSION)),)
 $(error VITALY_VERSION is missing from mise.toml)
 endif
-QMK ?= qmk
+QMK ?= $(MISE) exec pipx:qmk -- qmk
 KEYMAP ?= $(MISE) exec -- keymap
 UV ?= $(MISE) exec -- uv
 VITALY ?= $(MISE) exec cargo:vitaly@$(VITALY_VERSION) -- vitaly
@@ -252,7 +252,7 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 $(BUILD_DIR)/%.png: $(BUILD_DIR)/%.svg
-	$(RSVG) -d $(DPI) -p $(DPI) -o $@ $<
+	$(RSVG) --dpi $(DPI) "$<" "$@"
 
 $(BUILD_DIR)/L%.svg: $(KEYMAP_DRAWER_YAML) | $(BUILD_DIR)
 	$(RUN_OUTPUT) "$@" -- $(KEYMAP) draw "$(KEYMAP_DRAWER_YAML)" -j "$(KEYBOARD_JSON)" -l "$(LAYOUT_NAME)" -s "L$*"

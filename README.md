@@ -37,8 +37,7 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 4. Install required packages and tools:
 
    ```bash
-   brew tap qmk/qmk
-   brew install mise qmk librsvg
+   brew install mise
    brew install --cask hammerspoon
    mise install
    mise exec -- uv sync --no-dev
