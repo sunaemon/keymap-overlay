@@ -20,8 +20,6 @@ logger = get_logger(__name__)
 
 app = typer.Typer()
 
-LAYOUT_NAME = "LAYOUT"
-
 
 def load_keycodes(keycodes_path: Path) -> dict[int, str]:
     keycodes_data = parse_json(KeycodesJson, keycodes_path)
@@ -30,17 +28,20 @@ def load_keycodes(keycodes_path: Path) -> dict[int, str]:
 
 
 # Returns the mapping from (row, col) to flattened index
-def load_layout_map(keyboard_json: Path) -> dict[tuple[int, int], int]:
+def load_layout_map(
+    keyboard_json: Path,
+    layout_name: str,
+) -> dict[tuple[int, int], int]:
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
 
     layouts = keyboard_data.layouts
     if layouts is None:
         raise ValueError("No layouts found in keyboard.json")
 
-    if LAYOUT_NAME not in layouts:
-        raise ValueError(f"Layout {LAYOUT_NAME} not found in keyboard.json")
+    if layout_name not in layouts:
+        raise ValueError(f"Layout {layout_name} not found in keyboard.json")
 
-    layout_list = layouts[LAYOUT_NAME].layout
+    layout_list = layouts[layout_name].layout
 
     mapping: dict[tuple[int, int], int] = {}
     for i, entry in enumerate(layout_list):
@@ -71,8 +72,9 @@ def flatten_layer(
 def generate_qmk_keymap_from_vitaly(
     vitaly_json: Path,
     keyboard_json: Path,
+    layout_name: str,
 ) -> QmkKeymapJson:
-    layout_map = load_layout_map(keyboard_json)
+    layout_map = load_layout_map(keyboard_json, layout_name)
     vitaly_data = parse_json(VitalyJson, vitaly_json)
 
     layers = [flatten_layer(layer, layout_map) for layer in vitaly_data.layout]
@@ -80,7 +82,7 @@ def generate_qmk_keymap_from_vitaly(
     return QmkKeymapJson(
         version=1,
         layers=layers,
-        layout="LAYOUT",
+        layout=layout_name,
     )
 
 
@@ -91,11 +93,13 @@ def main(
         Path,
         typer.Option(help="Path to keyboard.json to map matrix to flattened layout"),
     ],
+    layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
     try:
         output = generate_qmk_keymap_from_vitaly(
             vitaly_json,
             keyboard_json,
+            layout_name,
         )
         print_json(output)
     except Exception:

@@ -21,16 +21,18 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-def get_layout_mapping(keyboard_data: KeyboardJson) -> list[tuple[int, int]]:
+def get_layout_mapping(
+    keyboard_data: KeyboardJson,
+    layout_name: str,
+) -> list[tuple[int, int]]:
     """
     Returns a list where index i corresponds to the (row, col) of the i-th key
     in the flattened LAYOUT.
     """
 
     layouts = keyboard_data.layouts
-    layout_name = "LAYOUT"
     if layout_name not in layouts:
-        layout_name = next(iter(layouts))
+        raise ValueError(f"Layout {layout_name} not found in keyboard.json")
 
     layout_keys = layouts[layout_name].layout
 
@@ -46,6 +48,7 @@ def generate_vitaly_layout(
     vitaly_json: Path,
     keyboard_json: Path,
     custom_keycodes_json: Path,
+    layout_name: str,
 ) -> VitalyJson:
     qmk_keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
     vitaly_data = parse_json(VitalyJson, vitaly_json)
@@ -54,7 +57,7 @@ def generate_vitaly_layout(
 
     custom_map = {v: k for k, v in custom_keycodes_data.root.items()}
 
-    mapping = get_layout_mapping(keyboard_data)
+    mapping = get_layout_mapping(keyboard_data, layout_name)
 
     max_row = 0
     max_col = 0
@@ -105,6 +108,7 @@ def main(
         Path,
         typer.Option(help="Path to custom-keycodes.json for reverse mapping"),
     ],
+    layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
     """
     Update Vitaly JSON layout from QMK JSON and emit it to stdout.
@@ -115,6 +119,7 @@ def main(
             vitaly_json,
             keyboard_json,
             custom_keycodes_json,
+            layout_name,
         )
         print_json(vitaly_data)
         logger.info("Generated updated Vitaly layout.")

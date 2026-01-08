@@ -145,9 +145,10 @@ clean:
 .PHONY: _copy_firmware
 _copy_firmware:
 	mkdir -p "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)"
+	mkdir -p "$(BUILD_DIR)"
 	install -C keyboards/$(QMK_KEYBOARD)/config.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h"
 	install -C keyboards/$(QMK_KEYBOARD)/keyboard.json "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json"
-	$(UV) run scripts/generate_vial.py --keyboard-json keyboards/$(QMK_KEYBOARD)/keyboard.json > "$(VIAL_JSON).tmp" || (rm -f "$(VIAL_JSON).tmp" && exit 1)
+	$(UV) run scripts/generate_vial.py --keyboard-json keyboards/$(QMK_KEYBOARD)/keyboard.json --layout-name "$(LAYOUT_NAME)" > "$(VIAL_JSON).tmp" || (rm -f "$(VIAL_JSON).tmp" && exit 1)
 	mv "$(VIAL_JSON).tmp" "$(VIAL_JSON)"
 	install -C $(VIAL_JSON) "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/vial.json"
 	install -C keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/* "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/"
@@ -171,6 +172,7 @@ flash-keymap: $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 		--vitaly-json "$(VITALY_JSON)" \
 		--keyboard-json "keyboards/$(QMK_KEYBOARD)/keyboard.json" \
 		--custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" \
+		--layout-name "$(LAYOUT_NAME)" \
 		> "$(BUILD_DIR)/vitaly_ready.json.tmp" || (rm -f "$(BUILD_DIR)/vitaly_ready.json.tmp" && exit 1)
 	mv "$(BUILD_DIR)/vitaly_ready.json.tmp" "$(BUILD_DIR)/vitaly_ready.json"
 	@echo "Loading new configuration to device..."
@@ -279,7 +281,7 @@ ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
-	$(UV) run scripts/generate_qmk_keymap_from_vitaly.py --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" > $@ || (rm -f $@ && exit 1)
+	$(UV) run scripts/generate_qmk_keymap_from_vitaly.py --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)" > $@ || (rm -f $@ && exit 1)
 else
 	@echo "Compiling QMK JSON from source..."
 	$(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) > $@ || (rm -f $@ && exit 1)

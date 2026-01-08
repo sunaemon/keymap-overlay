@@ -11,7 +11,7 @@ DATA_DIR = Path(__file__).parent / "data"
 
 
 def test_load_layout_map_returns_matrix_indices() -> None:
-    mapping = load_layout_map(DATA_DIR / "keyboard.json")
+    mapping = load_layout_map(DATA_DIR / "keyboard.json", "LAYOUT")
     assert mapping == {(0, 0): 0, (0, 1): 1}
 
 

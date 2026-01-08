@@ -32,7 +32,7 @@ def round_unit(x: float) -> float:
     return round(x * (1 << PRESCISON)) / (1 << PRESCISON)
 
 
-def generate_vial(keyboard_json: Path) -> VialJson:
+def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
 
     vendor_id = keyboard_data.usb.vid
@@ -51,7 +51,6 @@ def generate_vial(keyboard_json: Path) -> VialJson:
             )
         matrix_rows += len(matrix_pins.rows)
 
-    layout_name = "LAYOUT"
     if layout_name not in keyboard_data.layouts:
         raise ValueError(f"Layout {layout_name} not found in keyboard.json")
 
@@ -127,12 +126,13 @@ def generate_vial(keyboard_json: Path) -> VialJson:
 @app.command()
 def main(
     keyboard_json: Annotated[Path, typer.Option(help="Path to input keyboard.json")],
+    layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
     """
     Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout.
     """
     try:
-        vial_data = generate_vial(keyboard_json)
+        vial_data = generate_vial(keyboard_json, layout_name)
         print_json(vial_data, exclude_none=True)
         logger.info("Generated Vial JSON from %s", keyboard_json)
     except Exception:
