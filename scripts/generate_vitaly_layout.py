@@ -14,33 +14,11 @@ from src.types import (
     parse_json,
     print_json,
 )
-from src.util import get_logger
+from src.util import get_layout_keys, get_logger
 
 logger = get_logger(__name__)
 
 app = typer.Typer()
-
-
-def get_layout_mapping(
-    keyboard_data: KeyboardJson,
-    layout_name: str,
-) -> list[tuple[int, int]]:
-    """
-    Returns a list where index i corresponds to the (row, col) of the i-th key
-    in the flattened LAYOUT.
-    """
-
-    layouts = keyboard_data.layouts
-    if layout_name not in layouts:
-        raise ValueError(f"Layout {layout_name} not found in keyboard.json")
-
-    layout_keys = layouts[layout_name].layout
-
-    mapping: list[tuple[int, int]] = []
-    for key in layout_keys:
-        if key.matrix:
-            mapping.append(key.matrix)
-    return mapping
 
 
 def generate_vitaly_layout(
@@ -57,7 +35,9 @@ def generate_vitaly_layout(
 
     custom_map = {v: k for k, v in custom_keycodes_data.root.items()}
 
-    mapping = get_layout_mapping(keyboard_data, layout_name)
+    layout_keys = get_layout_keys(keyboard_data, layout_name)
+
+    mapping = [key.matrix for key in layout_keys]
 
     max_row = 0
     max_col = 0
