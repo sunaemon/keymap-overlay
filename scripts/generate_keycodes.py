@@ -10,7 +10,7 @@ from typing import Annotated
 import typer
 
 from src.types import KeycodesJson, QmkKeycodeSpecEntry, QmkKeycodesSpec, print_json
-from src.util import get_logger
+from src.util import get_logger, parse_hex_keycode
 
 logger = get_logger(__name__)
 
@@ -112,13 +112,6 @@ def _choose_best_name(current: str | None, candidate: str) -> str:
     return min(current, candidate, key=_name_rank)
 
 
-def _parse_hex_code(hex_code: str) -> int | None:
-    try:
-        return int(hex_code, 16)
-    except ValueError:
-        return None
-
-
 def _get_names(info: QmkKeycodeSpecEntry) -> list[str]:
     names: list[str | None] = [info.key]
     if info.aliases:
@@ -134,7 +127,7 @@ def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
 
     # New structure: "0x0004": { "key": "KC_A", "aliases": [...] }
     for hex_code, info in spec.keycodes.items():
-        code = _parse_hex_code(hex_code)
+        code = parse_hex_keycode(hex_code)
         if code is None:
             continue
 
