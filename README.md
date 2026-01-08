@@ -1,6 +1,8 @@
 # QMK Keymap Hammerspoon Overlay
 
 [![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Keyboards: GPL-2.0-or-later](https://img.shields.io/badge/Keyboards-GPL--2.0--or--later-blue.svg)](keyboards/salicylic_acid3/insixty_en/LICENSE)
 
 This repository provides tools to **generate keyboard layer images from QMK keymaps** and display them as an **on-screen overlay on macOS using Hammerspoon** while layer modifier keys are held.
 
