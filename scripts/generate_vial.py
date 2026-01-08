@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -18,18 +18,51 @@ from src.types import (
     parse_json,
     print_json,
 )
-from src.util import get_logger
+from src.util import initialize_logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
-
 
 PRECISION = 2  # We handle key positions with 1<<2 = 4 subdivisions per unit
 
 
-def _round_unit(x: float) -> float:
-    return round(x * (1 << PRECISION)) / (1 << PRECISION)
+@app.command()
+def main(
+    keyboard_json: Annotated[Path, typer.Option(help="Path to input keyboard.json")],
+    layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
+) -> None:
+    """Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout."""
+    initialize_logging()
+    try:
+        vial_data = generate_vial(keyboard_json, layout_name)
+        print_json(vial_data, exclude_none=True)
+        logger.info("Generated Vial JSON from %s", keyboard_json)
+    except Exception:
+        logger.exception("Failed to generate Vial JSON from %s", keyboard_json)
+        raise typer.Exit(code=1) from None
+
+
+def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
+    """Convert QMK keyboard.json to a Vial-compatible JSON structure."""
+    keyboard_data = parse_json(KeyboardJson, keyboard_json)
+
+    vendor_id = keyboard_data.usb.vid
+    product_id = keyboard_data.usb.pid
+
+    matrix_rows, matrix_cols = keyboard_data.matrix_dimensions()
+
+    layout_data = keyboard_data.layout_keys(layout_name)
+    rows_by_y = _group_layout_rows(layout_data)
+    kle_rows = _build_kle_rows(rows_by_y)
+
+    return VialJson(
+        name=keyboard_data.keyboard_name,
+        vendorId=vendor_id,
+        productId=product_id,
+        matrix=VialMatrix(rows=matrix_rows, cols=matrix_cols),
+        layouts=VialLayouts(keymap=kle_rows),
+    )
 
 
 def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[int, list[LayoutKey]]:
@@ -40,6 +73,13 @@ def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[int, list[LayoutKey
             raise ValueError("Non-integer key y position is not supported")
         rows.setdefault(row_index, []).append(key)
     return rows
+
+
+def _build_kle_rows(rows_by_y: dict[int, list[LayoutKey]]) -> KleLayout:
+    kle_rows: KleLayout = []
+    for y in sorted(rows_by_y.keys()):
+        kle_rows.append(_build_kle_row(rows_by_y[y]))
+    return kle_rows
 
 
 def _build_kle_row(row_keys: list[LayoutKey]) -> KleRow:
@@ -74,50 +114,8 @@ def _build_kle_row(row_keys: list[LayoutKey]) -> KleRow:
     return kle_row
 
 
-def _build_kle_rows(rows_by_y: dict[int, list[LayoutKey]]) -> KleLayout:
-    kle_rows: KleLayout = []
-    for y in sorted(rows_by_y.keys()):
-        kle_rows.append(_build_kle_row(rows_by_y[y]))
-    return kle_rows
-
-
-def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
-    """Convert QMK keyboard.json to a Vial-compatible JSON structure."""
-    keyboard_data = parse_json(KeyboardJson, keyboard_json)
-
-    vendor_id = keyboard_data.usb.vid
-    product_id = keyboard_data.usb.pid
-
-    matrix_rows, matrix_cols = keyboard_data.matrix_dimensions()
-
-    layout_data = keyboard_data.layout_keys(layout_name)
-    rows_by_y = _group_layout_rows(layout_data)
-    kle_rows = _build_kle_rows(rows_by_y)
-
-    return VialJson(
-        name=keyboard_data.keyboard_name,
-        vendorId=vendor_id,
-        productId=product_id,
-        matrix=VialMatrix(rows=matrix_rows, cols=matrix_cols),
-        layouts=VialLayouts(keymap=kle_rows),
-    )
-
-
-@app.command()
-def main(
-    keyboard_json: Annotated[Path, typer.Option(help="Path to input keyboard.json")],
-    layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
-) -> None:
-    """
-    Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout.
-    """
-    try:
-        vial_data = generate_vial(keyboard_json, layout_name)
-        print_json(vial_data, exclude_none=True)
-        logger.info("Generated Vial JSON from %s", keyboard_json)
-    except Exception:
-        logger.exception("Failed to generate Vial JSON from %s", keyboard_json)
-        raise typer.Exit(code=1) from None
+def _round_unit(x: float) -> float:
+    return round(x * (1 << PRECISION)) / (1 << PRECISION)
 
 
 if __name__ == "__main__":
