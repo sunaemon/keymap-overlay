@@ -73,7 +73,7 @@ def generate_vitaly_layout(
     new_vitaly_layout = []
 
     for layer_idx, flat_layer in enumerate(qmk_layers):
-        layer_grid: list[list[str | int]] = [
+        layer_grid: list[list[str]] = [
             ["KC_NO" for _ in range(cols)] for _ in range(rows)
         ]
 
@@ -86,7 +86,7 @@ def generate_vitaly_layout(
 
             r, c = mapping[key_idx]
 
-            if isinstance(keycode, str) and keycode in custom_map:
+            if keycode in custom_map:
                 keycode = custom_map[keycode]
 
             layer_grid[r][c] = keycode

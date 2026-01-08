@@ -8,7 +8,6 @@ import typer
 
 from src.types import (
     KeyboardJson,
-    KeycodesJson,
     QmkKeymapJson,
     VitalyJson,
     parse_json,
@@ -19,12 +18,6 @@ from src.util import get_logger
 logger = get_logger(__name__)
 
 app = typer.Typer()
-
-
-def load_keycodes(keycodes_path: Path) -> dict[int, str]:
-    keycodes_data = parse_json(KeycodesJson, keycodes_path)
-
-    return {int(k, 16): v for k, v in keycodes_data.root.items()}
 
 
 # Returns the mapping from (row, col) to flattened index

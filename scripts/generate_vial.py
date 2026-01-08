@@ -25,11 +25,11 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
-PRESCISON = 2  # We handle key positions with 1<<2 = 4 subdivisions per unit
+PRECISION = 2  # We handle key positions with 1<<2 = 4 subdivisions per unit
 
 
 def round_unit(x: float) -> float:
-    return round(x * (1 << PRESCISON)) / (1 << PRESCISON)
+    return round(x * (1 << PRECISION)) / (1 << PRECISION)
 
 
 def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
@@ -96,7 +96,7 @@ def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
             props = KleKeyProps()
 
             if key_x != current_x:
-                props.x = key_x
+                props.x = key_x - current_x
 
             if key_w != 1:
                 props.w = key_w
