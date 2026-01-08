@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import logging
 import re
 from pathlib import Path
 from typing import Annotated
@@ -8,9 +9,9 @@ from typing import Annotated
 import typer
 
 from src.types import KeyToLayerJson, print_json
-from src.util import get_logger, strip_c_comments
+from src.util import initialize_logging, strip_c_comments
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
@@ -20,6 +21,7 @@ def main(
     keymap_c: Annotated[Path, typer.Option(help="Path to keymap.c")],
 ) -> None:
     """Generate key-to-layer JSON from keymap.c and emit it to stdout."""
+    initialize_logging()
     try:
         key_to_layer = _process(keymap_c)
         print_json(key_to_layer)

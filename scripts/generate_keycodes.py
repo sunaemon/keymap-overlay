@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import logging
 import os
 import sys
 import types
@@ -10,9 +11,9 @@ from typing import Annotated
 import typer
 
 from src.types import KeycodesJson, QmkKeycodesSpec, print_json
-from src.util import get_logger, parse_hex_keycode
+from src.util import initialize_logging, parse_hex_keycode
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
@@ -76,6 +77,7 @@ def main(
         typer.Option(help="Path to qmk_firmware directory"),
     ],
 ) -> None:
+    initialize_logging()
     try:
         keycodes = generate_keycodes(qmk_dir)
         print_json(keycodes)

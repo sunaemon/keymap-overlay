@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import logging
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from src.types import KeycodesJson, QmkKeymapJson, parse_json, print_json
-from src.util import get_logger, parse_hex_keycode, parse_keycode_value
+from src.util import initialize_logging, parse_hex_keycode, parse_keycode_value
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
@@ -25,6 +26,7 @@ def main(
         Path, typer.Option(help="Path to custom_keycodes.json")
     ],
 ) -> None:
+    initialize_logging()
     try:
         resolved_keymap = postprocess_qmk_keymap(qmk_keymap_json, custom_keycodes_json)
         print_json(resolved_keymap)

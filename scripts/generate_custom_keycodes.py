@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import logging
 import re
 from pathlib import Path
 from typing import Annotated
@@ -8,9 +9,9 @@ from typing import Annotated
 import typer
 
 from src.types import KeycodesJson, parse_json, print_json
-from src.util import get_logger, parse_hex_keycode, strip_c_comments
+from src.util import initialize_logging, parse_hex_keycode, strip_c_comments
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
@@ -24,6 +25,7 @@ def main(
     ],
 ) -> None:
     """Sync custom keycodes from keymap.c and emit JSON to stdout."""
+    initialize_logging()
     try:
         custom_keycodes = generate_custom_keycodes(keymap_c, keycodes_json)
         print_json(custom_keycodes)

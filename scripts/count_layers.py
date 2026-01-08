@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import logging
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from src.types import QmkKeymapJson, parse_json
-from src.util import get_logger
+from src.util import initialize_logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
@@ -21,6 +22,7 @@ def main(
     ],
 ) -> None:
     """Count layers in a QMK keymap JSON file and print the result."""
+    initialize_logging()
     try:
         print(count_layers(qmk_keymap_json))
     except Exception:

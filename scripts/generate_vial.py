@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -18,9 +19,9 @@ from src.types import (
     parse_json,
     print_json,
 )
-from src.util import get_logger
+from src.util import initialize_logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
@@ -33,6 +34,7 @@ def main(
     layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
     """Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout."""
+    initialize_logging()
     try:
         vial_data = generate_vial(keyboard_json, layout_name)
         print_json(vial_data, exclude_none=True)

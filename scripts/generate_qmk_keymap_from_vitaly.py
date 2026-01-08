@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import logging
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from src.types import QmkKeymapJson, VitalyJson, parse_json, print_json
-from src.util import get_logger, load_layout_keys
+from src.util import initialize_logging, load_layout_keys
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
@@ -24,6 +25,7 @@ def main(
     layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
     """Generate QMK keymap JSON from a Vitaly dump and emit to stdout."""
+    initialize_logging()
     try:
         output = generate_qmk_keymap_from_vitaly(
             vitaly_json,
