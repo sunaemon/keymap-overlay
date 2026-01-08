@@ -31,7 +31,6 @@ def main(
         Path, typer.Argument(help="Path to the QMK keymap JSON file")
     ],
 ) -> None:
-    """Count layers in a QMK keymap JSON file and print the result."""
     try:
         print(count_layers(qmk_keymap_json))
     except Exception:

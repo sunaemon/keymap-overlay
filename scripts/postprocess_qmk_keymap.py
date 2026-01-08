@@ -53,11 +53,19 @@ def _load_custom_keycodes(custom_keycodes_path: Path) -> dict[int, str] | None:
     return int_map
 
 
-def _apply_custom_map_to_layer(layer: list[str], int_map: dict[int, str]) -> None:
-    for idx, key in enumerate(layer):
-        code_val = parse_keycode_value(key)
-        if code_val is not None and code_val in int_map:
-            layer[idx] = int_map[code_val]
+def _apply_custom_keycodes(
+    keymap: QmkKeymapJson,
+    custom_keycodes_path: Path,
+) -> QmkKeymapJson:
+    int_map = _load_custom_keycodes(custom_keycodes_path)
+    if not int_map or not keymap.layers:
+        return keymap
+    for layer in keymap.layers:
+        for idx, key in enumerate(layer):
+            code_val = parse_keycode_value(key)
+            if code_val is not None and code_val in int_map:
+                layer[idx] = int_map[code_val]
+    return keymap
 
 
 def postprocess_qmk_keymap(
@@ -65,11 +73,9 @@ def postprocess_qmk_keymap(
 ) -> QmkKeymapJson:
     """Process QMK keymap JSON."""
     keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
-    int_map = _load_custom_keycodes(custom_keycodes_json)
-    if int_map and keymap_data.layers:
-        for layer in keymap_data.layers:
-            _apply_custom_map_to_layer(layer, int_map)
-    return _resolve_transparency(keymap_data)
+    keymap_data = _apply_custom_keycodes(keymap_data, custom_keycodes_json)
+    keymap_data = _resolve_transparency(keymap_data)
+    return keymap_data
 
 
 @app.command()
