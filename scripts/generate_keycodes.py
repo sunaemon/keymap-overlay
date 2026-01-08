@@ -142,10 +142,11 @@ def main(
     ],
 ) -> None:
     try:
-        print_json(generate_keycodes(qmk_dir))
+        keycodes = generate_keycodes(qmk_dir)
+        print_json(keycodes)
         logger.info(
             "Generated %d keycodes JSON from QMK firmware at %s",
-            len(generate_keycodes(qmk_dir).root),
+            len(keycodes.root),
             qmk_dir,
         )
     except Exception:
