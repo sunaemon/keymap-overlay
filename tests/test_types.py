@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 from src.types import (
-    CustomKeycodesJson,
     KeyboardJson,
     KeycodesJson,
     KeyToLayerJson,
@@ -38,13 +37,6 @@ def test_parse_keycodes_json() -> None:
     data = json.loads(path.read_text())
     keycodes = KeycodesJson.model_validate(data)
     assert keycodes.root["0x0004"] == "KC_A"
-
-
-def test_parse_custom_keycodes_json() -> None:
-    path = DATA_DIR / "custom-keycodes.json"
-    data = json.loads(path.read_text())
-    keycodes = CustomKeycodesJson.model_validate(data)
-    assert keycodes.root["0x7E40"] == "SAFE_RANGE"
 
 
 def test_parse_vial_json() -> None:

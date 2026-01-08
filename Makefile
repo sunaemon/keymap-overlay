@@ -63,7 +63,7 @@ KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
 # [Custom Keycodes JSON]
 # Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from keymap.c.
-# Type: src/types.py:CustomKeycodesJson
+# Type: src/types.py:KeycodesJson
 # Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c'.
 # Used by: 'generate_qmk_keymap_postprocess.py', 'generate_vitaly_layout.py' to preserve custom codes.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
@@ -108,10 +108,6 @@ setup:
 	mise install
 	brew install --cask hammerspoon
 	$(UV) sync --no-dev
-
-.PHONY: setup-dev
-setup-dev: setup
-	$(UV) sync
 
 .PHONY: format
 format:

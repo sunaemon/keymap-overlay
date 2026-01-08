@@ -6,12 +6,14 @@ from typing import Annotated
 
 import typer
 
-from src.types import CustomKeycodesJson, QmkKeymapJson, parse_json, print_json
+from src.types import KeycodesJson, QmkKeymapJson, parse_json, print_json
 from src.util import get_logger
 
 logger = get_logger(__name__)
 
 app = typer.Typer()
+
+TRANS_KEYS = {"KC_TRNS", "KC_TRANSPARENT", "_______"}
 
 
 def _resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
@@ -19,7 +21,6 @@ def _resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
         return keymap
 
     layers = keymap.layers
-    TRANS_KEYS = {"KC_TRNS", "KC_TRANSPARENT", "_______"}
 
     for i in range(1, len(layers)):
         for idx in range(len(layers[i])):
@@ -35,7 +36,7 @@ def _resolve_transparency(keymap: QmkKeymapJson) -> QmkKeymapJson:
 
 def _load_custom_keycodes(custom_keycodes_path: Path) -> dict[int, str] | None:
     try:
-        custom_keycodes_data = parse_json(CustomKeycodesJson, custom_keycodes_path)
+        custom_keycodes_data = parse_json(KeycodesJson, custom_keycodes_path)
     except Exception as e:
         logger.warning(
             "Could not load custom keycodes from %s: %s", custom_keycodes_path, e
@@ -52,15 +53,13 @@ def _load_custom_keycodes(custom_keycodes_path: Path) -> dict[int, str] | None:
     return int_map
 
 
-def _parse_keycode_value(key: str | int) -> int | None:
-    if isinstance(key, int):
-        return key
+def _parse_keycode_value(key: str) -> int | None:
     if key.startswith(("0x", "0X")):
         try:
             return int(key, 16)
         except ValueError:
             return None
-    if key.isascii() and key.isdigit():
+    if key.isdigit():
         try:
             return int(key)
         except ValueError:
@@ -75,22 +74,12 @@ def _apply_custom_map_to_layer(layer: list[str], int_map: dict[int, str]) -> Non
             layer[idx] = int_map[code_val]
 
 
-def _apply_custom_keycodes(
-    keymap: QmkKeymapJson, custom_keycodes_path: Path
-) -> QmkKeymapJson:
-    int_map = _load_custom_keycodes(custom_keycodes_path)
-    if not int_map or not keymap.layers:
-        return keymap
-
-    for layer in keymap.layers:
-        _apply_custom_map_to_layer(layer, int_map)
-
-    return keymap
-
-
 def _process_keymap(qmk_keymap_json: Path, custom_keycodes_json: Path) -> QmkKeymapJson:
     keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
-    keymap_data = _apply_custom_keycodes(keymap_data, custom_keycodes_json)
+    int_map = _load_custom_keycodes(custom_keycodes_json)
+    if int_map and keymap_data.layers:
+        for layer in keymap_data.layers:
+            _apply_custom_map_to_layer(layer, int_map)
     return _resolve_transparency(keymap_data)
 
 

@@ -32,20 +32,6 @@ def _round_unit(x: float) -> float:
     return round(x * (1 << PRECISION)) / (1 << PRECISION)
 
 
-def _get_matrix_rows(keyboard_data: KeyboardJson) -> int:
-    rows = len(keyboard_data.matrix_pins.rows)
-    if keyboard_data.split and keyboard_data.split.enabled:
-        if len(keyboard_data.split.matrix_pins) != 1:
-            raise ValueError("multiple split sides not supported yet")
-        split_side, matrix_pins = next(iter(keyboard_data.split.matrix_pins.items()))
-        if split_side != "left" and split_side != "right":
-            raise ValueError(
-                "only left and right side split configurations are supported yet"
-            )
-        rows += len(matrix_pins.rows)
-    return rows
-
-
 def _get_layout_data(
     keyboard_data: KeyboardJson,
     layout_name: str,
@@ -124,8 +110,7 @@ def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
     vendor_id = keyboard_data.usb.vid
     product_id = keyboard_data.usb.pid
 
-    matrix_rows = _get_matrix_rows(keyboard_data)
-    matrix_cols = len(keyboard_data.matrix_pins.cols)
+    matrix_rows, matrix_cols = keyboard_data.matrix_dimensions()
 
     layout_data = _get_layout_data(keyboard_data, layout_name)
     _validate_layout_matrix(layout_data, matrix_rows, matrix_cols)

@@ -33,21 +33,10 @@ def strip_c_comments(text: str) -> str:
     return text
 
 
-def get_layout_keys(
-    keyboard_data: KeyboardJson,
-    layout_name: str,
-) -> list[LayoutKey]:
-    """Return the layout keys for a named layout in keyboard.json data."""
-    layouts = keyboard_data.layouts
-    if layout_name not in layouts:
-        raise ValueError(f"Layout {layout_name} not found in keyboard.json")
-    return layouts[layout_name].layout
-
-
 def load_layout_keys(
     keyboard_json: Path,
     layout_name: str,
 ) -> list[LayoutKey]:
     """Load keyboard.json and return layout keys for a named layout."""
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
-    return get_layout_keys(keyboard_data, layout_name)
+    return keyboard_data.layout_keys(layout_name)

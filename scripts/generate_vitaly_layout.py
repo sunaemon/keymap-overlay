@@ -7,14 +7,14 @@ from typing import Annotated
 import typer
 
 from src.types import (
-    CustomKeycodesJson,
     KeyboardJson,
+    KeycodesJson,
     QmkKeymapJson,
     VitalyJson,
     parse_json,
     print_json,
 )
-from src.util import get_layout_keys, get_logger
+from src.util import get_logger
 
 logger = get_logger(__name__)
 
@@ -25,19 +25,8 @@ def _get_layout_mapping(
     keyboard_data: KeyboardJson,
     layout_name: str,
 ) -> list[tuple[int, int]]:
-    layout_keys = get_layout_keys(keyboard_data, layout_name)
+    layout_keys = keyboard_data.layout_keys(layout_name)
     return [key.matrix for key in layout_keys]
-
-
-def _matrix_dimensions(mapping: list[tuple[int, int]]) -> tuple[int, int]:
-    if not mapping:
-        raise ValueError("Layout mapping is empty")
-    max_row = 0
-    max_col = 0
-    for r, c in mapping:
-        max_row = max(max_row, r)
-        max_col = max(max_col, c)
-    return max_row + 1, max_col + 1
 
 
 def _init_layer_grid(rows: int, cols: int) -> list[list[str]]:
@@ -78,7 +67,7 @@ def generate_vitaly_layout(
     qmk_keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
     vitaly_data = parse_json(VitalyJson, vitaly_json)
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
-    custom_keycodes_data = parse_json(CustomKeycodesJson, custom_keycodes_json)
+    custom_keycodes_data = parse_json(KeycodesJson, custom_keycodes_json)
 
     custom_map: dict[str, str] = {}
     for code, name in custom_keycodes_data.root.items():
@@ -92,7 +81,7 @@ def generate_vitaly_layout(
         custom_map[name] = code
 
     mapping = _get_layout_mapping(keyboard_data, layout_name)
-    rows, cols = _matrix_dimensions(mapping)
+    rows, cols = keyboard_data.matrix_dimensions()
 
     qmk_layers = qmk_keymap_data.layers or []
 
