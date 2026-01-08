@@ -17,7 +17,7 @@ app = typer.Typer()
 
 @app.command()
 def main(
-    output: Annotated[Path, typer.Option(help="Final output path")],
+    output: Annotated[Path, typer.Argument(help="Final output path")],
     command: Annotated[
         list[str], typer.Argument(help="Command to run; use -- before it")
     ],
