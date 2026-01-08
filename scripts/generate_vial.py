@@ -24,7 +24,11 @@ logger = get_logger(__name__)
 
 app = typer.Typer()
 
-EPS = 0.01
+# We handle up to the quarter precision for key positions and sizes so we need up to 2 decimal places
+PRESISION = 2
+
+# We ignore differences smaller than EPS when comparing floating point numbers
+EPS = 10 ** (-PRESISION)
 
 
 def generate_vial(keyboard_json: Path) -> VialJson:
@@ -101,12 +105,13 @@ def generate_vial(keyboard_json: Path) -> VialJson:
 
             x_diff = key_x - current_x
             if abs(x_diff) > EPS:
-                props.x = round(x_diff, 2)
+                props.x = round(x_diff, PRESISION)
 
             if abs(key_w - 1) > EPS:
-                props.w = round(key_w, 2)
+                props.w = round(key_w, PRESISION)
+
             if abs(key_h - 1) > EPS:
-                props.h = round(key_h, 2)
+                props.h = round(key_h, PRESISION)
 
             if props != KleKeyProps():
                 kle_row.append(KleKeyProps.model_validate(props))
