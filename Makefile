@@ -262,12 +262,10 @@ $(BUILD_DIR)/%.png: $(BUILD_DIR)/%.svg
 	$(RSVG) -d $(DPI) -p $(DPI) -o $@ $<
 
 $(BUILD_DIR)/L%.svg: $(KEYMAP_DRAWER_YAML) | $(BUILD_DIR)
-	$(RUN_OUTPUT) "$@" -- \
-		$(KEYMAP) draw "$(KEYMAP_DRAWER_YAML)" -j "$(KEYBOARD_JSON)" -l "$(LAYOUT_NAME)" -s "L$*"
+	$(RUN_OUTPUT) "$@" -- $(KEYMAP) draw "$(KEYMAP_DRAWER_YAML)" -j "$(KEYBOARD_JSON)" -l "$(LAYOUT_NAME)" -s "L$*"
 
 $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
-	$(RUN_OUTPUT) "$@" -- \
-		$(KEYMAP) parse -q $(QMK_KEYMAP_JSON) -c $(COLUMNS)
+	$(RUN_OUTPUT) "$@" -- $(KEYMAP) parse -q $(QMK_KEYMAP_JSON) -c $(COLUMNS)
 
 .PHONY: _force_build
 _force_build:
@@ -284,17 +282,14 @@ ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
-	$(RUN_OUTPUT) "$@" -- \
-		$(UV) run python -m scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)"
+	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)"
 else
 	@echo "Compiling QMK JSON from source..."
-	$(RUN_OUTPUT) "$@" -- \
-		$(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
+	$(RUN_OUTPUT) "$@" -- $(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
 endif
 
 $(QMK_KEYMAP_JSON): $(QMK_KEYMAP_JSON_DEPS) | $(BUILD_DIR)
-	$(RUN_OUTPUT) "$@" -- \
-		$(UV) run python -m scripts.postprocess_qmk_keymap "$(QMK_KEYMAP_JSON_RAW)" --custom-keycodes-json $(CUSTOM_KEYCODES_JSON)
+	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.postprocess_qmk_keymap "$(QMK_KEYMAP_JSON_RAW)" --custom-keycodes-json $(CUSTOM_KEYCODES_JSON)
 
 $(KEYCODES_JSON): scripts/generate_keycodes.py | $(BUILD_DIR)
 	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_keycodes --qmk-dir "$(QMK_HOME)"

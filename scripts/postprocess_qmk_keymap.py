@@ -50,17 +50,18 @@ def _apply_custom_keycodes(
     keymap: QmkKeymapJson,
     custom_keycodes_path: Path | None,
 ) -> QmkKeymapJson:
+    keymap_copy = keymap.model_copy(deep=True)
     if custom_keycodes_path is None:
-        return keymap
+        return keymap_copy
     int_map = _load_custom_keycodes(custom_keycodes_path)
-    if not int_map or not keymap.layers:
-        return keymap
-    for layer in keymap.layers:
+    if not int_map or not keymap_copy.layers:
+        return keymap_copy
+    for layer in keymap_copy.layers:
         for idx, key in enumerate(layer):
             code_val = parse_keycode_value(key)
             if code_val is not None and code_val in int_map:
                 layer[idx] = int_map[code_val]
-    return keymap
+    return keymap_copy
 
 
 def _load_custom_keycodes(

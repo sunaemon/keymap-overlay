@@ -123,13 +123,16 @@ def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
     if not qmk_lib_path.exists():
         raise FileNotFoundError(f"QMK lib path not found at {qmk_lib_path}")
 
+    original_sys_path = list(sys.path)
+    original_cwd = Path.cwd()
+    original_milc = sys.modules.get("milc")
+    original_milc_cli = sys.modules.get("milc.cli")
     sys.path.insert(0, str(qmk_lib_path))
     # Dummy module for milc dependency
     sys.modules["milc"] = types.ModuleType("milc")
     sys.modules["milc.cli"] = types.ModuleType("milc.cli")
     import qmk.keycodes as qmk_keycodes  # type: ignore
 
-    original_cwd = Path.cwd()
     # QMK keycodes loader assumes the repo root as cwd; acceptable in this CLI because it runs single-threaded.
     os.chdir(qmk_dir)
 
@@ -143,6 +146,15 @@ def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
         return spec
     finally:
         os.chdir(original_cwd)
+        sys.path[:] = original_sys_path
+        if original_milc is None:
+            sys.modules.pop("milc", None)
+        else:
+            sys.modules["milc"] = original_milc
+        if original_milc_cli is None:
+            sys.modules.pop("milc.cli", None)
+        else:
+            sys.modules["milc.cli"] = original_milc_cli
 
 
 def _name_rank(name: str) -> tuple[int, int]:

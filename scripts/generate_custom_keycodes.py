@@ -80,6 +80,10 @@ def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> KeycodesJson:
             value: str = parts[1]
             if value == "SAFE_RANGE":
                 current_code = safe_range_start
+            else:
+                raise ValueError(
+                    f"Explicit keycode assignment is not supported: {entry}"
+                )
         else:
             name = entry
 
