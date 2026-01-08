@@ -98,25 +98,6 @@ class KeyboardJson(BaseModelAllow):
         rows, cols = self.matrix_dimensions()
         return mapping, rows, cols
 
-    def _validate_layout_mapping(
-        self,
-        mapping: list[tuple[int, int]],
-        layout_name: str | None = None,
-    ) -> None:
-        """Validate layout mapping against matrix dimensions."""
-        if not mapping:
-            if layout_name:
-                raise ValueError(f"Layout {layout_name} mapping is empty")
-            raise ValueError("Layout mapping is empty")
-        rows, cols = self.matrix_dimensions()
-        for r, c in mapping:
-            if r >= rows or c >= cols:
-                if layout_name:
-                    raise ValueError(
-                        f"Layout {layout_name} mapping exceeds matrix dimensions"
-                    )
-                raise ValueError("Layout mapping exceeds matrix dimensions")
-
     def matrix_rows(self) -> int:
         """Return total matrix rows, including split configuration rows."""
         rows = len(self.matrix_pins.rows)
@@ -139,6 +120,25 @@ class KeyboardJson(BaseModelAllow):
         """Return (rows, cols) for the matrix."""
         return self.matrix_rows(), self.matrix_cols()
 
+    def _validate_layout_mapping(
+        self,
+        mapping: list[tuple[int, int]],
+        layout_name: str | None = None,
+    ) -> None:
+        """Validate layout mapping against matrix dimensions."""
+        if not mapping:
+            if layout_name:
+                raise ValueError(f"Layout {layout_name} mapping is empty")
+            raise ValueError("Layout mapping is empty")
+        rows, cols = self.matrix_dimensions()
+        for r, c in mapping:
+            if r >= rows or c >= cols:
+                if layout_name:
+                    raise ValueError(
+                        f"Layout {layout_name} mapping exceeds matrix dimensions"
+                    )
+                raise ValueError("Layout mapping exceeds matrix dimensions")
+
     @model_validator(mode="after")
     def _validate_layouts(self) -> "KeyboardJson":
         for name, layout in self.layouts.items():
@@ -157,18 +157,18 @@ class QmkKeymapJson(BaseModelAllow):
 HEX_KEY_RE = re.compile(r"0x[0-9A-Fa-f]{1,4}")
 
 
-def _validate_hex_map(v: dict[str, str]) -> dict[str, str]:
-    bad = [k for k in v if not HEX_KEY_RE.fullmatch(k)]
-    if bad:
-        raise ValueError(f"invalid keys: {bad}")
-    return v
-
-
 class KeycodesJson(RootModel[dict[str, str]]):
     @field_validator("root", mode="before")
     @classmethod
     def parse_hex_map(cls, v: dict[str, str]) -> dict[str, str]:
-        return _validate_hex_map(v)
+        return cls._validate_hex_map(v)
+
+    @staticmethod
+    def _validate_hex_map(v: dict[str, str]) -> dict[str, str]:
+        bad = [k for k in v if not HEX_KEY_RE.fullmatch(k)]
+        if bad:
+            raise ValueError(f"invalid keys: {bad}")
+        return v
 
 
 class VialMatrix(BaseModelAllow):

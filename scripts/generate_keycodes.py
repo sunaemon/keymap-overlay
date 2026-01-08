@@ -69,6 +69,54 @@ PREFERRED_NAMES = {
 }
 
 
+@app.command()
+def main(
+    qmk_dir: Annotated[
+        Path,
+        typer.Option(help="Path to qmk_firmware directory"),
+    ],
+) -> None:
+    try:
+        keycodes = generate_keycodes(qmk_dir)
+        print_json(keycodes)
+        logger.info(
+            "Generated %d keycodes JSON from QMK firmware at %s",
+            len(keycodes.root),
+            qmk_dir,
+        )
+    except Exception:
+        logger.exception("Failed to generate keycodes JSON")
+        raise typer.Exit(code=1) from None
+
+
+def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
+    """Generate the keycodes JSON from QMK firmware sources."""
+    spec = _read_latest_qmk_spec(qmk_dir)
+
+    code_to_name: dict[int, str] = {}
+
+    for hex_code, info in spec.keycodes.items():
+        code = parse_hex_keycode(hex_code)
+        if code is None:
+            logger.warning("Invalid hex keycode in spec: %s", hex_code)
+            continue
+
+        names = [info.key]
+        if info.aliases:
+            names.extend(info.aliases)
+
+        names = sorted(names, key=_name_rank)
+        code_to_name[code] = names[0]
+
+    sorted_codes = sorted(code_to_name.keys())
+
+    output_dict: dict[str, str] = {}
+    for code in sorted_codes:
+        output_dict[f"0x{code:04X}"] = code_to_name[code]
+
+    return KeycodesJson.model_validate(output_dict)
+
+
 def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
     qmk_lib_path = qmk_dir / "lib" / "python"
     if not qmk_lib_path.exists():
@@ -104,54 +152,6 @@ def _name_rank(name: str) -> tuple[int, int]:
     if name == "KC_NO":
         return (1, len(name))
     return (2, len(name))
-
-
-def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
-    """Generate the keycodes JSON from QMK firmware sources."""
-    spec = _read_latest_qmk_spec(qmk_dir)
-
-    code_to_name: dict[int, str] = {}
-
-    for hex_code, info in spec.keycodes.items():
-        code = parse_hex_keycode(hex_code)
-        if code is None:
-            logger.warning(f"Invalid hex keycode in spec: {hex_code}")
-            continue
-
-        names = [info.key]
-        if info.aliases:
-            names.extend(info.aliases)
-
-        names = sorted(names, key=_name_rank)
-        code_to_name[code] = names[0]
-
-    sorted_codes = sorted(code_to_name.keys())
-
-    output_dict: dict[str, str] = {}
-    for code in sorted_codes:
-        output_dict[f"0x{code:04X}"] = code_to_name[code]
-
-    return KeycodesJson.model_validate(output_dict)
-
-
-@app.command()
-def main(
-    qmk_dir: Annotated[
-        Path,
-        typer.Option(help="Path to qmk_firmware directory"),
-    ],
-) -> None:
-    try:
-        keycodes = generate_keycodes(qmk_dir)
-        print_json(keycodes)
-        logger.info(
-            "Generated %d keycodes JSON from QMK firmware at %s",
-            len(keycodes.root),
-            qmk_dir,
-        )
-    except Exception:
-        logger.exception("Failed to generate keycodes JSON")
-        raise typer.Exit(code=1) from None
 
 
 if __name__ == "__main__":

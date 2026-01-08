@@ -117,6 +117,18 @@ These commands:
 
 ## Coding Standards
 
+### Ordering (Top-Down)
+
+Prefer Top-Down ordering for all code changes:
+
+1. Imports/includes
+2. Module/file constants
+3. Public API (highest-level workflow first)
+4. Private helpers in the order they are used by the public API
+5. Entrypoints/registration blocks (e.g., `if __name__ == "__main__"`, exports) at the end
+
+Note: CLI `main` functions are part of the public API and should appear with other public functions, not at the very end.
+
 ### Python
 
 - Use `pathlib.Path` for all path manipulations. Do not use string concatenation or `os.path`.
@@ -128,7 +140,7 @@ These commands:
   - Use built-in generic types like `dict` and `list` instead of `Dict` and `List` from the `typing` module.
 - Use Pydantic validation at runtime (e.g., `TypeAdapter.validate_python`, `model_validate`) and avoid `typing.cast`.
 
-### Error Handling Policy
+#### Error Handling Policy
 
 - In library helpers, raise specific exceptions; avoid `sys.exit` outside of CLI entrypoints.
 - In `@app.command()` functions, catch errors, log with `logger.exception(...)`, and exit with `raise typer.Exit(code=1)`.

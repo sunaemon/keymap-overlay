@@ -15,6 +15,26 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
+@app.command()
+def main(
+    keymap_c: Annotated[Path, typer.Option(help="Path to keymap.c")],
+) -> None:
+    """Generate key-to-layer JSON from keymap.c and emit it to stdout."""
+    try:
+        key_to_layer = _process(keymap_c)
+        print_json(key_to_layer)
+        logger.info("Generated key-to-layer mapping.")
+    except Exception:
+        logger.exception("Failed to generate key-to-layer mapping from %s", keymap_c)
+        raise typer.Exit(code=1) from None
+
+
+def _process(keymap_c: Path) -> KeyToLayerJson:
+    content = keymap_c.read_text()
+    notifier_keys = _parse_notifier_keys(content)
+    return _build_mapping(notifier_keys)
+
+
 def _parse_notifier_keys(content: str) -> list[str]:
     match = re.search(
         r"notifier_key_to_layer\s*\[[^\]]+\]\s*=\s*\{(.*?)\};",
@@ -32,13 +52,6 @@ def _parse_notifier_keys(content: str) -> list[str]:
     return notifier_keys
 
 
-def _normalize_keycode(entry: str) -> str:
-    match = re.fullmatch(r"(?:KC_)?F(\d+)", entry)
-    if not match:
-        raise ValueError(f"Unsupported notifier keycode: {entry}")
-    return f"f{int(match.group(1))}"
-
-
 def _build_mapping(notifier_keys: list[str]) -> KeyToLayerJson:
     mapping: dict[str, str] = {}
     for idx, entry in enumerate(notifier_keys):
@@ -47,26 +60,11 @@ def _build_mapping(notifier_keys: list[str]) -> KeyToLayerJson:
     return KeyToLayerJson.model_validate(mapping)
 
 
-def generate_key_to_layer(keymap_c: Path) -> KeyToLayerJson:
-    """Generate key-to-layer mapping from keymap.c."""
-    content = keymap_c.read_text()
-    notifier_keys = _parse_notifier_keys(content)
-    key_to_layer_content = _build_mapping(notifier_keys)
-
-    return key_to_layer_content
-
-
-@app.command()
-def main(
-    keymap_c: Annotated[Path, typer.Option(help="Path to keymap.c")],
-) -> None:
-    try:
-        key_to_layer = generate_key_to_layer(keymap_c)
-        print_json(key_to_layer)
-        logger.info("Generated key-to-layer mapping.")
-    except Exception:
-        logger.exception("Failed to generate key-to-layer mapping from %s", keymap_c)
-        raise typer.Exit(code=1) from None
+def _normalize_keycode(entry: str) -> str:
+    match = re.fullmatch(r"(?:KC_)?F(\d+)", entry)
+    if not match:
+        raise ValueError(f"Unsupported notifier keycode: {entry}")
+    return f"f{int(match.group(1))}"
 
 
 if __name__ == "__main__":

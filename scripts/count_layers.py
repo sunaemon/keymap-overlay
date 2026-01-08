@@ -14,6 +14,20 @@ logger = get_logger(__name__)
 app = typer.Typer()
 
 
+@app.command()
+def main(
+    qmk_keymap_json: Annotated[
+        Path, typer.Argument(help="Path to the QMK keymap JSON file")
+    ],
+) -> None:
+    """Count layers in a QMK keymap JSON file and print the result."""
+    try:
+        print(count_layers(qmk_keymap_json))
+    except Exception:
+        logger.exception("Failed to count layers in %s", qmk_keymap_json)
+        raise typer.Exit(code=1) from None
+
+
 def count_layers(qmk_keymap_json: Path) -> int:
     """Return the number of layers in a QMK keymap JSON file."""
     qmk_keymap_data = parse_json(QmkKeymapJson, qmk_keymap_json)
@@ -23,19 +37,6 @@ def count_layers(qmk_keymap_json: Path) -> int:
         return 0
 
     return len(layers)
-
-
-@app.command()
-def main(
-    qmk_keymap_json: Annotated[
-        Path, typer.Argument(help="Path to the QMK keymap JSON file")
-    ],
-) -> None:
-    try:
-        print(count_layers(qmk_keymap_json))
-    except Exception:
-        logger.exception("Failed to count layers in %s", qmk_keymap_json)
-        raise typer.Exit(code=1) from None
 
 
 if __name__ == "__main__":
