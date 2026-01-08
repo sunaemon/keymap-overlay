@@ -212,9 +212,6 @@ class KeyToLayerJson(RootModel[dict[str, str]]):
     pass
 
 
-T = TypeVar("T", bound=BaseModel)
-
-
 class JSONReadError(RuntimeError):
     """Failed to read JSON file."""
 
@@ -229,6 +226,9 @@ class JSONParseError(RuntimeError):
     def __init__(self, path: Path, cause: Exception) -> None:
         super().__init__(f"Failed to parse JSON from {path}")
         self.__cause__ = cause
+
+
+T = TypeVar("T", bound=BaseModel)
 
 
 def parse_json(model: Type[T], path: Path) -> T:
