@@ -6,6 +6,8 @@ This repository provides tools to **generate keyboard layer images from QMK keym
 
 See `doc/design.md` for the end-to-end data flow and design notes.
 
+This repo is set up for the `salicylic_acid3/insixty_en` keyboard, but the workflow should work for any QMK-compatible keyboard with minor configuration changes.
+
 While holding a layer key on the keyboard, **Hammerspoon displays the matching layer image on screen**.
 
 Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
@@ -35,24 +37,13 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 4. Install required packages and tools:
 
    ```bash
-   make setup
+   brew install mise qmk librsvg
+   brew install --cask hammerspoon
+   mise install
+   mise exec -- uv sync --no-dev
    ```
 
-   This will install `mise` via Homebrew and set up all necessary tools and dependencies.
-
-5. Flash firmware with the layer-notification keymap to your keyboard.
-
-   ```bash
-   make flash
-   ```
-
-   If only the keymap is updated, you can update it with VIAL:
-
-   ```bash
-   make flash-keymap
-   ```
-
-6. Generate keymap images and install them to ~/.hammerspoon:
+5. Generate keymap images and install them to ~/.hammerspoon:
 
    To use the keymap compiled in the firmware:
 
@@ -64,6 +55,18 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 
    ```bash
    make install VIAL=true
+   ```
+
+6. Flash firmware with the layer-notification keymap to your keyboard.
+
+   ```bash
+   make flash
+   ```
+
+   If only the keymap is updated, you can update it with VIAL:
+
+   ```bash
+   make flash-keymap
    ```
 
 ## License

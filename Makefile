@@ -107,13 +107,6 @@ HAMMERSPOON_OVERLAY := $(HAMMERSPOON_DIR)/keymap-overlay.lua
 .PHONY: all
 all: draw-layers
 
-.PHONY: setup
-setup:
-	brew install mise qmk librsvg
-	mise install
-	brew install --cask hammerspoon
-	$(UV) sync --no-dev
-
 .PHONY: format
 format:
 	$(MISE) run format
@@ -155,11 +148,11 @@ _copy_firmware:
 
 .PHONY: compile
 compile: _copy_firmware
-	qmk compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
+	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
 
 .PHONY: flash
 flash: compile
-	qmk flash -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
+	$(QMK) flash -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
 
 .PHONY: flash-keymap
 flash-keymap: $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
