@@ -97,6 +97,9 @@ class KleKeyProps(BaseModelAllow):
     w: float | None = None
     h: float | None = None
 
+    def has_values(self) -> bool:
+        return self.x is not None or self.w is not None or self.h is not None
+
 
 type KleKey = str | KleKeyProps
 type KleRow = list[KleKey]

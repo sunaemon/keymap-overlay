@@ -105,7 +105,7 @@ def generate_vial(keyboard_json: Path) -> VialJson:
             if key_h != 1:
                 props.h = key_h
 
-            if props.x is not None or props.w is not None or props.h is not None:
+            if props.has_values():
                 kle_row.append(props)
 
             r, c = key.matrix
