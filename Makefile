@@ -144,8 +144,7 @@ _copy_firmware:
 	mkdir -p "$(BUILD_DIR)"
 	install -C keyboards/$(QMK_KEYBOARD)/config.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h"
 	install -C keyboards/$(QMK_KEYBOARD)/keyboard.json "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json"
-	$(UV) run scripts/generate_vial.py --keyboard-json keyboards/$(QMK_KEYBOARD)/keyboard.json --layout-name "$(LAYOUT_NAME)" > "$(VIAL_JSON).tmp" || (rm -f "$(VIAL_JSON).tmp" && exit 1)
-	mv "$(VIAL_JSON).tmp" "$(VIAL_JSON)"
+	$(UV) run scripts/run_to_tmp.py --output "$(VIAL_JSON)" -- $(UV) run scripts/generate_vial.py --keyboard-json keyboards/$(QMK_KEYBOARD)/keyboard.json --layout-name "$(LAYOUT_NAME)"
 	install -C $(VIAL_JSON) "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/vial.json"
 	install -C keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/* "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/"
 
@@ -163,14 +162,13 @@ flash-keymap: $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 	$(VITALY) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
 	@echo "Merging QMK keymap into Vitaly configuration..."
-	$(UV) run scripts/generate_vitaly_layout.py \
+	$(UV) run scripts/run_to_tmp.py --output "$(BUILD_DIR)/vitaly_ready.json" -- \
+		$(UV) run scripts/generate_vitaly_layout.py \
 		--qmk-keymap-json "$(QMK_KEYMAP_JSON)" \
 		--vitaly-json "$(VITALY_JSON)" \
 		--keyboard-json "keyboards/$(QMK_KEYBOARD)/keyboard.json" \
 		--custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" \
-		--layout-name "$(LAYOUT_NAME)" \
-		> "$(BUILD_DIR)/vitaly_ready.json.tmp" || (rm -f "$(BUILD_DIR)/vitaly_ready.json.tmp" && exit 1)
-	mv "$(BUILD_DIR)/vitaly_ready.json.tmp" "$(BUILD_DIR)/vitaly_ready.json"
+		--layout-name "$(LAYOUT_NAME)"
 	@echo "Loading new configuration to device..."
 	$(VITALY) load -f $(BUILD_DIR)/vitaly_ready.json
 
@@ -287,13 +285,10 @@ endif
 	mv "$@.tmp" "$@"
 
 $(KEYCODES_JSON): scripts/generate_keycodes.py | $(BUILD_DIR)
-	$(UV) run scripts/generate_keycodes.py --qmk-dir "$(QMK_HOME)" > "$@.tmp" || (rm -f "$@.tmp" && exit 1)
-	mv "$@.tmp" "$@"
+	$(UV) run scripts/run_to_tmp.py --output "$@" -- $(UV) run scripts/generate_keycodes.py --qmk-dir "$(QMK_HOME)"
 
 $(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) scripts/generate_custom_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
-	$(UV) run scripts/generate_custom_keycodes.py "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)" > "$@.tmp" || (rm -f "$@.tmp" && exit 1)
-	mv "$@.tmp" "$@"
+	$(UV) run scripts/run_to_tmp.py --output "$@" -- $(UV) run scripts/generate_custom_keycodes.py "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)"
 
 $(KEY_TO_LAYER_JSON): $(QMK_KEYMAP_C) scripts/generate_key_to_layer.py | $(BUILD_DIR)
-	$(UV) run scripts/generate_key_to_layer.py --keymap-c "$(QMK_KEYMAP_C)" > "$@.tmp" || (rm -f "$@.tmp" && exit 1)
-	mv "$@.tmp" "$@"
+	$(UV) run scripts/run_to_tmp.py --output "$@" -- $(UV) run scripts/generate_key_to_layer.py --keymap-c "$(QMK_KEYMAP_C)"
