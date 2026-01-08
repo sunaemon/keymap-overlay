@@ -14,11 +14,11 @@ The goal of this project is to provide a seamless way to visualize QMK keyboard 
 - `count_layers.py`: Counts the number of layers in a QMK keymap JSON.
 - `generate_key_to_layer.py`: Parses `keymap.c` to identify which keys trigger which layers.
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
-- `postprocess_keymap.py`: Cleans up and prepares the QMK keymap JSON for rendering (resolves transparency).
-- `qmk_info_to_vial.py`: Converts QMK `keyboard.json` to VIAL-compatible `vial.json`.
-- `sync_keycodes.py`: Synchronizes custom keycodes between `keymap.c` and configuration files.
-- `update_vitaly_layout.py`: Merges QMK layer data into a VIAL configuration dump.
-- `vitaly_to_qmk.py`: Converts a VIAL configuration dump back to QMK keymap JSON.
+- `generate_qmk_keymap_postprocess.py`: Cleans up and prepares the QMK keymap JSON for rendering (resolves transparency).
+- `generate_vial.py`: Converts QMK `keyboard.json` to VIAL-compatible `vial.json`.
+- `generate_custom_keycodes.py`: Synchronizes custom keycodes between `keymap.c` and configuration files.
+- `generate_vitaly_layout.py`: Merges QMK layer data into a VIAL configuration dump.
+- `generate_qmk_keymap_from_vitaly.py`: Converts a VIAL configuration dump back to QMK keymap JSON.
 
 ### 2. Visualization (`keymap-drawer`)
 
@@ -121,6 +121,7 @@ These commands:
 
 - Use `pathlib.Path` for all path manipulations. Do not use string concatenation or `os.path`.
 - Use `Typer` for all CLI scripts.
+- Prefer `Annotated[...]` style for Typer CLI parameters (e.g., `Annotated[Path, typer.Option(...)]`) for consistent typing and CLI metadata.
 - Use `logger.info` for status messages, `logger.warning` for non-fatal issues, `logger.error` for recoverable errors, `logger.exception` inside `except` blocks to include stack traces, and `logger.critical` for fatal errors. Configure the logger via `src.util.get_logger`. The default log level is set to `INFO`.
 - Use modern type hints (Python 3.10+):
   - Use `| None` instead of `Optional[T]`.

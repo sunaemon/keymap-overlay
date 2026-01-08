@@ -5,9 +5,9 @@ from pathlib import Path
 
 from src.types import (
     CustomKeycodesJson,
+    KeyboardJson,
     KeycodesJson,
     KeyToLayerJson,
-    QmkKeyboardJson,
     QmkKeymapJson,
     VialJson,
     VitalyJson,
@@ -19,7 +19,7 @@ DATA_DIR = Path(__file__).parent / "data"
 def test_parse_keyboard_json() -> None:
     path = DATA_DIR / "keyboard.json"
     data = json.loads(path.read_text())
-    keyboard = QmkKeyboardJson.model_validate(data)
+    keyboard = KeyboardJson.model_validate(data)
     assert keyboard.keyboard_name == "Test Keyboard"
     assert "LAYOUT" in keyboard.layouts
 
@@ -59,8 +59,8 @@ def test_parse_vitaly_json() -> None:
     path = DATA_DIR / "vitaly.json"
     data = json.loads(path.read_text())
     vitaly = VitalyJson.model_validate(data)
-    assert vitaly.layers is not None
-    assert len(vitaly.layers) == 1
+    assert vitaly.layout is not None
+    assert len(vitaly.layout) == 1
 
 
 def test_parse_key_to_layer_json() -> None:

@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: MIT
 import os
 import sys
+import types
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from src.types import KeycodesJson, QmkKeycodesSpec
+from src.types import KeycodesJson, QmkKeycodeSpecEntry, QmkKeycodesSpec, print_json
 from src.util import get_logger
 
 logger = get_logger(__name__)
@@ -68,12 +69,16 @@ PREFERRED_NAMES = {
 }
 
 
-def read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
+def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
     qmk_lib_path = qmk_dir / "lib" / "python"
     if not qmk_lib_path.exists():
         raise FileNotFoundError(f"QMK lib path not found at {qmk_lib_path}")
 
     sys.path.insert(0, str(qmk_lib_path))
+    sys.modules["milc"] = types.ModuleType("milc")  # Dummy module for milc dependency
+    sys.modules["milc.cli"] = types.ModuleType(
+        "milc.cli"
+    )  # Dummy module for milc dependency
     import qmk.keycodes as qmk_keycodes  # type: ignore
 
     original_cwd = Path.cwd()
@@ -93,42 +98,55 @@ def read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
         os.chdir(original_cwd)
 
 
-def generate_keycodes_file(qmk_dir: Path, keycodes_json: Path) -> None:
-    spec = read_latest_qmk_spec(qmk_dir)
+def _name_rank(name: str) -> tuple[int, int]:
+    if name in PREFERRED_NAMES:
+        return (0, len(name))
+    if name == "KC_NO":
+        return (1, len(name))
+    return (2, len(name))
+
+
+def _choose_best_name(current: str | None, candidate: str) -> str:
+    if current is None:
+        return candidate
+    return min(current, candidate, key=_name_rank)
+
+
+def _parse_hex_code(hex_code: str) -> int | None:
+    try:
+        return int(hex_code, 16)
+    except ValueError:
+        return None
+
+
+def _get_names(info: QmkKeycodeSpecEntry) -> list[str]:
+    names: list[str | None] = [info.key]
+    if info.aliases:
+        names.extend(info.aliases)
+    return [name for name in names if name]
+
+
+def generate_keycodes(qmk_dir: Path) -> KeycodesJson:
+    """Generate the keycodes JSON from QMK firmware sources."""
+    spec = _read_latest_qmk_spec(qmk_dir)
 
     code_to_name: dict[int, str] = {}
 
     # New structure: "0x0004": { "key": "KC_A", "aliases": [...] }
     for hex_code, info in spec.keycodes.items():
-        try:
-            code = int(hex_code, 16)
-        except ValueError:
+        code = _parse_hex_code(hex_code)
+        if code is None:
             continue
 
-        names: list[str | None] = [info.key]
-        if info.aliases:
-            names.extend(info.aliases)
+        names = _get_names(info)
+        if not names:
+            continue
 
-        for name in names:
-            if not name:
-                continue
+        best = names[0]
+        for name in names[1:]:
+            best = _choose_best_name(best, name)
 
-            if code in code_to_name:
-                current_name = code_to_name[code]
-                if current_name in PREFERRED_NAMES:
-                    continue
-                if name in PREFERRED_NAMES:
-                    code_to_name[code] = name
-                    continue
-                if name == "KC_TRNS" or name == "KC_NO":
-                    code_to_name[code] = name
-                elif current_name == "KC_TRNS" or current_name == "KC_NO":
-                    pass
-                else:
-                    if len(name) < len(current_name):
-                        code_to_name[code] = name
-            else:
-                code_to_name[code] = name
+        code_to_name[code] = _choose_best_name(code_to_name.get(code), best)
 
     sorted_codes = sorted(code_to_name.keys())
 
@@ -137,13 +155,8 @@ def generate_keycodes_file(qmk_dir: Path, keycodes_json: Path) -> None:
         output_dict[f"0x{code:04X}"] = code_to_name[code]
 
     keycodes_model = KeycodesJson.model_validate(output_dict)
-    try:
-        keycodes_json.write_text(keycodes_model.model_dump_json(indent=4) + "\n")
-        logger.info(
-            f"Successfully generated {keycodes_json} with {len(sorted_codes)} keycodes."
-        )
-    except OSError as exc:
-        raise OSError(f"Failed to write {keycodes_json}") from exc
+    logger.info("Generated %d keycodes.", len(sorted_codes))
+    return keycodes_model
 
 
 @app.command()
@@ -152,18 +165,14 @@ def main(
         Path,
         typer.Option(help="Path to qmk_firmware directory"),
     ],
-    keycodes_json: Annotated[
-        Path,
-        typer.Option(help="Path to output JSON file"),
-    ],
 ) -> None:
     """
-    Generate keycodes.json from QMK Firmware
+    Generate keycodes JSON from QMK Firmware and emit it to stdout.
     """
     try:
-        generate_keycodes_file(qmk_dir, keycodes_json)
+        print_json(generate_keycodes(qmk_dir))
     except Exception:
-        logger.exception("Failed to generate keycodes JSON: %s", keycodes_json)
+        logger.exception("Failed to generate keycodes JSON")
         raise typer.Exit(code=1) from None
 
 
