@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from src.types import KeycodesJson, QmkKeymapJson, parse_json, print_json
-from src.util import get_logger
+from src.util import get_logger, parse_hex_keycode, parse_keycode_value
 
 logger = get_logger(__name__)
 
@@ -45,31 +45,17 @@ def _load_custom_keycodes(custom_keycodes_path: Path) -> dict[int, str] | None:
 
     int_map: dict[int, str] = {}
     for k, v in custom_keycodes_data.root.items():
-        try:
-            int_map[int(k, 16)] = v
-        except ValueError:
+        code = parse_hex_keycode(k)
+        if code is None:
             logger.warning("Skipping non-hex custom keycode entry: %s", k)
             continue
+        int_map[code] = v
     return int_map
-
-
-def _parse_keycode_value(key: str) -> int | None:
-    if key.startswith(("0x", "0X")):
-        try:
-            return int(key, 16)
-        except ValueError:
-            return None
-    if key.isdigit():
-        try:
-            return int(key)
-        except ValueError:
-            return None
-    return None
 
 
 def _apply_custom_map_to_layer(layer: list[str], int_map: dict[int, str]) -> None:
     for idx, key in enumerate(layer):
-        code_val = _parse_keycode_value(key)
+        code_val = parse_keycode_value(key)
         if code_val is not None and code_val in int_map:
             layer[idx] = int_map[code_val]
 

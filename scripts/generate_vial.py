@@ -41,19 +41,6 @@ def _get_layout_data(
     return keyboard_data.layouts[layout_name].layout
 
 
-def _validate_layout_matrix(
-    layout_data: list[LayoutKey],
-    matrix_rows: int,
-    matrix_cols: int,
-) -> None:
-    for key in layout_data:
-        r, c = key.matrix
-        if r >= matrix_rows:
-            raise ValueError("Matrix rows count is inconsistent with layout data")
-        if c >= matrix_cols:
-            raise ValueError("Matrix columns count is inconsistent with layout data")
-
-
 def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[int, list[LayoutKey]]:
     rows: dict[int, list[LayoutKey]] = {}
     for key in layout_data:
@@ -113,8 +100,6 @@ def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
     matrix_rows, matrix_cols = keyboard_data.matrix_dimensions()
 
     layout_data = _get_layout_data(keyboard_data, layout_name)
-    _validate_layout_matrix(layout_data, matrix_rows, matrix_cols)
-
     rows_by_y = _group_layout_rows(layout_data)
     kle_rows = _build_kle_rows(rows_by_y)
 
