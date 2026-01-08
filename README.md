@@ -37,13 +37,20 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 4. Install required packages and tools:
 
    ```bash
+   brew tap qmk/qmk
    brew install mise qmk librsvg
    brew install --cask hammerspoon
    mise install
    mise exec -- uv sync --no-dev
    ```
 
-5. Generate keymap images and install them to ~/.hammerspoon:
+5. Check setup (optional):
+
+   ```bash
+   make doctor
+   ```
+
+6. Generate keymap images and install them to ~/.hammerspoon:
 
    To use the keymap compiled in the firmware:
 
@@ -51,19 +58,23 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
    make install
    ```
 
-   To use the current keymap from your keyboard's EEPROM (requires VIAL-enabled firmware):
+   `⚠ QMK home does not appear to be a Git repository! (no .git folder)` warnings can be ignored because the QMK firmware is included as a submodule in this setup.
 
-   ```bash
-   make install VIAL=true
-   ```
-
-6. Flash firmware with the layer-notification keymap to your keyboard.
+7. Flash firmware with the layer-notification keymap to your keyboard.
 
    ```bash
    make flash
    ```
 
-   If only the keymap is updated, you can update it with VIAL:
+### Use VIAL
+
+1. To use the current keymap from your keyboard's EEPROM (requires VIAL-enabled firmware):
+
+   ```bash
+   make install VIAL=true
+   ```
+
+2. If only the keymap is updated, you can update it with VIAL:
 
    ```bash
    make flash-keymap
