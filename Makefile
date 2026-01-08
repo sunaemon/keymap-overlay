@@ -109,10 +109,6 @@ setup:
 	brew install --cask hammerspoon
 	$(UV) sync --no-dev
 
-.PHONY: setup-dev
-setup-dev: setup
-	$(UV) sync
-
 .PHONY: format
 format:
 	$(MISE) run format

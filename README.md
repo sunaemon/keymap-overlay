@@ -40,12 +40,6 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 
    This will install `mise` via Homebrew and set up all necessary tools and dependencies.
 
-   If you are a developer and want to run lint/format, use:
-
-   ```bash
-   make setup-dev
-   ```
-
 5. Flash firmware with the layer-notification keymap to your keyboard.
 
    ```bash
