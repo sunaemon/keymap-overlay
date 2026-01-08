@@ -37,8 +37,7 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 4. Install required packages and tools:
 
    ```bash
-   brew tap qmk/qmk
-   brew install mise qmk librsvg
+   brew install mise
    brew install --cask hammerspoon
    mise install
    mise exec -- uv sync --no-dev
@@ -50,6 +49,8 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
    make doctor
    ```
 
+   `⚠ QMK home does not appear to be a Git repository! (no .git folder)` warnings can be ignored because the QMK firmware is included as a submodule in this setup.
+
 6. Generate keymap images and install them to ~/.hammerspoon:
 
    To use the keymap compiled in the firmware:
@@ -57,8 +58,6 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
    ```bash
    make install
    ```
-
-   `⚠ QMK home does not appear to be a Git repository! (no .git folder)` warnings can be ignored because the QMK firmware is included as a submodule in this setup.
 
 7. Flash firmware with the layer-notification keymap to your keyboard.
 
