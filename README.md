@@ -27,23 +27,29 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
    git submodule update --init --recursive
    ```
 
-2. Install Xcode command line tools:
+2. Install mise:
 
-   ```bash
-   xcode-select --install
-   ```
+   See the [mise installation instructions](https://mise.jdx.dev/getting-started.html).
 
-3. Install Homebrew if not already installed:
-
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
-
-4. Install required packages and tools:
+   If you are using Homebrew, you can install it with:
 
    ```bash
    brew install mise
+   ```
+
+3. Install Hammerspoon:
+
+   See the [Hammerspoon installation instructions](https://www.hammerspoon.org/go/).
+
+   If you are using Homebrew, you can install it with:
+
+   ```bash
    brew install --cask hammerspoon
+   ```
+
+4. Set up the mise and UV environment:
+
+   ```bash
    mise install
    mise exec -- uv sync --no-dev
    ```
@@ -56,7 +62,7 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 
    `⚠ QMK home does not appear to be a Git repository! (no .git folder)` warnings can be ignored because the QMK firmware is included as a submodule in this setup.
 
-6. Generate keymap images and install them to ~/.hammerspoon:
+6. Generate keymap images and install them to `~/.hammerspoon`:
 
    To use the keymap compiled in the firmware:
 
@@ -64,7 +70,7 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
    make install
    ```
 
-7. Flash firmware with the layer-notification keymap to your keyboard.
+7. Flash firmware with the `layer-notify` keymap to your keyboard:
 
    ```bash
    make flash
@@ -86,6 +92,6 @@ Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 The QMK keymap files located in `keyboards/` originate from @salicylic_acid3's fork of QMK firmware, licensed under the GNU General Public License v2.0 or later; see the [LICENSE](keyboards/salicylic_acid3/insixty_en/LICENSE) file in that directory for details.
+
+The rest of this project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
