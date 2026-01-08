@@ -78,9 +78,6 @@ def main(
         typer.Option(help="Path to keycodes.json to read SAFE_RANGE"),
     ],
 ) -> None:
-    """
-    Sync custom keycodes from keymap.c and emit JSON to stdout.
-    """
     try:
         custom_keycodes = generate_custom_keycodes(keymap_c, keycodes_json)
         print_json(custom_keycodes)

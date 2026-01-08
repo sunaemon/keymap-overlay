@@ -98,9 +98,6 @@ def main(
     ],
     layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
-    """
-    Update Vitaly JSON layout from QMK JSON and emit it to stdout.
-    """
     try:
         vitaly_data = generate_vitaly_layout(
             qmk_keymap_json,
