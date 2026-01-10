@@ -16,6 +16,7 @@
  */
 
 #include QMK_KEYBOARD_H
+#include "raw_hid.h"
 
 enum custom_keycodes {
   KC_ALPHA = SAFE_RANGE, // α
@@ -98,39 +99,38 @@ const uint16_t PROGMEM keymaps[DYNAMIC_KEYMAP_LAYER_COUNT][MATRIX_ROWS][MATRIX_C
 };
 // clang-format on
 
-const int notifier_key_to_layer[DYNAMIC_KEYMAP_LAYER_COUNT] = {
-    KC_F13, // L0
-    KC_F14, // L1
-    KC_F15, // L2
-    KC_F16, // L3
-    KC_F17, // L4
-    KC_F18, // L5
-    KC_F19, // L6
-};
+#if KEYBOARD_ID < 0 || KEYBOARD_ID > 127
+#error "KEYBOARD_ID must be between 0 and 127"
+#endif
+
+typedef struct __attribute__((packed)) {
+  uint8_t id;
+  uint8_t current_layer;
+  uint8_t status; // bit 0-6: keyboard_id, bit 7: pressed flag
+  uint8_t padding[29];
+} layer_notify_report;
+
+_Static_assert(sizeof(layer_notify_report) == 32,
+               "layer_notify_report must be 32 bytes");
+
+layer_state_t layer_state_set_user(layer_state_t state) {
+  uint8_t layer = get_highest_layer(state);
+
+  layer_notify_report report = {
+      .id = 0x24,
+      .current_layer = layer,
+      .status = (uint8_t)(KEYBOARD_ID & 0x7F) | 0x80,
+  };
+  raw_hid_send((uint8_t *)&report, sizeof(report));
+
+  return state;
+}
 
 // Process custom keycodes
 // Return
 // - false to skip all further processing of this key
 // - true to continue processing this key
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-
-  // Press layer notifier keys during momentary layer switch keys (MO) is
-  // pressed
-  if (keycode >= MO(1) && keycode <= MO(DYNAMIC_KEYMAP_LAYER_COUNT - 1)) {
-    const int layer = QK_MOMENTARY_GET_LAYER(keycode);
-    if (layer < 1 || layer >= DYNAMIC_KEYMAP_LAYER_COUNT) {
-      return true;
-    }
-
-    if (record->event.pressed) {
-      register_code(notifier_key_to_layer[layer]);
-      layer_on(layer);
-    } else {
-      unregister_code(notifier_key_to_layer[layer]);
-      layer_off(layer);
-    }
-    return false;
-  }
 
   // Handle Greek letter keycodes
   if (keycode >= KC_ALPHA && keycode <= KC_OMEGA) {

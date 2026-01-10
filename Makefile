@@ -20,24 +20,41 @@ VITALY ?= $(MISE) exec cargo:vitaly@$(VITALY_VERSION) -- vitaly
 RUN_OUTPUT := $(UV) run python -m scripts.run_output
 
 # ================= QMK CONFIGURATION =================
-QMK_HOME := $(CURDIR)/qmk_firmware
+QMK_HOME := qmk_firmware
 export QMK_HOME := $(QMK_HOME)
 
-QMK_KEYBOARD := salicylic_acid3/insixty_en
-QMK_KEYMAP := layer-notify
+QMK_KEYMAP ?= keymap
+
+# Directory containing keyboard configurations
+KEYBOARDS_DIR ?= example
+
+ifdef KEYBOARD_ID
+
+# QMK keyboard name (e.g., salicylic_acid3/insixty_en).
+# Read from $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json.
+QMK_KEYBOARD ?= $(shell awk -F'"' '/qmk_keyboard/ {print $$4}' $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json)
+ifeq ($(QMK_KEYBOARD),)
+    $(error KEYBOARD_ID=$(KEYBOARD_ID) is not valid or $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json is missing or malformed)
+endif
+QMK_FLAGS += -e KEYBOARD_ID=$(KEYBOARD_ID)
+
+KEYMAP_PREFIX := $(KEYBOARD_ID)_
 
 # [QMK Keyboard JSON]
 # QMK keyboard definition (matrix/layouts/metadata).
 # Type: src/types.py:KeyboardJson
-KEYBOARD_JSON := $(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json
-QMK_KEYMAP_C := keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/keymap.c
+KEYBOARD_JSON := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json
+QMK_KEYMAP_C := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/keymap.c
 
 LAYOUT_NAME := LAYOUT
 
 DPI ?= 144
 
 # ================= BUILD CONFIGURATION =================
-BUILD_DIR := build
+BUILD_DIR := build/$(KEYBOARD_ID)
+ABS_BUILD_DIR := $(abspath $(BUILD_DIR))
+
+QMK_FLAGS += -e BUILD_DIR=$(ABS_BUILD_DIR)/qmk_build
 
 # [QMK Keymap JSON]
 # Contains the full keymap definition (layers, keycodes) in QMK format.
@@ -85,15 +102,10 @@ VIAL_JSON := $(BUILD_DIR)/vial.json
 # Used by: 'generate_qmk_keymap_from_vitaly.py' (source for rebuild), 'generate_vitaly_layout.py' (base for merge).
 VITALY_JSON := $(BUILD_DIR)/vitaly.json
 
-# [Key to Layer JSON]
-# Mapping of F-keys to layer names (e.g., {"f13": "L1", "f14": "L2"}).
-# Type: src/types.py:KeyToLayerJson
-# Generated from: 'generate_key_to_layer.py' parsing 'keymap.c'.
-# Used by: Hammerspoon overlay (lua) to know which image to show for which trigger key.
-KEY_TO_LAYER_JSON := $(BUILD_DIR)/key-to-layer.json
-
 LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi)
-PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/L%g.png" 0 $$(( $(LAYERS) - 1 )); fi)
+PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.png" 0 $$(( $(LAYERS) - 1 )); fi)
+
+endif
 
 # ================= HAMMERSPOON CONFIGURATION =================
 HAMMERSPOON_DIR := $(HOME)/.hammerspoon
@@ -115,12 +127,32 @@ doctor:
 
 # Because  LAYERS variable depends on $(QMK_KEYMAP_JSON), we need to call draw-layers with another make invocation
 .PHONY: install
-install: $(QMK_KEYMAP_JSON)
+install:
+ifdef KEYBOARD_ID
+	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
+else
+	@echo "KEYBOARD_ID not set, installing all keyboards..."
+	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
+		echo "----------------------------------------------------------------"; \
+		echo "Installing $$kb"; \
+		$(MAKE) install KEYBOARD_ID=$$kb || exit 1; \
+	done
+endif
 
 .PHONY: draw-layers
-draw-layers: $(QMK_KEYMAP_JSON)
+draw-layers:
+ifdef KEYBOARD_ID
+	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_draw_layers
+else
+	@echo "KEYBOARD_ID not set, drawing layers for all keyboards..."
+	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
+		echo "----------------------------------------------------------------"; \
+		echo "Drawing layers for $$kb"; \
+		$(MAKE) draw-layers KEYBOARD_ID=$$kb || exit 1; \
+	done
+endif
 
 .PHONY: lint
 lint:
@@ -132,28 +164,47 @@ test:
 
 .PHONY: clean
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf build
 
 .PHONY: _copy_firmware
 _copy_firmware:
+ifndef KEYBOARD_ID
+	$(error KEYBOARD_ID is required for _copy_firmware)
+endif
 	mkdir -p "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)"
 	mkdir -p "$(BUILD_DIR)"
-	install -C keyboards/$(QMK_KEYBOARD)/config.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h"
-	install -C keyboards/$(QMK_KEYBOARD)/keyboard.json "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json"
-	$(RUN_OUTPUT) "$(VIAL_JSON)" -- $(UV) run python -m scripts.generate_vial --keyboard-json keyboards/$(QMK_KEYBOARD)/keyboard.json --layout-name "$(LAYOUT_NAME)"
+	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h"
+	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json"
+	$(RUN_OUTPUT) "$(VIAL_JSON)" -- $(UV) run python -m scripts.generate_vial --keyboard-json $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json --layout-name "$(LAYOUT_NAME)"
 	install -C $(VIAL_JSON) "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/vial.json"
-	install -C keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/* "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/"
+	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/* "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/"
 
 .PHONY: compile
-compile: _copy_firmware
-	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
+compile:
+ifdef KEYBOARD_ID
+	@$(MAKE) _copy_firmware
+	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
+else
+	@echo "KEYBOARD_ID not set, compiling all keyboards..."
+	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
+		echo "----------------------------------------------------------------"; \
+		echo "Compiling $$kb"; \
+		$(MAKE) compile KEYBOARD_ID=$$kb || exit 1; \
+	done
+endif
 
 .PHONY: flash
-flash: compile
-	$(QMK) flash -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
+flash:
+ifndef KEYBOARD_ID
+	$(error KEYBOARD_ID is required for flash)
+endif
+	@$(MAKE) compile
+	$(QMK) flash -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
 
 .PHONY: flash-keymap
-flash-keymap: $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
+flash-keymap:
+ifdef KEYBOARD_ID
+	@$(MAKE) $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 	@echo "Fetching current configuration from device..."
 	$(VITALY) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
@@ -162,19 +213,36 @@ flash-keymap: $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 		$(UV) run python -m scripts.generate_vitaly_layout \
 		--qmk-keymap-json "$(QMK_KEYMAP_JSON)" \
 		--vitaly-json "$(VITALY_JSON)" \
-		--keyboard-json "keyboards/$(QMK_KEYBOARD)/keyboard.json" \
+		--keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" \
 		--custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" \
 		--layout-name "$(LAYOUT_NAME)"
 	@echo "Loading new configuration to device..."
 	$(VITALY) load -f $(BUILD_DIR)/vitaly_ready.json
+else
+	@echo "KEYBOARD_ID not set, flashing keymap for all keyboards..."
+	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
+		echo "----------------------------------------------------------------"; \
+		echo "Flashing keymap for $$kb"; \
+		$(MAKE) flash-keymap KEYBOARD_ID=$$kb || exit 1; \
+	done
+endif
 
 .PHONY: patch-load
 patch-load:
+ifdef KEYBOARD_ID
 	@echo "Loading keyboard configuration from $(QMK_HOME)..."
-	cp "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h" "keyboards/$(QMK_KEYBOARD)/config.h"
-	cp "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json" "keyboards/$(QMK_KEYBOARD)/keyboard.json"
-	cp -r "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)" "keyboards/$(QMK_KEYBOARD)/keymaps/"
+	cp "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h" "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.h"
+	cp "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json" "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json"
+	cp -r "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/." "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/"
 	@echo "✔ Keyboard configuration loaded"
+else
+	@echo "KEYBOARD_ID not set, patching all keyboards..."
+	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
+		echo "----------------------------------------------------------------"; \
+		echo "Patching $$kb"; \
+		$(MAKE) patch-load KEYBOARD_ID=$$kb || exit 1; \
+	done
+endif
 
 .PHONY: print-vars
 print-vars:
@@ -189,6 +257,7 @@ print-vars:
 	@echo ""
 	@echo "QMK_HOME=$(QMK_HOME)"
 	@echo "QMK_KEYBOARD=$(QMK_KEYBOARD)"
+	@echo "KEYMAP_PREFIX=$(KEYMAP_PREFIX)"
 	@echo "QMK_KEYMAP=$(QMK_KEYMAP)"
 	@echo "KEYBOARD_JSON=$(KEYBOARD_JSON)"
 	@echo "QMK_KEYMAP_C=$(QMK_KEYMAP_C)"
@@ -202,18 +271,18 @@ print-vars:
 	@echo "CUSTOM_KEYCODES_JSON=$(CUSTOM_KEYCODES_JSON)"
 	@echo "VIAL_JSON=$(VIAL_JSON)"
 	@echo "VITALY_JSON=$(VITALY_JSON)"
-	@echo "KEY_TO_LAYER_JSON=$(KEY_TO_LAYER_JSON)"
 	@echo "LAYERS=$(LAYERS)"
 	@echo "PNG=$(PNG)"
 	@echo ""
 	@echo "HAMMERSPOON_DIR=$(HAMMERSPOON_DIR)"
 	@echo "HAMMERSPOON_INIT=$(HAMMERSPOON_INIT)"
 	@echo "HAMMERSPOON_OVERLAY=$(HAMMERSPOON_OVERLAY)"
+	@echo "KEYBOARDS_DIR=$(KEYBOARDS_DIR)"
 
 # ================= INTERNAL TARGETS =================
 
 .PHONY: _internal_install
-_internal_install: keymap-overlay.lua $(PNG) $(KEY_TO_LAYER_JSON)
+_internal_install: keymap-overlay.lua $(PNG)
 	@if [ "$(LAYERS)" -eq "0" ]; then \
 		echo "ERROR: No layers found even after generation."; \
 		exit 1; \
@@ -224,11 +293,8 @@ _internal_install: keymap-overlay.lua $(PNG) $(KEY_TO_LAYER_JSON)
 	@echo "→ Copying keymap-overlay.lua"
 	@cp keymap-overlay.lua "$(HAMMERSPOON_OVERLAY)"
 
-	@echo "→ Copying keymap images (L*.png)"
-	@cp $(BUILD_DIR)/L*.png "$(HAMMERSPOON_DIR)/"
-
-	@echo "→ Copying key-to-layer.json"
-	@cp $(KEY_TO_LAYER_JSON) "$(HAMMERSPOON_DIR)/key-to-layer.json"
+	@echo "→ Copying keymap images ($(KEYMAP_PREFIX)L*.png)"
+	@cp $(BUILD_DIR)/$(KEYMAP_PREFIX)L*.png "$(HAMMERSPOON_DIR)/"
 
 	@touch "$(HAMMERSPOON_INIT)"
 
@@ -250,7 +316,7 @@ $(BUILD_DIR):
 $(BUILD_DIR)/%.png: $(BUILD_DIR)/%.svg
 	$(RSVG) --dpi $(DPI) "$<" "$@"
 
-$(BUILD_DIR)/L%.svg: $(KEYMAP_DRAWER_YAML) | $(BUILD_DIR)
+$(BUILD_DIR)/$(KEYMAP_PREFIX)L%.svg: $(KEYMAP_DRAWER_YAML) | $(BUILD_DIR)
 	$(RUN_OUTPUT) "$@" -- $(KEYMAP) draw "$(KEYMAP_DRAWER_YAML)" -j "$(KEYBOARD_JSON)" -l "$(LAYOUT_NAME)" -s "L$*"
 
 $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
@@ -274,7 +340,7 @@ ifeq ($(VIAL),true)
 	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)"
 else
 	@echo "Compiling QMK JSON from source..."
-	$(RUN_OUTPUT) "$@" -- $(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
+	$(RUN_OUTPUT) "$@" -- $(QMK) c2json --no-cpp -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) "$(QMK_KEYMAP_C)"
 endif
 
 $(QMK_KEYMAP_JSON): $(QMK_KEYMAP_JSON_DEPS) | $(BUILD_DIR)
@@ -285,6 +351,3 @@ $(KEYCODES_JSON): scripts/generate_keycodes.py | $(BUILD_DIR)
 
 $(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) scripts/generate_custom_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
 	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_custom_keycodes "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)"
-
-$(KEY_TO_LAYER_JSON): $(QMK_KEYMAP_C) scripts/generate_key_to_layer.py | $(BUILD_DIR)
-	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_key_to_layer --keymap-c "$(QMK_KEYMAP_C)"

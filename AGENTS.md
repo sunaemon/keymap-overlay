@@ -31,9 +31,9 @@ A Lua script that runs within Hammerspoon. It:
 - Watches for layer change notifications from the keyboard (via custom raw HID or specific key sequences, depending on firmware implementation).
 - Displays the corresponding PNG from `~/.hammerspoon/` on screen.
 
-### 4. Firmware (`keyboards/` & `qmk_firmware/`)
+### 4. Firmware (`example/` & `qmk_firmware/`)
 
-- Contains local keyboard configurations and specialized keymaps (e.g., `layer-notify`) that facilitate communication with the Hammerspoon overlay.
+- Contains local keyboard configurations (in `example/` or the directory specified by `KEYBOARDS_DIR` in the `Makefile`) and specialized keymaps (e.g., `layer-notify`) that facilitate communication with the Hammerspoon overlay.
 
 ## Tech Stack
 
@@ -156,7 +156,7 @@ Use one-line triple-quoted docstrings for functions and classes, e.g.:
 
 ## Directory Structure
 
-- `keyboards/`: Local keyboard-specific configurations and keymaps.
+- `example/`: Local keyboard-specific configurations and keymaps (configurable via `KEYBOARDS_DIR` in the `Makefile`).
 - `scripts/`: Python utility scripts.
 - `typings/`: Type stubs for Python libraries.
 - `build/`: Temporary directory for generated artifacts (JSON, SVG, PNG).

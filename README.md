@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml?query=branch%3Amain)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Keyboards: GPL-2.0-or-later](https://img.shields.io/badge/Keyboards-GPL--2.0--or--later-blue.svg)](keyboards/salicylic_acid3/insixty_en/LICENSE)
+[![Example: GPL-2.0-or-later](https://img.shields.io/badge/Example-GPL--2.0--or--later-blue.svg)](example/LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
 
 This repository provides tools to **generate keyboard layer images from QMK keymaps** and display them as an **on-screen overlay on macOS using Hammerspoon** while layer modifier keys are held.
@@ -11,7 +11,7 @@ This repository provides tools to **generate keyboard layer images from QMK keym
 
 See `doc/design.md` for the end-to-end data flow and design notes.
 
-This repo is set up for the `salicylic_acid3/insixty_en` keyboard, but the workflow should work for any QMK-compatible keyboard with minor configuration changes.
+This repo is set up for the `salicylic_acid3/insixty_en` and `doio/kb16/rev2` keyboards, but the workflow should work for any QMK-compatible keyboard with minor configuration changes. Keyboard configurations are stored in the `example/` directory (configurable via `KEYBOARDS_DIR` in the `Makefile`).
 
 While holding a layer key on the keyboard, **Hammerspoon displays the matching layer image on screen**.
 
@@ -92,6 +92,6 @@ These commands are for users who have VIAL-enabled firmware on their keyboard.
 
 ## License
 
-The QMK keymap files located in `keyboards/` originate from @salicylic_acid3's fork of QMK firmware, licensed under the GNU General Public License v2.0 or later; see the [LICENSE](keyboards/salicylic_acid3/insixty_en/LICENSE) file in that directory for details.
+This project is licensed under multiple licenses. Keymap files in `example/` are under **GPL v2.0 or later**, while the tools and scripts are under the **MIT License**.
 
-The rest of this project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+See [LICENSE](LICENSE) for details on file origins and full license texts.

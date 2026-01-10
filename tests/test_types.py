@@ -6,7 +6,6 @@ from pathlib import Path
 from src.types import (
     KeyboardJson,
     KeycodesJson,
-    KeyToLayerJson,
     QmkKeymapJson,
     VialJson,
     VitalyJson,
@@ -53,10 +52,3 @@ def test_parse_vitaly_json() -> None:
     vitaly = VitalyJson.model_validate(data)
     assert vitaly.layout is not None
     assert len(vitaly.layout) == 1
-
-
-def test_parse_key_to_layer_json() -> None:
-    path = DATA_DIR / "key-to-layer.json"
-    data = json.loads(path.read_text())
-    mapping = KeyToLayerJson.model_validate(data)
-    assert mapping.root["f13"] == "L1"

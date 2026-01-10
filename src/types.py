@@ -184,11 +184,18 @@ class VialMatrix(BaseModelAllow):
 
 class KleKeyProps(BaseModelAllow):
     x: float | None = None
+    y: float | None = None
     w: float | None = None
     h: float | None = None
 
     def has_values(self) -> bool:
-        return self.x is not None or self.w is not None or self.h is not None
+        """Return True if any position/size property is set."""
+        return (
+            self.x is not None
+            or self.y is not None
+            or self.w is not None
+            or self.h is not None
+        )
 
 
 type KleKey = str | KleKeyProps
@@ -212,10 +219,6 @@ class VitalyJson(BaseModelAllow):
     # dimension: layer -> row -> col
     # cf. https://github.com/bskaplou/vitaly/blob/93f08de4b6022007f4e3e655b6d76682e275f4cc/src/protocol.rs#L454
     layout: list[list[list[str]]]
-
-
-class KeyToLayerJson(RootModel[dict[str, str]]):
-    pass
 
 
 class JSONReadError(RuntimeError):
