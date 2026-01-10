@@ -2,10 +2,9 @@
 -- SPDX-License-Identifier: MIT
 -- keymap_overlay.lua
 
--- In hammerspoon, module name is truncated to 10 chars
 local MODULE = "keymap-overlay"
 
-local DEBUG = true
+local DEBUG = false -- set to true to enable debug logging
 
 -- local logger = hs.logger.new(MODULE, DEBUG and "debug" or "info")
 local logPath = hs.configdir .. "/" .. MODULE .. ".log"
