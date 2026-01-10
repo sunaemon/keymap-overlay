@@ -34,8 +34,6 @@ QMK_KEYMAP_C := keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/keymap.c
 
 LAYOUT_NAME := LAYOUT
 
-ROWS ?= 5
-COLUMNS ?= 14
 DPI ?= 144
 
 # ================= BUILD CONFIGURATION =================
@@ -195,8 +193,6 @@ print-vars:
 	@echo "KEYBOARD_JSON=$(KEYBOARD_JSON)"
 	@echo "QMK_KEYMAP_C=$(QMK_KEYMAP_C)"
 	@echo "LAYOUT_NAME=$(LAYOUT_NAME)"
-	@echo "ROWS=$(ROWS)"
-	@echo "COLUMNS=$(COLUMNS)"
 	@echo "DPI=$(DPI)"
 	@echo ""
 	@echo "BUILD_DIR=$(BUILD_DIR)"
@@ -258,7 +254,7 @@ $(BUILD_DIR)/L%.svg: $(KEYMAP_DRAWER_YAML) | $(BUILD_DIR)
 	$(RUN_OUTPUT) "$@" -- $(KEYMAP) draw "$(KEYMAP_DRAWER_YAML)" -j "$(KEYBOARD_JSON)" -l "$(LAYOUT_NAME)" -s "L$*"
 
 $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
-	$(RUN_OUTPUT) "$@" -- $(KEYMAP) parse -q $(QMK_KEYMAP_JSON) -c $(COLUMNS)
+	$(RUN_OUTPUT) "$@" -- $(KEYMAP) parse -q $(QMK_KEYMAP_JSON)
 
 .PHONY: _force_build
 _force_build:
