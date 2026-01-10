@@ -62,17 +62,19 @@ bool oled_task_user(void) {
 #endif
 
 #ifdef ENCODER_MAP_ENABLE
-const uint16_t PROGMEM encoder_map[][NUM_ENCODERS][NUM_DIRECTIONS] = {
-    [_BASE] = {ENCODER_CCW_CW(KC_MPRV, KC_MNXT),
+const uint16_t PROGMEM
+    encoder_map[DYNAMIC_KEYMAP_LAYER_COUNT][NUM_ENCODERS][NUM_DIRECTIONS] = {
+        [0] = {ENCODER_CCW_CW(KC_MPRV, KC_MNXT),
                ENCODER_CCW_CW(KC_PGDN, KC_PGUP),
                ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
-    [_FN] = {ENCODER_CCW_CW(KC_TRNS, KC_TRNS), ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
-             ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
-    [_FN1] = {ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
-              ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
-              ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
-    [_FN2] = {ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
-              ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
-              ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
+        [1] = {ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
+               ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
+               ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
+        [2] = {ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
+               ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
+               ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
+        [3] = {ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
+               ENCODER_CCW_CW(KC_TRNS, KC_TRNS),
+               ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
 };
 #endif
