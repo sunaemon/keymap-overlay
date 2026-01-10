@@ -4,7 +4,7 @@
 
 local MODULE = "keymap-overlay"
 
-local DEBUG = true -- set to true to enable debug logging
+local DEBUG = false -- set to true to enable debug logging
 
 -- local logger = hs.logger.new(MODULE, DEBUG and "debug" or "info")
 local logPath = hs.configdir .. "/" .. MODULE .. ".log"
