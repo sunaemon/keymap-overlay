@@ -76,41 +76,26 @@ def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[float, list[LayoutK
 def _build_kle_rows(rows_by_y: dict[float, list[LayoutKey]]) -> KleLayout:
     kle_rows: KleLayout = []
 
-    # We track the 'cursor' Y position. Initially 0.
-    # Standard behavior: each new row increments Y by 1.
     current_cursor_y = 0.0
 
     for y in sorted(rows_by_y.keys()):
         row_keys = rows_by_y[y]
         kle_row = _build_kle_row(row_keys)
 
-        # Calculate needed shift.
-        # By default, starting a new row (a new list in the outer list) moves y down by 1.
-        # But for the *first* row, it starts at y=0.
-        # Wait, strictly speaking for KLE JSON:
-        # [[...], [...]] -> row 1 at y=0, row 2 at y=1.
-
-        # If we want a row at `y`, and the standard placement is at `current_cursor_y`,
-        # we need to add `y - current_cursor_y` to the first key's properties.
-
         required_y = _round_unit(y)
         y_diff = _round_unit(required_y - current_cursor_y)
 
         if y_diff != 0:
-            # We need to inject {y: ...} into the first item
             first_item = kle_row[0]
             if isinstance(first_item, KleKeyProps):
-                # If first item is already props, just add/update y
                 first_item.y = (first_item.y or 0) + y_diff
             else:
-                # If first item is a string (key label), prepend a new props object
                 new_props = KleKeyProps()
                 new_props.y = y_diff
                 kle_row.insert(0, new_props)
 
         kle_rows.append(kle_row)
 
-        # After this row, the cursor naturally moves to `required_y + 1` for the next row
         current_cursor_y = required_y + 1.0
 
     return kle_rows
