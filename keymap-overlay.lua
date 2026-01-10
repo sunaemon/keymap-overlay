@@ -6,27 +6,22 @@ local MODULE = "keymap-overlay"
 
 local DEBUG = false -- set to true to enable debug logging
 
--- local logger = hs.logger.new(MODULE, DEBUG and "debug" or "info")
 local logPath = hs.configdir .. "/" .. MODULE .. ".log"
 
 local function appendLog(line)
-  local ok, f = pcall(function()
-    return assert(io.open(logPath, "a"))
-  end)
-  if not ok or not f then
-    local reason = tostring(f)
-    hs.alert.show("LOG OPEN FAILED: " .. reason .. "\n" .. logPath)
-    print(MODULE .. ": [ERROR] LOG OPEN FAILED: " .. reason .. " path=" .. logPath)
-    return false
-  end
+  local ok, _ = pcall(function()
+    local f = io.open(logPath, "a")
+    if not f then
+      error("failed to open log file")
+    end
 
-  local writeOk, writeErr = pcall(function()
     f:write(os.date("%Y-%m-%d %H:%M:%S ") .. line .. "\n")
+    f:close()
   end)
-  f:close()
-
-  if not writeOk then
-    print(MODULE .. ": [ERROR] LOG WRITE FAILED: " .. tostring(writeErr))
+  if not ok then
+    local reason = tostring(f)
+    hs.alert.show("LOG WRITE FAILED: " .. reason .. "\n" .. logPath)
+    print(MODULE .. ": [ERROR] LOG WRITE FAILED: " .. reason .. " path=" .. logPath)
     return false
   end
 
@@ -264,21 +259,10 @@ local function status()
     .. tostring(overlayVisible)
     .. " canvasShowing="
     .. tostring(canvas:isShowing())
-    .. " tap="
-    .. tostring(tap)
     .. " tapEnabled="
     .. tostring(tap and tap:isEnabled())
   )
 end
-
-hs.timer.doEvery(2, function()
-  logD(status())
-  if tap and not tap:isEnabled() then
-    hs.alert.show("eventtap restarted")
-    logW("eventtap disabled -> restarting")
-    tap:start()
-  end
-end)
 
 hs.hotkey.bind({ "cmd", "alt", "ctrl" }, "F12", function()
   hs.alert.show(status())
