@@ -4,7 +4,7 @@
 
 local MODULE = "keymap-overlay"
 
-local DEBUG = false -- set to true to enable debug logging
+local DEBUG = true -- set to true to enable debug logging
 
 -- local logger = hs.logger.new(MODULE, DEBUG and "debug" or "info")
 local logPath = hs.configdir .. "/" .. MODULE .. ".log"
@@ -76,7 +76,7 @@ local function loadKeyToLayer()
     return nil
   end
 
-  local content = f:read("a")
+  local content = f:read("*a")
   f:close()
 
   local ok, data = pcall(hs.json.decode, content)
