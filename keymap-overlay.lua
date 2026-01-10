@@ -9,7 +9,7 @@ local DEBUG = false -- set to true to enable debug logging
 local logPath = hs.configdir .. "/" .. MODULE .. ".log"
 
 local function appendLog(line)
-  local ok, f = pcall(function()
+  local ok, _ = pcall(function()
     local f = io.open(logPath, "a")
     if not f then
       error("failed to open log file")
@@ -18,7 +18,7 @@ local function appendLog(line)
     f:write(os.date("%Y-%m-%d %H:%M:%S ") .. line .. "\n")
     f:close()
   end)
-  if not ok or not f then
+  if not ok then
     local reason = tostring(f)
     hs.alert.show("LOG WRITE FAILED: " .. reason .. "\n" .. logPath)
     print(MODULE .. ": [ERROR] LOG WRITE FAILED: " .. reason .. " path=" .. logPath)
