@@ -1,6 +1,6 @@
 # QMK Keymap Hammerspoon Overlay
 
-[![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml)
+[![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml?query=branch%3Amain)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Keyboards: GPL-2.0-or-later](https://img.shields.io/badge/Keyboards-GPL--2.0--or--later-blue.svg)](keyboards/salicylic_acid3/insixty_en/LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
