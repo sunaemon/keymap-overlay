@@ -1,5 +1,5 @@
-/* Copyright 2025 Salicylic_acid3
- * Copyright 2026 Sunaemon
+/* Copyright 2022 DOIO
+ * Copyright 2022 HorrorTroll <https://github.com/HorrorTroll>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,10 +17,9 @@
 
 #pragma once
 
-#define DYNAMIC_KEYMAP_LAYER_COUNT 7
-#define DYNAMIC_KEYMAP_MACRO_COUNT 32
-
-/* Vial configuration */
-#define VIAL_KEYBOARD_UID {0x8F, 0x41, 0x24, 0x61, 0xD4, 0x20, 0x30, 0x58}
-#define VIAL_UNLOCK_COMBO_ROWS {0, 0}
-#define VIAL_UNLOCK_COMBO_COLS {0, 1}
+#ifdef OLED_ENABLE
+/* Mapping I2C2 for OLED */
+#define I2C1_SCL_PIN B10
+#define I2C1_SDA_PIN B11
+#define I2C_DRIVER I2CD2
+#endif

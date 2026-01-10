@@ -23,13 +23,13 @@ RUN_OUTPUT := $(UV) run python -m scripts.run_output
 QMK_HOME := $(CURDIR)/qmk_firmware
 export QMK_HOME := $(QMK_HOME)
 
-QMK_KEYBOARD := salicylic_acid3/insixty_en
-QMK_KEYMAP := layer-notify
+QMK_KEYBOARD ?= salicylic_acid3/insixty_en
+QMK_KEYMAP ?= layer-notify
 
 # [QMK Keyboard JSON]
 # QMK keyboard definition (matrix/layouts/metadata).
 # Type: src/types.py:KeyboardJson
-KEYBOARD_JSON := $(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json
+KEYBOARD_JSON := keyboards/$(QMK_KEYBOARD)/keyboard.json
 QMK_KEYMAP_C := keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/keymap.c
 
 LAYOUT_NAME := LAYOUT
@@ -37,7 +37,7 @@ LAYOUT_NAME := LAYOUT
 DPI ?= 144
 
 # ================= BUILD CONFIGURATION =================
-BUILD_DIR := build
+BUILD_DIR := build/$(QMK_KEYBOARD)
 
 # [QMK Keymap JSON]
 # Contains the full keymap definition (layers, keycodes) in QMK format.
@@ -132,7 +132,7 @@ test:
 
 .PHONY: clean
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf build
 
 .PHONY: _copy_firmware
 _copy_firmware:
@@ -274,7 +274,7 @@ ifeq ($(VIAL),true)
 	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)"
 else
 	@echo "Compiling QMK JSON from source..."
-	$(RUN_OUTPUT) "$@" -- $(QMK) c2json -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP)
+	$(RUN_OUTPUT) "$@" -- $(QMK) c2json --no-cpp -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) "$(CURDIR)/$(QMK_KEYMAP_C)"
 endif
 
 $(QMK_KEYMAP_JSON): $(QMK_KEYMAP_JSON_DEPS) | $(BUILD_DIR)
