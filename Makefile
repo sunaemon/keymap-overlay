@@ -20,7 +20,7 @@ VITALY ?= $(MISE) exec cargo:vitaly@$(VITALY_VERSION) -- vitaly
 RUN_OUTPUT := $(UV) run python -m scripts.run_output
 
 # ================= QMK CONFIGURATION =================
-QMK_HOME := $(CURDIR)/qmk_firmware
+QMK_HOME := qmk_firmware
 export QMK_HOME := $(QMK_HOME)
 
 QMK_KEYBOARD ?= salicylic_acid3/insixty_en
@@ -274,7 +274,7 @@ ifeq ($(VIAL),true)
 	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)"
 else
 	@echo "Compiling QMK JSON from source..."
-	$(RUN_OUTPUT) "$@" -- $(QMK) c2json --no-cpp -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) "$(CURDIR)/$(QMK_KEYMAP_C)"
+	$(RUN_OUTPUT) "$@" -- $(QMK) c2json --no-cpp -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) "$(QMK_KEYMAP_C)"
 endif
 
 $(QMK_KEYMAP_JSON): $(QMK_KEYMAP_JSON_DEPS) | $(BUILD_DIR)
