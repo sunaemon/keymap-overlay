@@ -26,6 +26,8 @@ export QMK_HOME := $(QMK_HOME)
 QMK_KEYBOARD ?= salicylic_acid3/insixty_en
 QMK_KEYMAP ?= layer-notify
 
+KEYMAP_PREFIX := $(subst /,_,$(QMK_KEYBOARD))_
+
 # [QMK Keyboard JSON]
 # QMK keyboard definition (matrix/layouts/metadata).
 # Type: src/types.py:KeyboardJson
@@ -90,10 +92,10 @@ VITALY_JSON := $(BUILD_DIR)/vitaly.json
 # Type: src/types.py:KeyToLayerJson
 # Generated from: 'generate_key_to_layer.py' parsing 'keymap.c'.
 # Used by: Hammerspoon overlay (lua) to know which image to show for which trigger key.
-KEY_TO_LAYER_JSON := $(BUILD_DIR)/key-to-layer.json
+KEY_TO_LAYER_JSON := $(BUILD_DIR)/$(KEYMAP_PREFIX)key-to-layer.json
 
 LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi)
-PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/L%g.png" 0 $$(( $(LAYERS) - 1 )); fi)
+PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.png" 0 $$(( $(LAYERS) - 1 )); fi)
 
 # ================= HAMMERSPOON CONFIGURATION =================
 HAMMERSPOON_DIR := $(HOME)/.hammerspoon
@@ -189,6 +191,7 @@ print-vars:
 	@echo ""
 	@echo "QMK_HOME=$(QMK_HOME)"
 	@echo "QMK_KEYBOARD=$(QMK_KEYBOARD)"
+	@echo "KEYMAP_PREFIX=$(KEYMAP_PREFIX)"
 	@echo "QMK_KEYMAP=$(QMK_KEYMAP)"
 	@echo "KEYBOARD_JSON=$(KEYBOARD_JSON)"
 	@echo "QMK_KEYMAP_C=$(QMK_KEYMAP_C)"
@@ -224,11 +227,11 @@ _internal_install: keymap-overlay.lua $(PNG) $(KEY_TO_LAYER_JSON)
 	@echo "→ Copying keymap-overlay.lua"
 	@cp keymap-overlay.lua "$(HAMMERSPOON_OVERLAY)"
 
-	@echo "→ Copying keymap images (L*.png)"
-	@cp $(BUILD_DIR)/L*.png "$(HAMMERSPOON_DIR)/"
+	@echo "→ Copying keymap images ($(KEYMAP_PREFIX)L*.png)"
+	@cp $(BUILD_DIR)/$(KEYMAP_PREFIX)L*.png "$(HAMMERSPOON_DIR)/"
 
-	@echo "→ Copying key-to-layer.json"
-	@cp $(KEY_TO_LAYER_JSON) "$(HAMMERSPOON_DIR)/key-to-layer.json"
+	@echo "→ Copying $(KEYMAP_PREFIX)key-to-layer.json"
+	@cp $(KEY_TO_LAYER_JSON) "$(HAMMERSPOON_DIR)/"
 
 	@touch "$(HAMMERSPOON_INIT)"
 
@@ -250,7 +253,7 @@ $(BUILD_DIR):
 $(BUILD_DIR)/%.png: $(BUILD_DIR)/%.svg
 	$(RSVG) --dpi $(DPI) "$<" "$@"
 
-$(BUILD_DIR)/L%.svg: $(KEYMAP_DRAWER_YAML) | $(BUILD_DIR)
+$(BUILD_DIR)/$(KEYMAP_PREFIX)L%.svg: $(KEYMAP_DRAWER_YAML) | $(BUILD_DIR)
 	$(RUN_OUTPUT) "$@" -- $(KEYMAP) draw "$(KEYMAP_DRAWER_YAML)" -j "$(KEYBOARD_JSON)" -l "$(LAYOUT_NAME)" -s "L$*"
 
 $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
@@ -287,4 +290,4 @@ $(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) scripts/generate_custom_keycodes.py $(K
 	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_custom_keycodes "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)"
 
 $(KEY_TO_LAYER_JSON): $(QMK_KEYMAP_C) scripts/generate_key_to_layer.py | $(BUILD_DIR)
-	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_key_to_layer --keymap-c "$(QMK_KEYMAP_C)"
+	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_key_to_layer --keymap-c "$(QMK_KEYMAP_C)" --prefix "$(KEYMAP_PREFIX)"
