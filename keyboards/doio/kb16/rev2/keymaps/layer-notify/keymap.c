@@ -20,7 +20,7 @@
 // OLED animation
 #include "lib/layer_status/layer_status.h"
 
-// enum custom_keycodes {};
+// make compile QMK_KEYBOARD=doio/kb16/rev2 enum custom_keycodes {};
 
 // clang-format off
 const uint16_t PROGMEM keymaps[DYNAMIC_KEYMAP_LAYER_COUNT][MATRIX_ROWS][MATRIX_COLS] = {
@@ -76,3 +76,37 @@ const uint16_t PROGMEM
                ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
 };
 #endif
+
+const int notifier_key_to_layer[DYNAMIC_KEYMAP_LAYER_COUNT] = {
+    KC_F20, // L1
+    KC_F21, // L2
+    KC_F22, // L3
+    KC_F23, // L4
+};
+
+// Process custom keycodes
+// Return
+// - false to skip all further processing of this key
+// - true to continue processing this key
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+
+  // Press layer notifier keys during momentary layer switch keys (MO) is
+  // pressed
+  if (keycode >= MO(1) && keycode <= MO(DYNAMIC_KEYMAP_LAYER_COUNT - 1)) {
+    const int layer = QK_MOMENTARY_GET_LAYER(keycode);
+    if (layer < 1 || layer >= DYNAMIC_KEYMAP_LAYER_COUNT) {
+      return true;
+    }
+
+    if (record->event.pressed) {
+      register_code(notifier_key_to_layer[layer]);
+      layer_on(layer);
+    } else {
+      unregister_code(notifier_key_to_layer[layer]);
+      layer_off(layer);
+    }
+    return false;
+  }
+
+  return true;
+}
