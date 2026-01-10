@@ -1,27 +1,13 @@
 -- Copyright 2025 sunaemon
 -- SPDX-License-Identifier: MIT
 -- keymap_overlay.lua
-local MODULE = "keymap_overlay"
 
-local function envFlag(name, default)
-  local value = os.getenv(name)
-  if value == nil then
-    return default
-  end
-  value = string.lower(value)
-  return value == "1" or value == "true" or value == "yes"
-end
+local MODULE = "keymap-overlay"
 
-local DEBUG = envFlag("KEYMAP_OVERLAY_DEBUG", false)
+local DEBUG = false -- set to true to enable debug logging
 
-local logger = hs.logger.new(MODULE, DEBUG and "debug" or "info")
+-- local logger = hs.logger.new(MODULE, DEBUG and "debug" or "info")
 local logPath = hs.configdir .. "/" .. MODULE .. ".log"
-
-local function console(msg)
-  if DEBUG then
-    print(MODULE .. ": " .. msg)
-  end
-end
 
 local function appendLog(line)
   local ok, f = pcall(function()
@@ -30,7 +16,7 @@ local function appendLog(line)
   if not ok or not f then
     local reason = tostring(f)
     hs.alert.show("LOG OPEN FAILED: " .. reason .. "\n" .. logPath)
-    console("LOG OPEN FAILED: " .. reason .. " path=" .. logPath)
+    print(MODULE .. ": [ERROR] LOG OPEN FAILED: " .. reason .. " path=" .. logPath)
     return false
   end
 
@@ -40,7 +26,7 @@ local function appendLog(line)
   f:close()
 
   if not writeOk then
-    console("LOG WRITE FAILED: " .. tostring(writeErr))
+    print(MODULE .. ": [ERROR] LOG WRITE FAILED: " .. tostring(writeErr))
     return false
   end
 
@@ -48,24 +34,20 @@ local function appendLog(line)
 end
 
 local function logI(msg)
-  logger.i(msg)
-  console("[I] " .. msg)
+  print(MODULE .. ": " .. msg)
   appendLog("[I] " .. msg)
 end
 local function logW(msg)
-  logger.w(msg)
-  console("[W] " .. msg)
+  print(MODULE .. ": [WARN] " .. msg)
   appendLog("[W] " .. msg)
 end
 local function logE(msg)
-  logger.e(msg)
-  console("[E] " .. msg)
+  print(MODULE .. ": [ERROR] " .. msg)
   appendLog("[E] " .. msg)
 end
 local function logD(msg)
   if DEBUG then
-    logger.d(msg)
-    console("[D] " .. msg)
+    print(MODULE .. ": [DEBUG] " .. msg)
     appendLog("[D] " .. msg)
   end
 end
@@ -75,6 +57,7 @@ if DEBUG then
 end
 logI("Loaded " .. MODULE .. " logPath=" .. logPath)
 logI("hs.configdir=" .. tostring(hs.configdir))
+logI("lua version=" .. _VERSION)
 
 local imageDir = hs.configdir
 
@@ -131,20 +114,16 @@ local function imagePathForLayer(layerName)
   return imageDir .. "/" .. layerName .. ".png"
 end
 
-local function loadImageOrFallback(layerName)
+local function loadImage(layerName)
   local p = imagePathForLayer(layerName)
   local img = hs.image.imageFromPath(p)
   if img then
     logD("Loaded image: " .. p)
     return img
   end
-  local p0 = imagePathForLayer("L0")
-  local img0 = hs.image.imageFromPath(p0)
-  if img0 then
-    logW("Missing " .. p .. " -> fallback " .. p0)
-    return img0
-  end
-  logE("Missing both " .. p .. " and " .. p0)
+
+  hs.alert.show("Missing keymap images: " .. p)
+  logE("Missing image: " .. p)
   return nil
 end
 
@@ -162,9 +141,8 @@ local lastHideAt = 0
 local rearmDelay = 0.08 -- 80ms
 
 local function showOverlay(layerName)
-  local img = loadImageOrFallback(layerName)
+  local img = loadImage(layerName)
   if not img then
-    hs.alert.show("Missing keymap images: " .. layerName .. ".png (and L0.png)")
     return
   end
 
@@ -193,11 +171,10 @@ local function hideOverlay(reason)
   logI("Overlay hidden reason=" .. tostring(reason))
 end
 
--- FAILSAFE
-local failsafeSeconds = 0.35
+local failsafeSeconds = 0.6
 local hideTimer = nil
 local lastBumpAt = 0
-local bumpMinInterval = 0.05 -- 50ms（repeatでのタイマー作り直しを減らす）
+local bumpMinInterval = 0.05
 
 local function bumpFailsafe(reason)
   local now = hs.timer.secondsSinceEpoch()
@@ -211,7 +188,7 @@ local function bumpFailsafe(reason)
   end
   hideTimer = hs.timer.doAfter(failsafeSeconds, function()
     logW("Failsafe hide fired (" .. tostring(reason) .. ")")
-    hideOverlay("failsafe")
+    hideOverlay("hideTimer")
     activeKeyCode = nil
     hideTimer = nil
   end)
@@ -240,9 +217,7 @@ local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown, hs.eventtap.event
 
     if t == hs.eventtap.event.types.keyDown then
       local now = hs.timer.secondsSinceEpoch()
-      if now - lastHideAt < rearmDelay then
-        return true
-      end
+
       if activeKeyCode ~= keyCode or not overlayVisible then
         activeKeyCode = keyCode
         showOverlay(layerName)
@@ -281,7 +256,23 @@ if not started then
   logE("eventtap failed to start (Accessibility?)")
 end
 
+local function status()
+  return (
+    "status dump: activeKeyCode="
+    .. tostring(activeKeyCode)
+    .. " overlayVisible="
+    .. tostring(overlayVisible)
+    .. " canvasShowing="
+    .. tostring(canvas:isShowing())
+    .. " tap="
+    .. tostring(tap)
+    .. " tapEnabled="
+    .. tostring(tap and tap:isEnabled())
+  )
+end
+
 hs.timer.doEvery(2, function()
+  logD(status())
   if tap and not tap:isEnabled() then
     hs.alert.show("eventtap restarted")
     logW("eventtap disabled -> restarting")
@@ -290,12 +281,5 @@ hs.timer.doEvery(2, function()
 end)
 
 hs.hotkey.bind({ "cmd", "alt", "ctrl" }, "F12", function()
-  logI(
-    "manual dump: activeKeyCode="
-      .. tostring(activeKeyCode)
-      .. " overlayVisible="
-      .. tostring(overlayVisible)
-      .. " canvasShowing="
-      .. tostring(canvas:isShowing())
-  )
+  hs.alert.show(status())
 end)

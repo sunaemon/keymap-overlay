@@ -1,5 +1,4 @@
 {
-  "Lua.diagnostics.globals": ["hs"],
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "[python]": {

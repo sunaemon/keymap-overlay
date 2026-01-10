@@ -15,8 +15,6 @@ This repo is set up for the `salicylic_acid3/insixty_en` keyboard, but the workf
 
 While holding a layer key on the keyboard, **Hammerspoon displays the matching layer image on screen**.
 
-Set `KEYMAP_OVERLAY_DEBUG=1` to enable debug logging for the overlay.
-
 ## Getting Started
 
 1. Clone this repository:
