@@ -65,20 +65,39 @@ def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
     )
 
 
-def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[int, list[LayoutKey]]:
-    rows: dict[int, list[LayoutKey]] = {}
+def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[float, list[LayoutKey]]:
+    rows: dict[float, list[LayoutKey]] = {}
     for key in layout_data:
-        row_index = int(key.y)
-        if row_index != _round_unit(key.y):
-            raise ValueError("Non-integer key y position is not supported")
+        row_index = _round_unit(key.y)
         rows.setdefault(row_index, []).append(key)
     return rows
 
 
-def _build_kle_rows(rows_by_y: dict[int, list[LayoutKey]]) -> KleLayout:
+def _build_kle_rows(rows_by_y: dict[float, list[LayoutKey]]) -> KleLayout:
     kle_rows: KleLayout = []
+
+    current_cursor_y = 0.0
+
     for y in sorted(rows_by_y.keys()):
-        kle_rows.append(_build_kle_row(rows_by_y[y]))
+        row_keys = rows_by_y[y]
+        kle_row = _build_kle_row(row_keys)
+
+        required_y = _round_unit(y)
+        y_diff = _round_unit(required_y - current_cursor_y)
+
+        if y_diff != 0:
+            first_item = kle_row[0]
+            if isinstance(first_item, KleKeyProps):
+                first_item.y = (first_item.y or 0) + y_diff
+            else:
+                new_props = KleKeyProps()
+                new_props.y = y_diff
+                kle_row.insert(0, new_props)
+
+        kle_rows.append(kle_row)
+
+        current_cursor_y = required_y + 1.0
+
     return kle_rows
 
 
