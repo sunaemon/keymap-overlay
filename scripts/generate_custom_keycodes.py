@@ -57,7 +57,7 @@ def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> KeycodesJson:
 
     # Regex to find the enum custom_keycodes block
     pattern = re.compile(
-        r"enum\s+custom_keycodes\s*\{([^}]+)\};", re.DOTALL | re.MULTILINE
+        r"enum\s+custom_keycodes\s*\{([^}]*)\};", re.DOTALL | re.MULTILINE
     )
     match = pattern.search(content)
 
