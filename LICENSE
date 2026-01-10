@@ -2,8 +2,8 @@ This project is licensed under multiple licenses.
 
 ## QMK Keymap Files
 
-The QMK keymap files located in `keyboards/salicylic_acid3` originate from @salicylic_acid3's fork of QMK firmware.
-The QMK keymap files located in `keyboards/doio` originate from the original QMK firmware.
+The all files located in `keyboards/salicylic_acid3` originate from @salicylic_acid3's fork of QMK firmware.
+The all files located in `keyboards/doio` originate from the original QMK firmware.
 These files are licensed under the GNU General Public License v2.0 or later.
 Full text of the GPL v2.0 can be found at `keyboards/LICENSE`.
 
