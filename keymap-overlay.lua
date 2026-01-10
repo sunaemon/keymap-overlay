@@ -171,8 +171,7 @@ local function hideOverlay(reason)
   logI("Overlay hidden reason=" .. tostring(reason))
 end
 
--- FAILSAFE
-local failsafeSeconds = 0.35
+local failsafeSeconds = 0.6
 local hideTimer = nil
 local lastBumpAt = 0
 local bumpMinInterval = 0.05
@@ -218,9 +217,7 @@ local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown, hs.eventtap.event
 
     if t == hs.eventtap.event.types.keyDown then
       local now = hs.timer.secondsSinceEpoch()
-      if now - lastHideAt < rearmDelay then
-        return true
-      end
+
       if activeKeyCode ~= keyCode or not overlayVisible then
         activeKeyCode = keyCode
         showOverlay(layerName)
