@@ -102,6 +102,13 @@ VIAL_JSON := $(BUILD_DIR)/vial.json
 # Used by: 'generate_qmk_keymap_from_vitaly.py' (source for rebuild), 'generate_vitaly_layout.py' (base for merge).
 VITALY_JSON := $(BUILD_DIR)/vitaly.json
 
+# [Key to Layer JSON]
+# Mapping of F-keys to layer names (e.g., {"f13": "L1", "f14": "L2"}).
+# Type: src/types.py:KeyToLayerJson
+# Generated from: 'generate_key_to_layer.py' parsing 'keymap.c'.
+# Used by: Hammerspoon overlay (lua) to know which image to show for which trigger key.
+KEY_TO_LAYER_JSON := $(BUILD_DIR)/key-to-layer.json
+
 LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi)
 PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.png" 0 $$(( $(LAYERS) - 1 )); fi)
 
@@ -282,7 +289,7 @@ print-vars:
 # ================= INTERNAL TARGETS =================
 
 .PHONY: _internal_install
-_internal_install: keymap-overlay.lua $(PNG)
+_internal_install: keymap-overlay.lua $(PNG) $(KEY_TO_LAYER_JSON)
 	@if [ "$(LAYERS)" -eq "0" ]; then \
 		echo "ERROR: No layers found even after generation."; \
 		exit 1; \
@@ -295,6 +302,9 @@ _internal_install: keymap-overlay.lua $(PNG)
 
 	@echo "→ Copying keymap images ($(KEYMAP_PREFIX)L*.png)"
 	@cp $(BUILD_DIR)/$(KEYMAP_PREFIX)L*.png "$(HAMMERSPOON_DIR)/"
+
+	@echo "→ Copying key-to-layer.json"
+	@cp $(KEY_TO_LAYER_JSON) "$(HAMMERSPOON_DIR)/key-to-layer-$(KEYBOARD_ID).json"
 
 	@touch "$(HAMMERSPOON_INIT)"
 
@@ -351,3 +361,6 @@ $(KEYCODES_JSON): scripts/generate_keycodes.py | $(BUILD_DIR)
 
 $(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) scripts/generate_custom_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
 	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_custom_keycodes "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)"
+
+$(KEY_TO_LAYER_JSON): $(QMK_KEYMAP_C) scripts/generate_key_to_layer.py | $(BUILD_DIR)
+	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_key_to_layer --keymap-c "$(QMK_KEYMAP_C)" --prefix "$(KEYMAP_PREFIX)"

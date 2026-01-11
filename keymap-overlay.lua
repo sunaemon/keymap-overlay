@@ -1,177 +1,274 @@
--- Copyright 2025 Sunaemon
+-- Copyright 2025 sunaemon
 -- SPDX-License-Identifier: MIT
 -- keymap_overlay.lua
 
 local MODULE = "keymap-overlay"
-local log = hs.logger.new(MODULE, "info")
 
--- Constants for QMK Raw HID
-local RAW_USAGE_PAGE = 0xFF60
-local RAW_USAGE = 0x61
+local DEBUG = false -- set to true to enable debug logging
 
--- Configuration
+local logPath = hs.configdir .. "/" .. MODULE .. ".log"
+
+local function appendLog(line)
+  local ok, _ = pcall(function()
+    local f = io.open(logPath, "a")
+    if not f then
+      error("failed to open log file")
+    end
+
+    f:write(os.date("%Y-%m-%d %H:%M:%S ") .. line .. "\n")
+    f:close()
+  end)
+  if not ok then
+    local reason = tostring(f)
+    hs.alert.show("LOG WRITE FAILED: " .. reason .. "\n" .. logPath)
+    print(MODULE .. ": [ERROR] LOG WRITE FAILED: " .. reason .. " path=" .. logPath)
+    return false
+  end
+
+  return true
+end
+
+local function logI(msg)
+  print(MODULE .. ": " .. msg)
+  appendLog("[I] " .. msg)
+end
+local function logW(msg)
+  print(MODULE .. ": [WARN] " .. msg)
+  appendLog("[W] " .. msg)
+end
+local function logE(msg)
+  print(MODULE .. ": [ERROR] " .. msg)
+  appendLog("[E] " .. msg)
+end
+local function logD(msg)
+  if DEBUG then
+    print(MODULE .. ": [DEBUG] " .. msg)
+    appendLog("[D] " .. msg)
+  end
+end
+
+if DEBUG then
+  hs.alert.show("Loaded " .. MODULE)
+end
+logI("Loaded " .. MODULE .. " logPath=" .. logPath)
+logI("hs.configdir=" .. tostring(hs.configdir))
+logI("lua version=" .. _VERSION)
+
 local imageDir = hs.configdir
 
--- State
-local devices = {}
-local canvas = hs.canvas.new({ x = 0, y = 0, w = 0, h = 0 })
-canvas:level("overlay")
-canvas:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces | hs.canvas.windowBehaviors.fullScreenAuxiliary)
-canvas[1] = { type = "image", image = nil, imageAlpha = 0.85 }
+local function loadKeyToLayer()
+  local mapped = {}
+  local found = false
 
-local overlayVisible = false
-local currentImageConfig = nil -- { id = 1, layer = 0 }
+  for file in hs.fs.dir(hs.configdir) do
+    if file:match("^key%-to%-layer.*%.json$") then
+      local path = hs.configdir .. "/" .. file
+      logI("Loading key map: " .. file)
 
--- Helper: Load Image
-local function getImage(keyboard_id, layer)
-  local filename = string.format("%d_L%d.png", keyboard_id, layer)
-  local path = imageDir .. "/" .. filename
-  if hs.fs.attributes(path) then
-    return hs.image.imageFromPath(path)
+      local f, err = io.open(path, "r")
+      if f then
+        local content = f:read("*a")
+        f:close()
+
+        local ok, data = pcall(hs.json.decode, content)
+        if ok and type(data) == "table" then
+          found = true
+          for keyName, layerName in pairs(data) do
+            if type(keyName) == "string" and type(layerName) == "string" then
+              local keyCode = hs.keycodes.map[keyName:lower()]
+              if keyCode then
+                mapped[keyCode] = layerName
+              else
+                logW("Unknown key name in " .. file .. ": " .. keyName)
+              end
+            end
+          end
+        else
+          logE("Invalid JSON in " .. file)
+        end
+      else
+        logE("Failed to open " .. file .. ": " .. tostring(err))
+      end
+    end
   end
+
+  if not found then
+    logE("No key-to-layer*.json found; overlay disabled")
+    hs.alert.show("keymap overlay disabled: configuration missing")
+    return nil
+  end
+
+  if next(mapped) ~= nil then
+    logI("Loaded key mappings")
+    return mapped
+  else
+    logE("No usable mappings found; overlay disabled")
+    hs.alert.show("keymap overlay disabled: no usable mappings")
+    return nil
+  end
+end
+
+local keyToLayer = loadKeyToLayer()
+
+local function imagePathForLayer(layerName)
+  return imageDir .. "/" .. layerName .. ".png"
+end
+
+local function loadImage(layerName)
+  local p = imagePathForLayer(layerName)
+  local img = hs.image.imageFromPath(p)
+  if img then
+    logD("Loaded image: " .. p)
+    return img
+  end
+
+  hs.alert.show("Missing keymap images: " .. p)
+  logE("Missing image: " .. p)
   return nil
 end
 
--- Helper: Show/Hide Overlay
-local function updateOverlay(show, keyboard_id, layer)
-  if show then
-    local img = getImage(keyboard_id, layer)
-    if img then
-      local screen = hs.screen.mainScreen()
-      local f = screen:frame()
-      local w, h = f.w / 2, f.h / 2
-      local x, y = f.x, f.y + f.h - h
-
-      canvas:frame({ x = x, y = y, w = w, h = h })
-      canvas[1].image = img
-      canvas:show()
-      overlayVisible = true
-      currentImageConfig = { id = keyboard_id, layer = layer }
-      log.i(string.format("Showing overlay: ID=%d Layer=%d", keyboard_id, layer))
-    else
-      log.w(string.format("Image not found for ID=%d Layer=%d", keyboard_id, layer))
-      if overlayVisible then
-        canvas:hide()
-      end
-    end
-  else
-    if overlayVisible then
-      -- Only hide if the request matches the current shown overlay or generic hide
-      if not keyboard_id or (currentImageConfig and currentImageConfig.id == keyboard_id) then
-        canvas:hide()
-        overlayVisible = false
-        currentImageConfig = nil
-        log.i("Hiding overlay")
-      end
-    end
-  end
-end
-
--- HID Callback
-local function input_callback(device, data)
-  -- Expected data format: [Command ID (0x24)] [Layer ID] [Keyboard ID (7bit) | Pressed (1bit)] [Padding...]
-  -- Note: macOS HID callback string usually starts with data.
-
-  if #data < 3 then
-    return
-  end
-
-  local cmd_id = string.byte(data, 1)
-  if cmd_id ~= 0x24 then
-    return
-  end
-
-  local layer = string.byte(data, 2)
-  local byte3 = string.byte(data, 3)
-
-  local keyboard_id = byte3 & 0x7F
-  -- Using the 8th bit for 'pressed' state (0x80) based on assumed C struct packing
-  local pressed = (byte3 & 0x80) ~= 0
-
-  -- Debug logging
-  -- log.d(string.format("HID Data: %02X %02X %02X -> ID: %d, Layer: %d, Pressed: %s", cmd_id, layer, byte3, keyboard_id, layer, tostring(pressed)))
-
-  if pressed then
-    updateOverlay(true, keyboard_id, layer)
-  else
-    updateOverlay(false, keyboard_id, layer)
-  end
-end
-
--- Device Discovery
-local function refreshDevices()
-  -- Known VIDs/PIDs from repository
-  -- Keyboard 1: 0x355D:0x1001 (insixty_en)
-  -- Keyboard 2: 0xD010:0x1601 (kb16)
-  local target_devices = {
-    { vid = 0x355D, pid = 0x1001 },
-    { vid = 0xD010, pid = 0x1601 },
-  }
-
-  local found_devs = hs.hid.find_devices(RAW_USAGE_PAGE, RAW_USAGE) or {}
-  local new_devices = {}
-
-  for _, dev_info in ipairs(found_devs) do
-    -- Check if this device is one of our targets
-    local is_target = false
-    for _, t in ipairs(target_devices) do
-      if dev_info:vendorID() == t.vid and dev_info:productID() == t.pid then
-        is_target = true
-        break
-      end
-    end
-
-    if is_target then
-      local path = dev_info:transport() .. "_" .. dev_info:locationID() -- Unique ID key
-      if devices[path] then
-        -- Keep existing device
-        new_devices[path] = devices[path]
-        devices[path] = nil
-      else
-        log.i("Found Raw HID device: " .. dev_info:productName())
-        -- Note: hs.hid.new(vid, pid) might not be ideal if multiple identical devices exist,
-        -- but it's what's available for creating a 'managed' HID object with callbacks.
-        local dev_obj = hs.hid.new(dev_info:vendorID(), dev_info:productID())
-        if dev_obj then
-          dev_obj:setCallback(input_callback)
-          new_devices[path] = dev_obj
-          log.i("Connected to " .. dev_info:productName())
-        else
-          log.e("Failed to connect to " .. dev_info:productName())
-        end
-      end
-    end
-  end
-
-  -- Cleanup remaining devices in the old table
-  for path, dev_obj in pairs(devices) do
-    log.i("Removing stale device: " .. path)
-    dev_obj:setCallback(nil)
-  end
-
-  devices = new_devices
-end
-
--- USB Watcher to handle plugging/unplugging
-local usbWatcher = hs.usb.watcher.new(function(data)
-  if data.eventType == "added" then
-    hs.timer.doAfter(1.0, refreshDevices) -- Wait a bit for HID interface to be ready
-  elseif data.eventType == "removed" then
-    -- Cleanup is tricky without path mapping from usb watcher, but refreshing handles new connects
-    -- Ideally we'd remove disconnected devices from 'devices' table but hs.hid object might handle error gracefully
-    -- For simple overlay, lazy cleanup or periodic refresh is okay.
-    -- Let's just trigger refresh to find new ones.
-  end
+local canvas = hs.canvas.new({ x = 0, y = 0, w = 0, h = 0 })
+canvas:level("overlay")
+pcall(function()
+  canvas:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces | hs.canvas.windowBehaviors.fullScreenAuxiliary)
 end)
-usbWatcher:start()
 
--- Initial scan
-refreshDevices()
+canvas[1] = { type = "image", image = nil, imageAlpha = 0.85 }
 
-log.i("keymap-overlay: Raw HID listener started")
-hs.alert.show("keymap-overlay: Raw HID listener started")
+local activeKeyCode = nil
+local overlayVisible = false
+local lastHideAt = 0
+local rearmDelay = 0.08 -- 80ms
 
-return {
-  devices = devices,
-  refresh = refreshDevices,
-}
+local function showOverlay(layerName)
+  local img = loadImage(layerName)
+  if not img then
+    return
+  end
+
+  local screen = hs.screen.mainScreen()
+  if not screen then
+    hs.alert.show("No screen detected")
+    logE("No screen detected")
+    return
+  end
+
+  local f = screen:frame()
+  local w, h = f.w / 2, f.h / 2
+  local x, y = f.x, f.y + f.h - h
+
+  canvas:frame({ x = x, y = y, w = w, h = h })
+  canvas[1].image = img
+  canvas:show()
+  overlayVisible = true
+  logI("Overlay shown layer=" .. layerName)
+end
+
+local function hideOverlay(reason)
+  lastHideAt = hs.timer.secondsSinceEpoch()
+  canvas:hide()
+  overlayVisible = false
+  logI("Overlay hidden reason=" .. tostring(reason))
+end
+
+local failsafeSeconds = 0.6
+local hideTimer = nil
+local lastBumpAt = 0
+local bumpMinInterval = 0.05
+
+local function bumpFailsafe(reason)
+  local now = hs.timer.secondsSinceEpoch()
+  if now - lastBumpAt < bumpMinInterval then
+    return
+  end
+  lastBumpAt = now
+
+  if hideTimer then
+    hideTimer:stop()
+  end
+  hideTimer = hs.timer.doAfter(failsafeSeconds, function()
+    logW("Failsafe hide fired (" .. tostring(reason) .. ")")
+    hideOverlay("hideTimer")
+    activeKeyCode = nil
+    hideTimer = nil
+  end)
+end
+
+local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown, hs.eventtap.event.types.keyUp }, function(event)
+  local ok, ret = xpcall(function()
+    if not keyToLayer then
+      return false
+    end
+
+    local keyCode = event:getKeyCode()
+    local layerName = keyToLayer[keyCode]
+    if not layerName then
+      return false
+    end
+
+    local t = event:getType()
+    local isRepeat = (event:getProperty(hs.eventtap.event.properties.keyboardEventAutorepeat) == 1)
+
+    bumpFailsafe(isRepeat and "repeat" or "edge")
+
+    if not isRepeat then
+      logI("Key event: " .. tostring(t) .. " keyCode " .. tostring(keyCode) .. " layer " .. tostring(layerName))
+    end
+
+    if t == hs.eventtap.event.types.keyDown then
+      local now = hs.timer.secondsSinceEpoch()
+
+      if activeKeyCode ~= keyCode or not overlayVisible then
+        activeKeyCode = keyCode
+        showOverlay(layerName)
+      end
+    elseif t == hs.eventtap.event.types.keyUp then
+      hideOverlay("keyUp")
+      activeKeyCode = nil
+      if hideTimer then
+        hideTimer:stop()
+        hideTimer = nil
+      end
+    end
+
+    return true
+  end, function(err)
+    local trace = debug.traceback(err, 2)
+    hs.alert.show("eventtap error; see log")
+    logE("eventtap ERROR:\n" .. trace)
+    return false
+  end)
+
+  if not ok then
+    hs.alert.show("xpcall failed; see log")
+    logE("xpcall failed ret=" .. tostring(ret))
+    hideOverlay("exception")
+    activeKeyCode = nil
+    return false
+  end
+  return ret
+end)
+
+local started = tap:start()
+logI("eventtap started=" .. tostring(started))
+if not started then
+  hs.alert.show("eventtap failed: enable Accessibility for Hammerspoon")
+  logE("eventtap failed to start (Accessibility?)")
+end
+
+local function status()
+  return (
+    "status dump: activeKeyCode="
+    .. tostring(activeKeyCode)
+    .. " overlayVisible="
+    .. tostring(overlayVisible)
+    .. " canvasShowing="
+    .. tostring(canvas:isShowing())
+    .. " tapEnabled="
+    .. tostring(tap and tap:isEnabled())
+  )
+end
+
+hs.hotkey.bind({ "cmd", "alt", "ctrl" }, "F12", function()
+  hs.alert.show(status())
+end)

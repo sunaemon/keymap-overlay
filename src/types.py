@@ -221,6 +221,10 @@ class VitalyJson(BaseModelAllow):
     layout: list[list[list[str]]]
 
 
+class KeyToLayerJson(RootModel[dict[str, str]]):
+    pass
+
+
 class JSONReadError(RuntimeError):
     """Failed to read JSON file."""
 
