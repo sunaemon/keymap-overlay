@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use keymap_core::ProjectContext;
+use log::{debug, info};
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
@@ -30,9 +31,59 @@ enum Commands {
     },
 }
 
+fn handle_info(ctx: &ProjectContext, keyboard_id: &str) -> Result<()> {
+    let config = ctx.get_keyboard_config(keyboard_id)?;
+    println!("Keyboard ID: {}", keyboard_id);
+    println!("QMK Keyboard: {}", config.qmk_keyboard);
+    println!(
+        "Build Directory: {}",
+        ctx.get_build_dir(keyboard_id)?.display()
+    );
+    Ok(())
+}
+
+fn handle_compile(ctx: &ProjectContext, keyboard_id: &str) -> Result<()> {
+    let config = ctx.get_keyboard_config(keyboard_id)?;
+
+    println!("Compiling {} ({})...", keyboard_id, config.qmk_keyboard);
+
+    let qmk_build_dir = ctx.get_build_dir(keyboard_id)?.join("qmk_build");
+    let qmk_build_dir_str = qmk_build_dir
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Build directory path contains invalid UTF-8 characters"))?;
+
+    debug!("Executing qmk compile via mise...");
+    // Thin wrapper calling 'qmk compile' via mise
+    let status = Command::new("mise")
+        .args([
+            "exec",
+            "--",
+            "qmk",
+            "compile",
+            "-kb",
+            &config.qmk_keyboard,
+            "-km",
+            "keymap", // Uses the default "keymap" directory name for custom keymaps
+            "-e",
+            &format!("KEYBOARD_ID={}", keyboard_id),
+            "-e",
+            &format!("BUILD_DIR={}", qmk_build_dir_str),
+        ])
+        .status()
+        .context("Failed to execute qmk compile")?;
+
+    if !status.success() {
+        anyhow::bail!("qmk compile failed with exit code: {:?}", status.code());
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
     let cli = Cli::parse();
     let current_dir = env::current_dir()?;
+    debug!("Current directory: {:?}", current_dir);
 
     // Resolve keyboards_dir relative to current_dir if it's relative
     let keyboards_dir = if cli.keyboards_dir.is_relative() {
@@ -40,62 +91,18 @@ fn main() -> Result<()> {
     } else {
         cli.keyboards_dir
     };
+    debug!("Keyboards directory: {:?}", keyboards_dir);
 
     let ctx = ProjectContext::new(current_dir, keyboards_dir);
 
     match cli.command {
         Commands::Info { keyboard_id } => {
-            let config = ctx
-                .get_keyboard_config(&keyboard_id)
-                .map_err(|e| anyhow::anyhow!(e))?;
-            println!("Keyboard ID: {}", keyboard_id);
-            println!("QMK Keyboard: {}", config.qmk_keyboard);
-            println!(
-                "Build Directory: {}",
-                ctx.get_build_dir(&keyboard_id)
-                    .map_err(|e| anyhow::anyhow!(e))?
-                    .display()
-            );
+            info!("showing information for keyboard: {}", keyboard_id);
+            handle_info(&ctx, &keyboard_id)
         }
         Commands::Compile { keyboard_id } => {
-            let config = ctx
-                .get_keyboard_config(&keyboard_id)
-                .map_err(|e| anyhow::anyhow!(e))?;
-
-            println!("Compiling {} ({})...", keyboard_id, config.qmk_keyboard);
-
-            let qmk_build_dir = ctx
-                .get_build_dir(&keyboard_id)
-                .map_err(|e| anyhow::anyhow!(e))?
-                .join("qmk_build");
-            let qmk_build_dir_str = qmk_build_dir.to_str().ok_or_else(|| {
-                anyhow::anyhow!("Build directory path contains invalid UTF-8 characters")
-            })?;
-
-            // Thin wrapper calling 'qmk compile' via mise
-            let status = Command::new("mise")
-                .args([
-                    "exec",
-                    "--",
-                    "qmk",
-                    "compile",
-                    "-kb",
-                    &config.qmk_keyboard,
-                    "-km",
-                    "keymap", // Uses the default "keymap" directory name for custom keymaps
-                    "-e",
-                    &format!("KEYBOARD_ID={}", keyboard_id),
-                    "-e",
-                    &format!("BUILD_DIR={}", qmk_build_dir_str),
-                ])
-                .status()
-                .context("Failed to execute qmk compile")?;
-
-            if !status.success() {
-                anyhow::bail!("qmk compile failed with exit code: {:?}", status.code());
-            }
+            info!("Starting compilation for keyboard: {}", keyboard_id);
+            handle_compile(&ctx, &keyboard_id)
         }
     }
-
-    Ok(())
 }

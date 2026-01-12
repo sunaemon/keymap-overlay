@@ -1,3 +1,5 @@
+use anyhow::{Context, Result, anyhow};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -30,42 +32,42 @@ impl ProjectContext {
         &self.keyboards_dir
     }
 
-    fn validate_keyboard_id(id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn validate_keyboard_id(id: &str) -> Result<()> {
         if id.trim().is_empty() {
-            return Err("Keyboard ID cannot be empty".into());
+            return Err(anyhow!("Keyboard ID cannot be empty"));
         }
         if !id
             .chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
         {
-            return Err(format!(
+            return Err(anyhow!(
                 "Invalid Keyboard ID '{}': Only alphanumeric characters, underscores, and hyphens are allowed",
                 id
-            )
-            .into());
+            ));
         }
         Ok(())
     }
 
-    pub fn get_keyboard_config(
-        &self,
-        keyboard_id: &str,
-    ) -> Result<KeyboardConfig, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn get_keyboard_config(&self, keyboard_id: &str) -> Result<KeyboardConfig> {
         Self::validate_keyboard_id(keyboard_id)?;
         let config_path = self.keyboards_dir.join(keyboard_id).join("config.json");
+        debug!("Reading keyboard config from {:?}", config_path);
         let content = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read config at {:?}: {}", config_path, e))?;
+            .with_context(|| format!("Failed to read config at {:?}", config_path))?;
         let config: KeyboardConfig = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse config at {:?}: {}", config_path, e))?;
+            .with_context(|| format!("Failed to parse config at {:?}", config_path))?;
+        debug!("Successfully parsed config for keyboard: {}", keyboard_id);
         Ok(config)
     }
 
-    pub fn get_build_dir(
-        &self,
-        keyboard_id: &str,
-    ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn get_build_dir(&self, keyboard_id: &str) -> Result<PathBuf> {
         Self::validate_keyboard_id(keyboard_id)?;
-        Ok(self.root_dir.join("build").join(keyboard_id))
+        let build_dir = self.root_dir.join("build").join(keyboard_id);
+        debug!(
+            "Resolved build directory for {}: {:?}",
+            keyboard_id, build_dir
+        );
+        Ok(build_dir)
     }
 }
 
