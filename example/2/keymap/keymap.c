@@ -46,10 +46,10 @@ const uint16_t PROGMEM keymaps[DYNAMIC_KEYMAP_LAYER_COUNT][MATRIX_ROWS][MATRIX_C
         _______, _______, _______, _______
     ),
     [3] = LAYOUT(
-        RM_SPDU, RM_SPDD, _______, QK_BOOT,      _______,
-        RM_SATU, RM_SATD, _______, _______,      _______,
-        RM_TOGG, RM_NEXT, RM_HUEU, _______,      _______,
-        _______, RM_VALU, RM_HUED, RM_VALD
+        QK_BOOT, _______, _______, _______,      _______,
+        _______, _______, _______, _______,      _______,
+        _______, _______, _______, _______,      _______,
+        _______, _______, _______, _______
     ),
 };
 // clang-format on
