@@ -48,6 +48,7 @@ While holding a layer key on the keyboard, **Hammerspoon displays the matching l
 4. Set up the mise and uv environment:
 
    ```bash
+   mise trust
    mise install
    mise exec -- uv sync --no-dev
    ```
