@@ -19,9 +19,9 @@ build/L0.png, build/L1.png, ...
 Firmware flash workflow:
 
 ```text
-keyboards/<keyboard>/keymaps/<keymap>
+$(KEYBOARDS_DIR)/<keyboard>/keymap
   ↓ make flash
-qmk compile + qmk flash
+qmk flash
   ↓ firmware update
 keyboard device
 ```

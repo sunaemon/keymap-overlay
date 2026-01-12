@@ -18,11 +18,12 @@ app = typer.Typer()
 @app.command()
 def main(
     keymap_c: Annotated[Path, typer.Option(help="Path to keymap.c")],
+    prefix: Annotated[str, typer.Option(help="Prefix for layer names")] = "",
 ) -> None:
     """Generate key-to-layer JSON from keymap.c and emit it to stdout."""
     initialize_logging()
     try:
-        key_to_layer = _process(keymap_c)
+        key_to_layer = _process(keymap_c, prefix)
         print_json(key_to_layer)
         logger.info("Generated key-to-layer mapping.")
     except Exception:
@@ -30,10 +31,10 @@ def main(
         raise typer.Exit(code=1) from None
 
 
-def _process(keymap_c: Path) -> KeyToLayerJson:
+def _process(keymap_c: Path, prefix: str) -> KeyToLayerJson:
     content = keymap_c.read_text()
     notifier_keys = _parse_notifier_keys(content)
-    return _build_mapping(notifier_keys)
+    return _build_mapping(notifier_keys, prefix)
 
 
 def _parse_notifier_keys(content: str) -> list[str]:
@@ -53,11 +54,11 @@ def _parse_notifier_keys(content: str) -> list[str]:
     return notifier_keys
 
 
-def _build_mapping(notifier_keys: list[str]) -> KeyToLayerJson:
+def _build_mapping(notifier_keys: list[str], prefix: str) -> KeyToLayerJson:
     mapping: dict[str, str] = {}
     for idx, entry in enumerate(notifier_keys):
         key_name = _normalize_keycode(entry)
-        mapping[key_name] = f"L{idx}"
+        mapping[key_name] = f"{prefix}L{idx}"
     return KeyToLayerJson.model_validate(mapping)
 
 

@@ -57,47 +57,52 @@ logI("lua version=" .. _VERSION)
 local imageDir = hs.configdir
 
 local function loadKeyToLayer()
-  local path = hs.configdir .. "/key-to-layer.json"
-  if not hs.fs.attributes(path) then
-    logE("key-to-layer.json not found; overlay disabled")
-    hs.alert.show("keymap overlay disabled: key-to-layer.json missing")
-    return nil
-  end
-
-  local f, err = io.open(path, "r")
-  if not f then
-    logE("Failed to open key-to-layer.json: " .. tostring(err))
-    hs.alert.show("keymap overlay disabled: key-to-layer.json unreadable")
-    return nil
-  end
-
-  local content = f:read("*a")
-  f:close()
-
-  local ok, data = pcall(hs.json.decode, content)
-  if not ok or type(data) ~= "table" then
-    logE("Invalid key-to-layer.json; overlay disabled")
-    hs.alert.show("keymap overlay disabled: key-to-layer.json invalid")
-    return nil
-  end
-
   local mapped = {}
-  for keyName, layerName in pairs(data) do
-    if type(keyName) == "string" and type(layerName) == "string" then
-      local keyCode = hs.keycodes.map[keyName:lower()]
-      if keyCode then
-        mapped[keyCode] = layerName
+  local found = false
+
+  for file in hs.fs.dir(hs.configdir) do
+    if file:match("^key%-to%-layer.*%.json$") then
+      local path = hs.configdir .. "/" .. file
+      logI("Loading key map: " .. file)
+
+      local f, err = io.open(path, "r")
+      if f then
+        local content = f:read("*a")
+        f:close()
+
+        local ok, data = pcall(hs.json.decode, content)
+        if ok and type(data) == "table" then
+          found = true
+          for keyName, layerName in pairs(data) do
+            if type(keyName) == "string" and type(layerName) == "string" then
+              local keyCode = hs.keycodes.map[keyName:lower()]
+              if keyCode then
+                mapped[keyCode] = layerName
+              else
+                logW("Unknown key name in " .. file .. ": " .. keyName)
+              end
+            end
+          end
+        else
+          logE("Invalid JSON in " .. file)
+        end
       else
-        logW("Unknown key name in key-to-layer.json: " .. keyName)
+        logE("Failed to open " .. file .. ": " .. tostring(err))
       end
     end
   end
 
+  if not found then
+    logE("No key-to-layer*.json found; overlay disabled")
+    hs.alert.show("keymap overlay disabled: configuration missing")
+    return nil
+  end
+
   if next(mapped) ~= nil then
-    logI("Loaded key-to-layer.json")
+    logI("Loaded key mappings")
     return mapped
   else
-    logE("key-to-layer.json had no usable mappings; overlay disabled")
+    logE("No usable mappings found; overlay disabled")
     hs.alert.show("keymap overlay disabled: no usable mappings")
     return nil
   end

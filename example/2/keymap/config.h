@@ -1,4 +1,5 @@
-/* Copyright 2025 Salicylic_acid3
+/* Copyright 2022 DOIO
+ * Copyright 2022 HorrorTroll <https://github.com/HorrorTroll>
  * Copyright 2026 Sunaemon
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,11 +18,10 @@
 
 #pragma once
 
-#define DYNAMIC_KEYMAP_LAYER_COUNT 7
+#define DYNAMIC_KEYMAP_LAYER_COUNT 4
 #define DYNAMIC_KEYMAP_MACRO_COUNT 32
-#define UNICODE_SELECTED_MODES UNICODE_MODE_MACOS
 
 /* Vial configuration */
-#define VIAL_KEYBOARD_UID {0x8F, 0x41, 0x24, 0x61, 0xD4, 0x20, 0x30, 0x58}
+#define VIAL_KEYBOARD_UID {0x8F, 0x4D, 0x61, 0x58, 0x92, 0x50, 0x98, 0x7E}
 #define VIAL_UNLOCK_COMBO_ROWS {0, 0}
 #define VIAL_UNLOCK_COMBO_COLS {0, 1}

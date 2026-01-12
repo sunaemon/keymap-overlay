@@ -31,9 +31,9 @@ A Lua script that runs within Hammerspoon. It:
 - Watches for layer change notifications from the keyboard (via custom raw HID or specific key sequences, depending on firmware implementation).
 - Displays the corresponding PNG from `~/.hammerspoon/` on screen.
 
-### 4. Firmware (`keyboards/` & `qmk_firmware/`)
+### 4. Firmware (`example/` & `qmk_firmware/`)
 
-- Contains local keyboard configurations and specialized keymaps (e.g., `layer-notify`) that facilitate communication with the Hammerspoon overlay.
+- Contains local keyboard configurations (in `example/` or the directory specified by `KEYBOARDS_DIR` in the `Makefile`) and specialized keymaps (e.g., `layer-notify`) that facilitate communication with the Hammerspoon overlay.
 
 ## Tech Stack
 
@@ -88,7 +88,7 @@ This target validates the `keyboard.json` structure, generates the VIAL-compatib
 
 ### Keymap Flashing (VIAL/Vitaly)
 
-To verify that the keymap can be fetched, merged, and uploaded back to a VIAL-enabled device:
+To verify that the keymap can be fetched, merged, and uploaded back to VIAL-enabled devices:
 
 ```bash
 make flash-keymap
@@ -99,6 +99,8 @@ This workflow:
 1. Dumps the current configuration from the device using `vitaly`.
 2. Merges the QMK keymap into the dumped configuration.
 3. Loads the updated configuration back to the device.
+
+By default, it iterates through all keyboards configured in `example/`. You can target a specific one with `KEYBOARD_ID=...`.
 
 ### Application Installation
 
@@ -156,7 +158,7 @@ Use one-line triple-quoted docstrings for functions and classes, e.g.:
 
 ## Directory Structure
 
-- `keyboards/`: Local keyboard-specific configurations and keymaps.
+- `example/`: Local keyboard-specific configurations and keymaps (configurable via `KEYBOARDS_DIR` in the `Makefile`).
 - `scripts/`: Python utility scripts.
 - `typings/`: Type stubs for Python libraries.
 - `build/`: Temporary directory for generated artifacts (JSON, SVG, PNG).
