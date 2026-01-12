@@ -21,6 +21,10 @@
 // OLED animation
 #include "lib/layer_status/layer_status.h"
 
+enum custom_keycodes {
+  DUMMY_KEY = SAFE_RANGE,
+};
+
 // clang-format off
 const uint16_t PROGMEM keymaps[DYNAMIC_KEYMAP_LAYER_COUNT][MATRIX_ROWS][MATRIX_COLS] = {
     [0] = LAYOUT(

@@ -88,7 +88,7 @@ This target validates the `keyboard.json` structure, generates the VIAL-compatib
 
 ### Keymap Flashing (VIAL/Vitaly)
 
-To verify that the keymap can be fetched, merged, and uploaded back to a VIAL-enabled device:
+To verify that the keymap can be fetched, merged, and uploaded back to VIAL-enabled devices:
 
 ```bash
 make flash-keymap
@@ -99,6 +99,8 @@ This workflow:
 1. Dumps the current configuration from the device using `vitaly`.
 2. Merges the QMK keymap into the dumped configuration.
 3. Loads the updated configuration back to the device.
+
+By default, it iterates through all keyboards configured in `example/`. You can target a specific one with `KEYBOARD_ID=...`.
 
 ### Application Installation
 

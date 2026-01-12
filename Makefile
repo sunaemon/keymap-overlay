@@ -46,6 +46,8 @@ KEYMAP_PREFIX := $(KEYBOARD_ID)_
 KEYBOARD_JSON := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json
 QMK_KEYMAP_C := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/keymap.c
 
+DEVICE_PID := $(shell $(UV) run python -c "import json; print(int(json.load(open('$(KEYBOARD_JSON)'))['usb']['pid'], 16))")
+
 LAYOUT_NAME := LAYOUT
 
 DPI ?= 144
@@ -210,12 +212,10 @@ endif
 
 .PHONY: flash-keymap
 flash-keymap:
-ifndef KEYBOARD_ID
-	$(error KEYBOARD_ID is required for flash-keymap)
-endif
+ifdef KEYBOARD_ID
 	@$(MAKE) $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 	@echo "Fetching current configuration from device..."
-	$(VITALY) save -f $(VITALY_JSON)
+	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
 	@echo "Merging QMK keymap into Vitaly configuration..."
 	$(RUN_OUTPUT) "$(BUILD_DIR)/vitaly_ready.json" -- \
@@ -226,7 +226,15 @@ endif
 		--custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" \
 		--layout-name "$(LAYOUT_NAME)"
 	@echo "Loading new configuration to device..."
-	$(VITALY) load -f $(BUILD_DIR)/vitaly_ready.json
+	$(VITALY) -i $(DEVICE_PID) load -f $(BUILD_DIR)/vitaly_ready.json
+else
+	@echo "KEYBOARD_ID not set, flashing all keyboards..."
+	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
+		echo "----------------------------------------------------------------"; \
+		echo "Flashing keymap for $$kb"; \
+		$(MAKE) flash-keymap KEYBOARD_ID=$$kb || exit 1; \
+	done
+endif
 
 .PHONY: patch-load
 patch-load:
@@ -262,6 +270,7 @@ print-vars:
 	@echo "QMK_KEYMAP=$(QMK_KEYMAP)"
 	@echo "KEYBOARD_JSON=$(KEYBOARD_JSON)"
 	@echo "QMK_KEYMAP_C=$(QMK_KEYMAP_C)"
+	@echo "DEVICE_PID=$(DEVICE_PID)"
 	@echo "LAYOUT_NAME=$(LAYOUT_NAME)"
 	@echo "DPI=$(DPI)"
 	@echo ""
@@ -339,7 +348,7 @@ QMK_KEYMAP_JSON_DEPS := scripts/postprocess_qmk_keymap.py $(CUSTOM_KEYCODES_JSON
 $(QMK_KEYMAP_JSON_RAW): $(QMK_KEYMAP_JSON_RAW_DEPS) | $(BUILD_DIR)
 ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
-	$(VITALY) save -f $(VITALY_JSON)
+	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
 	$(RUN_OUTPUT) "$@" -- $(UV) run python -m scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)"
 else

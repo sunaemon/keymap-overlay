@@ -87,7 +87,7 @@ These commands are for users who have VIAL-enabled firmware on their keyboard.
 2. Parse keymap.c and write the keymap to EEPROM:
 
    ```bash
-   make flash-keymap KEYBOARD_ID=1
+   make flash-keymap
    ```
 
 ## License
