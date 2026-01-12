@@ -1,4 +1,5 @@
 [tools]
+rust = { version = "1.85.0", components = "rustfmt,clippy", profile = "default" }
 python = "3.13.2"
 uv = "0.9.22"
 pipx = "1.8.0"
@@ -25,6 +26,7 @@ mise exec node@${NODE_VERSION} stylua@${STYLUA_VERSION} taplo@${TAPLO_VERSION} n
   set -e
   uv sync
   ruff format .
+  cargo fmt
   git ls-files Makefile "*.mk" | xargs mbake format --config .mbake.toml
   git ls-files "*.md" "*.yaml" "*.json" | grep -v '.gemini/.*' | xargs prettier --write
   git ls-files "*.toml" | xargs taplo fmt
@@ -41,5 +43,6 @@ mise exec pipx:ruff@${RUFF_VERSION} pipx:ty@${TY_VERSION} -- bash <<'EOF'
   uv sync
   ruff check --fix .
   ty check --extra-search-path typings .
+  cargo clippy -- -D warnings
 EOF
 """

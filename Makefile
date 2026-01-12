@@ -16,6 +16,7 @@ endif
 QMK ?= $(MISE) exec -- qmk
 KEYMAP ?= $(MISE) exec -- keymap
 UV ?= $(MISE) exec -- uv
+CARGO ?= $(MISE) exec -- cargo
 VITALY ?= $(MISE) exec cargo:vitaly@$(VITALY_VERSION) -- vitaly
 RUN_OUTPUT := $(UV) run python -m scripts.run_output
 
@@ -192,7 +193,7 @@ endif
 compile:
 ifdef KEYBOARD_ID
 	@$(MAKE) _copy_firmware
-	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
+	$(CARGO) run -p keymap-cli -- --keyboards-dir $(KEYBOARDS_DIR) compile --keyboard-id $(KEYBOARD_ID)
 else
 	@echo "KEYBOARD_ID not set, compiling all keyboards..."
 	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
