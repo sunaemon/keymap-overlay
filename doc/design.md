@@ -41,11 +41,16 @@ Despite these challenges, VIAL remains the preferred choice as it allows for the
 
 ### Layer Change Detection
 
-To avoid writing a custom HID driver, the overlay uses key sequences tied to unused
+To avoid writing a custom HID driver, the current overlay uses key sequences tied to unused
 function keys (F13+) to signal layer changes. One downside is that macOS can map
 F13/F14 to system actions (e.g., screen dim/brightness) on some setups, so those
 mappings must be disabled manually. VIA/VIAL macros were explored but did not solve
 this reliably, so the current approach relies on custom firmware behavior.
+
+**Limitation:** This approach is limited by the number of available function keys (F13-F20),
+supporting only up to 8 layers in total. Because of this limitation, the protocol is
+currently being rewritten to use **raw HID** for layer change detection, which will
+provide more flexibility and support for more layers.
 
 ### Hammerspoon as Host
 
