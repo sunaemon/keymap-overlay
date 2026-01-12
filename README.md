@@ -68,10 +68,10 @@ While holding a layer key on the keyboard, **Hammerspoon displays the matching l
    make install
    ```
 
-7. Flash firmware with the `layer-notify` keymap and VIAL to your insixty_en keyboard:
+7. Flash firmware with the `layer-notify` keymap and VIAL to your keyboard:
 
    ```bash
-   make flash
+   make flash KEYBOARD_ID=1
    ```
 
 ### Use VIAL
@@ -87,7 +87,7 @@ These commands are for users who have VIAL-enabled firmware on their keyboard.
 2. Parse keymap.c and write the keymap to EEPROM:
 
    ```bash
-   make flash-keymap
+   make flash-keymap KEYBOARD_ID=1
    ```
 
 ## License

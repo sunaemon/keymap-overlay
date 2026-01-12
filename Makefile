@@ -210,7 +210,9 @@ endif
 
 .PHONY: flash-keymap
 flash-keymap:
-ifdef KEYBOARD_ID
+ifndef KEYBOARD_ID
+	$(error KEYBOARD_ID is required for flash-keymap)
+endif
 	@$(MAKE) $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 	@echo "Fetching current configuration from device..."
 	$(VITALY) save -f $(VITALY_JSON)
@@ -225,14 +227,6 @@ ifdef KEYBOARD_ID
 		--layout-name "$(LAYOUT_NAME)"
 	@echo "Loading new configuration to device..."
 	$(VITALY) load -f $(BUILD_DIR)/vitaly_ready.json
-else
-	@echo "KEYBOARD_ID not set, flashing keymap for all keyboards..."
-	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
-		echo "----------------------------------------------------------------"; \
-		echo "Flashing keymap for $$kb"; \
-		$(MAKE) flash-keymap KEYBOARD_ID=$$kb || exit 1; \
-	done
-endif
 
 .PHONY: patch-load
 patch-load:

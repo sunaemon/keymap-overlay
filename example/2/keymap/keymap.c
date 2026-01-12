@@ -21,8 +21,6 @@
 // OLED animation
 #include "lib/layer_status/layer_status.h"
 
-// make compile QMK_KEYBOARD=doio/kb16/rev2 enum custom_keycodes {};
-
 // clang-format off
 const uint16_t PROGMEM keymaps[DYNAMIC_KEYMAP_LAYER_COUNT][MATRIX_ROWS][MATRIX_COLS] = {
     [0] = LAYOUT(
