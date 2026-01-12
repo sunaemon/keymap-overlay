@@ -34,9 +34,9 @@ impl ProjectContext {
         if id.trim().is_empty() {
             return Err("Keyboard ID cannot be empty".into());
         }
-        if id.contains("..") || id.contains('/') || id.contains('\\') {
+        if !id.chars().all(char::is_alphanumeric) {
             return Err(format!(
-                "Invalid Keyboard ID '{}': Path traversal characters are not allowed",
+                "Invalid Keyboard ID '{}': Only alphanumeric characters are allowed",
                 id
             )
             .into());
@@ -63,5 +63,25 @@ impl ProjectContext {
     ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
         Self::validate_keyboard_id(keyboard_id)?;
         Ok(self.root_dir.join("build").join(keyboard_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_keyboard_id() {
+        assert!(ProjectContext::validate_keyboard_id("keyboard1").is_ok());
+        assert!(ProjectContext::validate_keyboard_id("123").is_ok());
+        assert!(ProjectContext::validate_keyboard_id("abc").is_ok());
+
+        assert!(ProjectContext::validate_keyboard_id("").is_err());
+        assert!(ProjectContext::validate_keyboard_id(" ").is_err());
+        assert!(ProjectContext::validate_keyboard_id("key-board").is_err());
+        assert!(ProjectContext::validate_keyboard_id("key_board").is_err());
+        assert!(ProjectContext::validate_keyboard_id("key/board").is_err());
+        assert!(ProjectContext::validate_keyboard_id("key\\board").is_err());
+        assert!(ProjectContext::validate_keyboard_id("..").is_err());
     }
 }
