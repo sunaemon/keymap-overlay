@@ -1,0 +1,9 @@
+[package]
+name = "keymap-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+keymap-core = { path = "../keymap-core" }
+clap = { version = "4.4", features = ["derive"] }
+anyhow = "1.0"

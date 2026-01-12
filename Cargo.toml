@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/keymap-cli", "crates/keymap-core"]
+resolver = "2"
