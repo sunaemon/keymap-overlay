@@ -5,4 +5,4 @@ make format
 make lint
 
 # Re-add files that are currently staged to include any changes made by format/lint
-git diff --name-only --cached --diff-filter=ACMR -z | xargs -0 git add
+git diff --name-only --cached --diff-filter=ACMR -z | xargs -0 --no-run-if-empty git add
