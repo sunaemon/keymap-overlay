@@ -33,13 +33,21 @@ enum Commands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let current_dir = env::current_dir()?;
-    let ctx = ProjectContext::new(current_dir, cli.keyboards_dir);
+
+    // Resolve keyboards_dir relative to current_dir if it's relative
+    let keyboards_dir = if cli.keyboards_dir.is_relative() {
+        current_dir.join(cli.keyboards_dir)
+    } else {
+        cli.keyboards_dir
+    };
+
+    let ctx = ProjectContext::new(current_dir, keyboards_dir);
 
     match cli.command {
         Commands::Info { keyboard_id } => {
             let config = ctx
                 .get_keyboard_config(&keyboard_id)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(|e| anyhow::anyhow!(e))?;
             println!("Keyboard ID: {}", keyboard_id);
             println!("QMK Keyboard: {}", config.qmk_keyboard);
             println!(
@@ -50,7 +58,7 @@ fn main() -> Result<()> {
         Commands::Compile { keyboard_id } => {
             let config = ctx
                 .get_keyboard_config(&keyboard_id)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(|e| anyhow::anyhow!(e))?;
 
             println!("Compiling {} ({})...", keyboard_id, config.qmk_keyboard);
 

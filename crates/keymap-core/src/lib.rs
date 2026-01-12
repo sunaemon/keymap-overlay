@@ -8,8 +8,8 @@ pub struct KeyboardConfig {
 }
 
 pub struct ProjectContext {
-    pub root_dir: PathBuf,
-    pub keyboards_dir: PathBuf,
+    root_dir: PathBuf,
+    keyboards_dir: PathBuf,
 }
 
 impl ProjectContext {
@@ -22,13 +22,23 @@ impl ProjectContext {
         }
     }
 
+    pub fn root_dir(&self) -> &Path {
+        &self.root_dir
+    }
+
+    pub fn keyboards_dir(&self) -> &Path {
+        &self.keyboards_dir
+    }
+
     pub fn get_keyboard_config(
         &self,
         keyboard_id: &str,
-    ) -> Result<KeyboardConfig, Box<dyn std::error::Error>> {
+    ) -> Result<KeyboardConfig, Box<dyn std::error::Error + Send + Sync>> {
         let config_path = self.keyboards_dir.join(keyboard_id).join("config.json");
-        let content = fs::read_to_string(&config_path)?;
-        let config: KeyboardConfig = serde_json::from_str(&content)?;
+        let content = fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config at {:?}: {}", config_path, e))?;
+        let config: KeyboardConfig = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse config at {:?}: {}", config_path, e))?;
         Ok(config)
     }
 
