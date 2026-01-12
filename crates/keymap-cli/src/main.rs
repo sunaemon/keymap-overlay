@@ -54,6 +54,9 @@ fn main() -> Result<()> {
 
             println!("Compiling {} ({})...", keyboard_id, config.qmk_keyboard);
 
+            let qmk_build_dir = ctx.get_build_dir(&keyboard_id).join("qmk_build");
+            let qmk_build_dir_str = qmk_build_dir.to_string_lossy();
+
             // Thin wrapper calling 'qmk compile' via mise
             let status = Command::new("mise")
                 .args([
@@ -65,6 +68,10 @@ fn main() -> Result<()> {
                     &config.qmk_keyboard,
                     "-km",
                     "keymap",
+                    "-e",
+                    &format!("KEYBOARD_ID={}", keyboard_id),
+                    "-e",
+                    &format!("BUILD_DIR={}", qmk_build_dir_str),
                 ])
                 .status()
                 .context("Failed to execute qmk compile")?;
