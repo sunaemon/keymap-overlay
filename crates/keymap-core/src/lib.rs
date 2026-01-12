@@ -30,10 +30,25 @@ impl ProjectContext {
         &self.keyboards_dir
     }
 
+    fn validate_keyboard_id(id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if id.trim().is_empty() {
+            return Err("Keyboard ID cannot be empty".into());
+        }
+        if id.contains("..") || id.contains('/') || id.contains('\\') {
+            return Err(format!(
+                "Invalid Keyboard ID '{}': Path traversal characters are not allowed",
+                id
+            )
+            .into());
+        }
+        Ok(())
+    }
+
     pub fn get_keyboard_config(
         &self,
         keyboard_id: &str,
     ) -> Result<KeyboardConfig, Box<dyn std::error::Error + Send + Sync>> {
+        Self::validate_keyboard_id(keyboard_id)?;
         let config_path = self.keyboards_dir.join(keyboard_id).join("config.json");
         let content = fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read config at {:?}: {}", config_path, e))?;
@@ -42,7 +57,11 @@ impl ProjectContext {
         Ok(config)
     }
 
-    pub fn get_build_dir(&self, keyboard_id: &str) -> PathBuf {
-        self.root_dir.join("build").join(keyboard_id)
+    pub fn get_build_dir(
+        &self,
+        keyboard_id: &str,
+    ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+        Self::validate_keyboard_id(keyboard_id)?;
+        Ok(self.root_dir.join("build").join(keyboard_id))
     }
 }

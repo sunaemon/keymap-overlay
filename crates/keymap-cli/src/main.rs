@@ -52,7 +52,9 @@ fn main() -> Result<()> {
             println!("QMK Keyboard: {}", config.qmk_keyboard);
             println!(
                 "Build Directory: {}",
-                ctx.get_build_dir(&keyboard_id).display()
+                ctx.get_build_dir(&keyboard_id)
+                    .map_err(|e| anyhow::anyhow!(e))?
+                    .display()
             );
         }
         Commands::Compile { keyboard_id } => {
@@ -62,8 +64,13 @@ fn main() -> Result<()> {
 
             println!("Compiling {} ({})...", keyboard_id, config.qmk_keyboard);
 
-            let qmk_build_dir = ctx.get_build_dir(&keyboard_id).join("qmk_build");
-            let qmk_build_dir_str = qmk_build_dir.to_string_lossy();
+            let qmk_build_dir = ctx
+                .get_build_dir(&keyboard_id)
+                .map_err(|e| anyhow::anyhow!(e))?
+                .join("qmk_build");
+            let qmk_build_dir_str = qmk_build_dir.to_str().ok_or_else(|| {
+                anyhow::anyhow!("Build directory path contains invalid UTF-8 characters")
+            })?;
 
             // Thin wrapper calling 'qmk compile' via mise
             let status = Command::new("mise")
@@ -75,7 +82,7 @@ fn main() -> Result<()> {
                     "-kb",
                     &config.qmk_keyboard,
                     "-km",
-                    "keymap",
+                    "keymap", // Uses the default "keymap" directory name for custom keymaps
                     "-e",
                     &format!("KEYBOARD_ID={}", keyboard_id),
                     "-e",
