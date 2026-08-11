@@ -13,6 +13,22 @@ This repository generates keyboard layer images from QMK keymaps and displays th
 
 See `doc/design.md` for the end-to-end data flow and design notes.
 
+## Binary Releases
+
+Tagged releases contain native binaries for macOS, Linux, and Windows. Download
+the archive matching the operating system and CPU architecture, then run the
+binary with the directory containing the layer PNGs:
+
+```bash
+keymap-overlay <asset-directory>
+```
+
+The release archive contains only the overlay binary. Generate the
+keyboard-specific PNGs with `make install-assets` and keep them in the asset
+directory; the Windows workflow below uses
+`%USERPROFILE%/.config/keymap-overlay`. The source checkout is therefore only
+needed to generate or update those assets, not to build the overlay binary.
+
 This repo is set up for the `salicylic_acid3/insixty_en` and `doio/kb16/rev2` keyboards, but the workflow should work for any QMK-compatible keyboard with minor configuration changes. Keyboard configurations are stored in the `example/` directory (configurable via `KEYBOARDS_DIR` in the `Makefile`).
 
 Each keyboard lives in a directory named after its `KEYBOARD_ID`. That ID is compiled into the firmware and travels in one byte of the Raw HID report, so it must be an **integer between 0 and 255** — `example/1`, `example/2`, and so on.

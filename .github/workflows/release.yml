@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create, for example v1.0.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            runner: ubuntu-latest
+          - platform: macOS
+            runner: macos-latest
+          - platform: Windows
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libudev-dev libwayland-dev libx11-dev
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+
+      - name: Build release binary
+        run: mise exec -- cargo build --release -p keymap-overlay
+
+      - name: Package binary
+        id: package
+        run: |
+          mkdir -p dist
+          arch="$(uname -m)"
+          case "$RUNNER_OS" in
+            Windows)
+              asset="keymap-overlay-windows-${arch}.zip"
+              7z a "dist/$asset" target/release/keymap-overlay.exe
+              ;;
+            macOS)
+              asset="keymap-overlay-macos-${arch}.tar.gz"
+              tar -C target/release -czf "dist/$asset" keymap-overlay
+              ;;
+            Linux)
+              asset="keymap-overlay-linux-${arch}.tar.gz"
+              tar -C target/release -czf "dist/$asset" keymap-overlay
+              ;;
+          esac
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.asset }}
+          path: dist/${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: gh release create "$RELEASE_TAG" release/* --title "$RELEASE_TAG" --generate-notes
