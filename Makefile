@@ -233,8 +233,17 @@ PNG = $(eval PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(
 endif
 
 # ================= OVERLAY CONFIGURATION =================
+ifeq ($(OS_FAMILY),windows)
+# MSYS2's HOME is /home/<user>, which is private to MSYS2. Assets, logs, and
+# the scheduled-task definition instead belong beside the Windows user's other
+# configuration so WSL can generate the assets directly into this directory.
+WINDOWS_USER_HOME := $(shell cygpath -u "$$USERPROFILE")
+KEYMAP_OVERLAY_DIR ?= $(WINDOWS_USER_HOME)/.config/keymap-overlay
+KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay
+else
 KEYMAP_OVERLAY_DIR := $(HOME)/.config/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
+endif
 KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay$(EXE_SUFFIX)
 KEYMAP_OVERLAY_LABEL := com.sunaemon.keymap-overlay
 KEYMAP_OVERLAY_PLIST := $(HOME)/Library/LaunchAgents/$(KEYMAP_OVERLAY_LABEL).plist
@@ -265,15 +274,14 @@ setup:
 	git submodule update --init --recursive
 	$(MISE) trust
 ifeq ($(OS_FAMILY),windows)
-	# Windows users only need the runtime toolchain to build and run the
-	# overlay. The formatting and firmware-development tools are unsupported
-	# there, and several have no Windows distribution.
-	$(MISE) install
+	# Assets are generated in WSL. Installing just Rust and lefthook keeps the
+	# native Windows setup independent of QMK and Python tooling.
+	$(MISE) install rust lefthook
 else
 # The dev tools come too: the git hooks installed below run format and lint.
 	$(MISE_DEV) install
-endif
 	$(UV) sync
+endif
 	@$(MAKE) install-hooks
 
 .PHONY: _setup_toolchain_macos
@@ -423,7 +431,16 @@ build-overlay:
 	$(CARGO) build --release -p keymap-overlay
 
 .PHONY: install-overlay
+ifeq ($(OS_FAMILY),windows)
+install-overlay: build-overlay
+	@if ! compgen -G "$(KEYMAP_OVERLAY_DIR)/*.png" >/dev/null; then \
+		echo "ERROR: no layer PNGs found in $(KEYMAP_OVERLAY_DIR)."; \
+		echo "Generate them in WSL with 'make install KEYMAP_OVERLAY_DIR=/mnt/c/Users/<user>/.config/keymap-overlay' first."; \
+		exit 1; \
+	fi
+else
 install-overlay: install build-overlay
+endif
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
 # Windows holds an open executable locked, so the running overlay has to go
 # before its binary can be replaced. The other two systems replace the file
@@ -530,7 +547,7 @@ _install_service_linux:
 # variable points anyway unless it was overridden.
 .PHONY: _install_service_windows
 _install_service_windows:
-	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(HOME)/.local/var/log/keymap-overlay" ]; then \
+	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay" ]; then \
 		echo "ERROR: KEYMAP_OVERLAY_LOG_DIR cannot be honoured on Windows."; \
 		echo "A scheduled task is given no environment, so the overlay would keep"; \
 		echo "logging to its default directory. Leave the variable unset."; \
