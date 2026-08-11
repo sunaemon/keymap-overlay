@@ -348,7 +348,7 @@ installs the QMK toolchain. Give WSL its own Python virtual environment before
 running setup, so a future Windows-side Python command cannot reuse it:
 
 ```bash
-WINDOWS_HOME="$(wslpath "$(wslvar USERPROFILE)")"
+WINDOWS_HOME="$(wslpath "$(cmd.exe /C echo %USERPROFILE% | tr -d '\r')")"
 cd "$WINDOWS_HOME/keymap-overlay"
 echo 'export UV_PROJECT_ENVIRONMENT=.venv-wsl' >> ~/.bashrc
 export UV_PROJECT_ENVIRONMENT=.venv-wsl
@@ -359,7 +359,7 @@ Generate the assets directly into the Windows configuration directory:
 
 ```bash
 make install-assets \
-  KEYMAP_OVERLAY_DIR="$(wslpath "$(wslvar USERPROFILE)")/.config/keymap-overlay"
+  KEYMAP_OVERLAY_DIR="$(dirname "$(git rev-parse --show-toplevel)")/.config/keymap-overlay"
 ```
 
 Run `make install-assets` again whenever the keymap changes. Then, from MSYS2
