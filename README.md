@@ -359,7 +359,7 @@ Generate the assets directly into the Windows configuration directory:
 
 ```bash
 make install-assets \
-  KEYMAP_OVERLAY_DIR="$WINDOWS_HOME/.config/keymap-overlay"
+  KEYMAP_OVERLAY_DIR="$(wslpath "$(wslvar USERPROFILE)")/.config/keymap-overlay"
 ```
 
 Run `make install-assets` again whenever the keymap changes. Then, from MSYS2

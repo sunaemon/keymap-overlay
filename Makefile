@@ -83,9 +83,9 @@ QMK_TOOLCHAIN_PACKAGES := osx-cross/arm/arm-none-eabi-gcc@8 osx-cross/avr/avr-gc
 # The same set per distribution, plus the libraries the overlay itself links:
 # libudev for hidraw enumeration, libwayland-client for the layer-shell window,
 # and libX11 for the fallback one.
-LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs wayland libx11
-LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev libwayland-dev libx11-dev
-LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel wayland-devel libX11-devel
+LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs wayland libx11 ttf-dejavu
+LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev libwayland-dev libx11-dev fonts-dejavu-core
+LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel wayland-devel libX11-devel dejavu-sans-mono-fonts
 
 # Escape XML character data so that a HOME containing & or < still produces a
 # valid plist. Ampersands must be substituted first.
@@ -449,7 +449,7 @@ ifeq ($(OS_FAMILY),windows)
 install-overlay: build-overlay
 	@if ! compgen -G "$(KEYMAP_OVERLAY_DIR)/*.png" >/dev/null; then \
 		echo "ERROR: no layer PNGs found in $(KEYMAP_OVERLAY_DIR)."; \
-		echo "Generate them in WSL with 'make install-assets KEYMAP_OVERLAY_DIR=/mnt/c/Users/<user>/.config/keymap-overlay' first."; \
+		echo "Generate them in WSL with the command in README's Setup on Windows section first."; \
 		exit 1; \
 	fi
 else
