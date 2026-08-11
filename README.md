@@ -81,6 +81,20 @@ mise and GitHub CLI available inside the shell.
 C:\msys64\msys2_shell.cmd -defterm -here -no-start -msys -use-full-path
 ```
 
+Open a new MSYS2 MSYS tab and verify that it inherited Git for Windows:
+
+```bash
+git --version
+```
+
+If this reports that `git` is not found, add Git for Windows to the MSYS2
+shell's path, then reload the shell configuration:
+
+```bash
+echo 'export PATH="/c/Program Files/Git/cmd:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
 ```bash
 pacman -Syu
 pacman -Syu
