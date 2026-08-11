@@ -117,17 +117,17 @@ if [ -f "$(KEYMAP_OVERLAY_UNIT)" ]; then \
 	fi
 endef
 
-# The Task Scheduler counterpart. -ErrorAction SilentlyContinue covers the task
-# never having been registered, which is the only failure worth tolerating; the
-# command is single-quoted so that the shell leaves PowerShell's $ alone, and
-# MSYS2_ARG_CONV_EXCL stops MSYS2 rewriting the arguments as paths.
+# The Task Scheduler counterpart. Query first because Stop-ScheduledTask exits
+# unsuccessfully when its task has never been registered (the normal first-run
+# case). The command is single-quoted so that the shell leaves PowerShell's $
+# alone, and MSYS2_ARG_CONV_EXCL stops MSYS2 rewriting the arguments as paths.
 #
 # Run through `env` so the line does not open with NAME=VALUE, which the
 # Makefile formatter rewrites to NAME = VALUE — turning the variable this needs
 # in the environment into a command it would try to run.
 define STOP_KEYMAP_OVERLAY_TASK
 env MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'Stop-ScheduledTask -TaskName "$(KEYMAP_OVERLAY_TASK_NAME)" -ErrorAction SilentlyContinue'
+	'$$task = Get-ScheduledTask -TaskName "$(KEYMAP_OVERLAY_TASK_NAME)" -ErrorAction SilentlyContinue; if ($$null -ne $$task) { Stop-ScheduledTask -InputObject $$task }'
 endef
 
 # ================= QMK CONFIGURATION =================
