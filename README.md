@@ -308,8 +308,18 @@ Explorer, PowerShell, and MSYS2:
 
 ```bash
 cd /c/Users/<your-Windows-user-name>
-git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+git -c core.autocrlf=false clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
+```
+
+This checkout is shared by MSYS2 and WSL. The documented workflow is safe when
+run sequentially: WSL creates keyboard images in `build/<keyboard-id>/`, while
+MSYS2 builds the Windows executable in `target/`. Do not run their build
+commands at the same time. If you also build or test Rust in WSL, keep its
+Cargo output separate:
+
+```bash
+CARGO_TARGET_DIR=target-wsl make test-rust
 ```
 
 ### WSL asset setup
