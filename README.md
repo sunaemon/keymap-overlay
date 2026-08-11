@@ -307,7 +307,8 @@ Use the Windows home directory for the checkout so it is accessible from
 Explorer, PowerShell, and MSYS2:
 
 ```bash
-cd /c/Users/<your-Windows-user-name>
+WINDOWS_HOME="$(cygpath -u "$USERPROFILE")"
+cd "$WINDOWS_HOME"
 git -c core.autocrlf=false clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 ```
@@ -347,7 +348,8 @@ installs the QMK toolchain. Give WSL its own Python virtual environment before
 running setup, so a future Windows-side Python command cannot reuse it:
 
 ```bash
-cd /mnt/c/Users/<your-Windows-user-name>/keymap-overlay
+WINDOWS_HOME="$(wslpath "$(wslvar USERPROFILE)")"
+cd "$WINDOWS_HOME/keymap-overlay"
 echo 'export UV_PROJECT_ENVIRONMENT=.venv-wsl' >> ~/.bashrc
 export UV_PROJECT_ENVIRONMENT=.venv-wsl
 make setup
@@ -357,7 +359,7 @@ Generate the assets directly into the Windows configuration directory:
 
 ```bash
 make install-assets \
-  KEYMAP_OVERLAY_DIR=/mnt/c/Users/<your-Windows-user-name>/.config/keymap-overlay
+  KEYMAP_OVERLAY_DIR="$WINDOWS_HOME/.config/keymap-overlay"
 ```
 
 Run `make install-assets` again whenever the keymap changes. Then, from MSYS2
