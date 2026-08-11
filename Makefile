@@ -264,8 +264,15 @@ setup:
 	@$(MAKE) _setup_toolchain_$(OS_FAMILY)
 	git submodule update --init --recursive
 	$(MISE) trust
+ifeq ($(OS_FAMILY),windows)
+	# Windows users only need the runtime toolchain to build and run the
+	# overlay. The formatting and firmware-development tools are unsupported
+	# there, and several have no Windows distribution.
+	$(MISE) install
+else
 # The dev tools come too: the git hooks installed below run format and lint.
 	$(MISE_DEV) install
+endif
 	$(UV) sync
 	@$(MAKE) install-hooks
 

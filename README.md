@@ -35,6 +35,46 @@ On Windows, run the commands below from an **MSYS2 or Git Bash** shell: the
 overlay itself is a native Windows binary, not a WSL one — WSL cannot read the
 keyboard's HID interface, and its windows cannot sit above native applications.
 
+### Windows setup
+
+The commands in this section use the Windows package manager, `winget`, from
+PowerShell. Install Git, [MSYS2](https://www.msys2.org/), and mise:
+
+```powershell
+winget install --id Git.Git -e
+winget install --id MSYS2.MSYS2 -e
+winget install --id jdx.mise -e
+```
+
+The Rust tools in this repository compile native Windows code. Install the
+Microsoft C++ build tools too (this is a several-gigabyte download):
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+Close and reopen Windows Terminal after the installs. Start the **MSYS2 MSYS**
+shell — not `UCRT64` — then update its package database. If the first command
+asks you to close the shell, do so, reopen MSYS2 MSYS, and run it again.
+
+```bash
+pacman -Syu
+pacman -Syu
+pacman -S --needed make
+```
+
+Use the Windows home directory for the checkout so it is accessible from
+Explorer, PowerShell, Git Bash, and MSYS2:
+
+```bash
+cd /c/Users/<your-Windows-user-name>
+git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+cd keymap-overlay
+```
+
+From this MSYS2 MSYS shell, run `make setup`. Do not run `mise setup`: `setup`
+is a Makefile target, while mise is the tool manager it invokes.
+
 Building and flashing firmware is the one part that does not run on Windows.
 QMK's toolchain there is QMK MSYS, a separate environment from the shell that
 builds the overlay, so `make compile`, `make flash` and `make flash-keymap`
