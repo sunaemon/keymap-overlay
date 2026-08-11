@@ -2,17 +2,40 @@ SHELL := /bin/bash
 
 # ================= PLATFORM CONFIGURATION =================
 
-# The image generation and firmware workflows are portable; the overlay's
-# window, its login service, and the toolchain packages are not. Every target
-# that differs between the two systems dispatches on this.
+# The image generation workflow is portable; the overlay's window, its login
+# service, the toolchain packages, and the firmware workflow are not. Every
+# target that differs between the systems dispatches on this.
+#
+# Windows means an MSYS2 or Git Bash shell driving a native Windows build:
+# `uname -s` there reports MINGW64_NT-10.0-… or MSYS_NT-…, which no `ifeq` can
+# match exactly, hence findstring. Compiling and flashing firmware is not
+# supported on it — see `_setup_toolchain_windows`.
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
 OS_FAMILY := macos
 else ifeq ($(UNAME_S),Linux)
 OS_FAMILY := linux
+else ifneq (,$(findstring MINGW,$(UNAME_S)))
+OS_FAMILY := windows
+else ifneq (,$(findstring MSYS,$(UNAME_S)))
+OS_FAMILY := windows
 else
-$(error keymap-overlay supports macOS and Linux, not '$(UNAME_S)')
+$(error keymap-overlay supports macOS, Linux and Windows, not '$(UNAME_S)')
 endif
+
+# Cargo names the binary after the target, and the login service needs the name
+# that exists on disk.
+ifeq ($(OS_FAMILY),windows)
+EXE_SUFFIX := .exe
+else
+EXE_SUFFIX :=
+endif
+
+# QMK's Windows toolchain is QMK MSYS, a separate environment from the one that
+# builds the overlay, and the boards here flash over USB or a mounted UF2
+# volume that MSYS2 cannot reach either. Rather than half-support it, the
+# firmware targets say where to go.
+WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WSL, macOS or Linux (see Platform Support in README.md)
 
 # ================= VIA CONFIGURATION =================
 
@@ -92,6 +115,19 @@ define STOP_KEYMAP_OVERLAY_UNIT
 if [ -f "$(KEYMAP_OVERLAY_UNIT)" ]; then \
 	systemctl --user disable --now "$(KEYMAP_OVERLAY_UNIT_NAME)"; \
 	fi
+endef
+
+# The Task Scheduler counterpart. -ErrorAction SilentlyContinue covers the task
+# never having been registered, which is the only failure worth tolerating; the
+# command is single-quoted so that the shell leaves PowerShell's $ alone, and
+# MSYS2_ARG_CONV_EXCL stops MSYS2 rewriting the arguments as paths.
+#
+# Run through `env` so the line does not open with NAME=VALUE, which the
+# Makefile formatter rewrites to NAME = VALUE — turning the variable this needs
+# in the environment into a command it would try to run.
+define STOP_KEYMAP_OVERLAY_TASK
+env MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	'Stop-ScheduledTask -TaskName "$(KEYMAP_OVERLAY_TASK_NAME)" -ErrorAction SilentlyContinue'
 endef
 
 # ================= QMK CONFIGURATION =================
@@ -199,11 +235,15 @@ endif
 # ================= OVERLAY CONFIGURATION =================
 KEYMAP_OVERLAY_DIR := $(HOME)/.config/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
-KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay
+KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay$(EXE_SUFFIX)
 KEYMAP_OVERLAY_LABEL := com.sunaemon.keymap-overlay
 KEYMAP_OVERLAY_PLIST := $(HOME)/Library/LaunchAgents/$(KEYMAP_OVERLAY_LABEL).plist
 KEYMAP_OVERLAY_UNIT_NAME := keymap-overlay.service
 KEYMAP_OVERLAY_UNIT := $(HOME)/.config/systemd/user/$(KEYMAP_OVERLAY_UNIT_NAME)
+# The Task Scheduler counterpart. The task name doubles as the path of the
+# folder it lives in, so it is a name and not a reverse-DNS label.
+KEYMAP_OVERLAY_TASK_NAME := KeymapOverlay
+KEYMAP_OVERLAY_TASK_XML := $(KEYMAP_OVERLAY_DIR)/keymap-overlay-task.xml
 # One rule per keyboard, tagged uaccess so the logged-in user may open the Raw
 # HID node; without it the overlay enumerates the keyboards but cannot read
 # from them.
@@ -257,6 +297,26 @@ _setup_toolchain_linux:
 		echo "development files by hand, then run the rest of 'make setup'."; \
 		exit 1; \
 	fi
+
+# There is no QMK toolchain to install here: firmware is built elsewhere (see
+# the note this prints). What this does check is the two things every other
+# Windows target assumes — cygpath, to hand native paths to native programs,
+# and powershell, which registers the login task.
+.PHONY: _setup_toolchain_windows
+_setup_toolchain_windows:
+	@missing=""; \
+	for tool in cygpath powershell; do \
+		command -v "$$tool" >/dev/null || missing="$$missing $$tool"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "ERROR: missing required command(s):$$missing"; \
+		echo "Run 'make setup' from an MSYS2 or Git Bash shell on Windows, with"; \
+		echo "the Windows PowerShell directory on PATH."; \
+		exit 1; \
+	fi
+	@echo "NOTE: firmware is not built or flashed on Windows."
+	@echo "      Use WSL, macOS or Linux for 'make compile', 'make flash' and"
+	@echo "      'make flash-keymap'; see the Platform Support section of README.md."
 
 .PHONY: doctor
 doctor:
@@ -358,9 +418,28 @@ build-overlay:
 .PHONY: install-overlay
 install-overlay: install build-overlay
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
-	install -C target/release/keymap-overlay "$(KEYMAP_OVERLAY_BINARY)"
+# Windows holds an open executable locked, so the running overlay has to go
+# before its binary can be replaced. The other two systems replace the file
+# underneath the running process and stop it as part of installing the service.
+	@$(MAKE) _stop_service_$(OS_FAMILY)
+	install -C target/release/keymap-overlay$(EXE_SUFFIX) "$(KEYMAP_OVERLAY_BINARY)"
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
+
+# Nothing to do where a running binary can be replaced in place; the service is
+# stopped and started again by _install_service_<system> below. The `:` keeps
+# make from reporting that there was nothing to do on every install.
+.PHONY: _stop_service_macos
+_stop_service_macos:
+	@:
+
+.PHONY: _stop_service_linux
+_stop_service_linux:
+	@:
+
+.PHONY: _stop_service_windows
+_stop_service_windows:
+	@$(STOP_KEYMAP_OVERLAY_TASK)
 
 .PHONY: _install_service_macos
 _install_service_macos:
@@ -432,6 +511,74 @@ _install_service_linux:
 # still holds the previous binary.
 	systemctl --user restart "$(KEYMAP_OVERLAY_UNIT_NAME)"
 
+# Task Scheduler is the one per-user "start this at login" mechanism Windows
+# offers that also brings a crashed process back. Three of its defaults would
+# otherwise stop the overlay and are set explicitly: tasks are killed after
+# three days, stopped when the machine goes on battery, and not started at all
+# while on battery.
+#
+# It has no equivalent of the plist's EnvironmentVariables or the unit's
+# Environment, so KEYMAP_OVERLAY_LOG_DIR cannot travel to the task; the overlay
+# falls back to the same directory under USERPROFILE, which is where this
+# variable points anyway unless it was overridden.
+.PHONY: _install_service_windows
+_install_service_windows:
+	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(HOME)/.local/var/log/keymap-overlay" ]; then \
+		echo "ERROR: KEYMAP_OVERLAY_LOG_DIR cannot be honoured on Windows."; \
+		echo "A scheduled task is given no environment, so the overlay would keep"; \
+		echo "logging to its default directory. Leave the variable unset."; \
+		exit 1; \
+	fi
+	@mkdir -p "$(dir $(KEYMAP_OVERLAY_TASK_XML))"
+# cygpath because the task is run by Windows, which cannot follow an MSYS path,
+# and the sed escapes a & or < that a Windows user name may contain.
+	@xml_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }; \
+	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)" | xml_escape)"; \
+	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)" | xml_escape)"; \
+	{ \
+	printf '%s\n' \
+	'<?xml version="1.0"?>' \
+	'<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' \
+	'  <RegistrationInfo>' \
+	'    <Description>QMK keymap layer overlay</Description>' \
+	'    <URI>\$(KEYMAP_OVERLAY_TASK_NAME)</URI>' \
+	'  </RegistrationInfo>' \
+	'  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>' \
+	'  <Principals>' \
+	'    <Principal id="Author">' \
+	'      <LogonType>InteractiveToken</LogonType>' \
+	'      <RunLevel>LeastPrivilege</RunLevel>' \
+	'    </Principal>' \
+	'  </Principals>' \
+	'  <Settings>' \
+	'    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' \
+	'    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' \
+	'    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' \
+	'    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>' \
+	'    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd></IdleSettings>' \
+	'    <AllowStartOnDemand>true</AllowStartOnDemand>' \
+	'    <Enabled>true</Enabled>' \
+	'    <RunOnlyIfIdle>false</RunOnlyIfIdle>' \
+	'    <!-- Matches KeepAlive/SuccessfulExit=false in the launchd plist and' \
+	'         Restart=on-failure in the systemd unit: a task is only retried' \
+	'         when it exits non-zero, so a clean exit stays stopped. -->' \
+	'    <RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure>' \
+	'  </Settings>' \
+	'  <Actions Context="Author">' \
+	'    <Exec>' \
+	"      <Command>$$binary</Command>" \
+	"      <Arguments>\"$$assets\"</Arguments>" \
+	'    </Exec>' \
+	'  </Actions>' \
+	'</Task>'; \
+	} > "$(KEYMAP_OVERLAY_TASK_XML).tmp" && mv "$(KEYMAP_OVERLAY_TASK_XML).tmp" "$(KEYMAP_OVERLAY_TASK_XML)"
+# -Force is the update path: it replaces a task that is already registered.
+	@xml="$$(cygpath -w "$(KEYMAP_OVERLAY_TASK_XML)")"; \
+	MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	"Register-ScheduledTask -TaskName '$(KEYMAP_OVERLAY_TASK_NAME)' -Xml (Get-Content -Raw -LiteralPath '$$xml') -Force | Out-Null"
+	MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+		'Start-ScheduledTask -TaskName "$(KEYMAP_OVERLAY_TASK_NAME)"'
+
 .PHONY: uninstall-overlay
 uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
@@ -450,12 +597,20 @@ _uninstall_service_linux:
 	rm -f "$(KEYMAP_OVERLAY_UNIT)"
 	systemctl --user daemon-reload
 
+.PHONY: _uninstall_service_windows
+_uninstall_service_windows:
+	@$(STOP_KEYMAP_OVERLAY_TASK)
+	@MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+		'Unregister-ScheduledTask -TaskName "$(KEYMAP_OVERLAY_TASK_NAME)" -Confirm:$$false -ErrorAction SilentlyContinue'
+	rm -f "$(KEYMAP_OVERLAY_TASK_XML)"
+
 # Linux only: macOS asks for Input Monitoring permission instead, which is
-# granted in System Settings rather than by a file.
+# granted in System Settings rather than by a file, and Windows needs no
+# permission at all to read a vendor-defined HID interface.
 .PHONY: install-udev-rules
 install-udev-rules:
 ifneq ($(OS_FAMILY),linux)
-	$(error install-udev-rules is Linux-only; macOS grants Raw HID access through Input Monitoring)
+	$(error install-udev-rules is Linux-only; macOS grants Raw HID access through Input Monitoring, and Windows needs no grant)
 endif
 	@mkdir -p build
 	@{ \
@@ -508,6 +663,9 @@ endif
 
 .PHONY: compile
 compile:
+ifeq ($(OS_FAMILY),windows)
+	$(error compile $(WINDOWS_FIRMWARE_ERROR))
+endif
 ifdef KEYBOARD_ID
 	@$(MAKE) _copy_firmware
 	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
@@ -522,6 +680,9 @@ endif
 
 .PHONY: flash
 flash:
+ifeq ($(OS_FAMILY),windows)
+	$(error flash $(WINDOWS_FIRMWARE_ERROR))
+endif
 ifndef KEYBOARD_ID
 	$(error KEYBOARD_ID is required for flash)
 endif
@@ -554,6 +715,9 @@ _mount_uf2_volume:
 
 .PHONY: flash-keymap
 flash-keymap:
+ifeq ($(OS_FAMILY),windows)
+	$(error flash-keymap $(WINDOWS_FIRMWARE_ERROR))
+endif
 ifeq ($(VIAL),true)
 	$(error flash-keymap writes keymap.c to the device; VIAL=true would read the device and write it straight back)
 endif

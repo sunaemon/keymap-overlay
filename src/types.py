@@ -262,7 +262,10 @@ T = TypeVar("T", bound=BaseModel)
 
 def parse_json(model: Type[T], path: Path) -> T:
     try:
-        return model.model_validate_json(path.read_text())
+        # Explicit encoding: read_text otherwise decodes with the locale's
+        # codepage, which on a Japanese Windows install is cp932 and mangles
+        # every non-ASCII keymap this reads.
+        return model.model_validate_json(path.read_text(encoding="utf-8"))
     except OSError as e:
         raise JSONReadError(path, e) from e
     except Exception as e:

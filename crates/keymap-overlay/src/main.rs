@@ -1,3 +1,9 @@
+// Without this, Windows gives the login task a console window that flashes on
+// screen at every start and lingers behind the overlay. The subsystem also
+// discards stdout and stderr, which costs nothing here: everything this binary
+// reports goes through the rotating log below.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod hotplug;
 mod ui;
 
@@ -132,7 +138,7 @@ pub(crate) fn premultiply(value: u8, alpha: u8) -> u8 {
 }
 
 fn initialize_logging() -> Result<()> {
-    let log_directory = resolve_log_directory(env::var_os(LOG_DIRECTORY_ENV), env::var_os("HOME"))?;
+    let log_directory = resolve_log_directory(env::var_os(LOG_DIRECTORY_ENV), home_directory())?;
     fs::create_dir_all(&log_directory)
         .with_context(|| format!("Failed to create log directory {}", log_directory.display()))?;
     let writer = RotatingLogWriter::new(log_directory.join("overlay.log"))?;
@@ -149,13 +155,30 @@ fn resolve_log_directory(configured: Option<OsString>, home: Option<OsString>) -
     configured
         .map(PathBuf::from)
         .or_else(|| home.map(|home| PathBuf::from(home).join(".local/var/log/keymap-overlay")))
-        .context("Neither KEYMAP_OVERLAY_LOG_DIR nor HOME is set")
+        .context("Neither KEYMAP_OVERLAY_LOG_DIR nor a home directory is set")
+}
+
+fn home_directory() -> Option<OsString> {
+    resolve_home_directory(env::var_os("HOME"), env::var_os("USERPROFILE"))
+}
+
+/// The user's home directory, under whichever name this system knows it by.
+///
+/// Windows sets `USERPROFILE` and not `HOME`, and the overlay runs there as a
+/// native process started by Task Scheduler, so it inherits no shell's idea of
+/// `HOME`. `HOME` still wins where both are set, which is what a Windows user
+/// running the overlay from MSYS2 for a foreground session would expect.
+fn resolve_home_directory(
+    home: Option<OsString>,
+    user_profile: Option<OsString>,
+) -> Option<OsString> {
+    home.or(user_profile)
 }
 
 fn assets_dir() -> Result<PathBuf> {
     // args_os, not args: the latter panics on a non-UTF-8 argument, and an
     // asset path handed to us on the command line is an arbitrary byte string.
-    resolve_assets_dir(env::args_os().nth(1), env::var_os("HOME"))
+    resolve_assets_dir(env::args_os().nth(1), home_directory())
 }
 
 fn resolve_assets_dir(argument: Option<OsString>, home: Option<OsString>) -> Result<PathBuf> {
@@ -163,7 +186,7 @@ fn resolve_assets_dir(argument: Option<OsString>, home: Option<OsString>) -> Res
         return Ok(PathBuf::from(path));
     }
 
-    let home = home.context("HOME is not set")?;
+    let home = home.context("No home directory is set")?;
     Ok(PathBuf::from(home).join(".config/keymap-overlay"))
 }
 
@@ -474,6 +497,33 @@ mod tests {
     #[test]
     fn the_log_directory_needs_one_of_the_two_variables() {
         assert!(resolve_log_directory(None, None).is_err());
+    }
+
+    #[test]
+    fn home_wins_over_user_profile_where_both_are_set() {
+        // Running the overlay from an MSYS2 shell on Windows sets both, and
+        // that session's HOME is the one the user means.
+        assert_eq!(
+            resolve_home_directory(
+                Some(OsString::from("/home/user")),
+                Some(OsString::from(r"C:\Users\user"))
+            ),
+            Some(OsString::from("/home/user"))
+        );
+    }
+
+    #[test]
+    fn user_profile_stands_in_for_an_unset_home() {
+        // The Windows login task inherits no HOME at all.
+        assert_eq!(
+            resolve_home_directory(None, Some(OsString::from(r"C:\Users\user"))),
+            Some(OsString::from(r"C:\Users\user"))
+        );
+    }
+
+    #[test]
+    fn neither_variable_leaves_the_home_directory_unknown() {
+        assert_eq!(resolve_home_directory(None, None), None);
     }
 
     fn contents(path: &Path) -> String {

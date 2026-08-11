@@ -5,12 +5,18 @@
 //! Everything the two have in common — the protocol, the transitions, the
 //! images, the log — lives in `main.rs`.
 //!
-//! macOS has one window; Linux has two, and `linux.rs` chooses between them.
+//! macOS and Windows have one window each; Linux has two, and `linux.rs`
+//! chooses between them.
 
 #[cfg(target_os = "macos")]
 mod eframe_window;
 #[cfg(target_os = "macos")]
 pub(crate) use eframe_window::run;
+
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+pub(crate) use windows::run;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -21,5 +27,5 @@ mod x11;
 #[cfg(target_os = "linux")]
 pub(crate) use linux::run;
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-compile_error!("keymap-overlay has a window backend for macOS and for Linux");
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+compile_error!("keymap-overlay has a window backend for macOS, Linux and Windows");

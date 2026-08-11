@@ -10,9 +10,12 @@ how to work in the repository, not how the system is designed.
 ## Project Overview
 
 The project renders one image per QMK keymap layer and displays the matching
-image in a native overlay while a momentary layer key is held, on macOS and on
-Linux. The keyboard reports layer presses over Raw HID; a Rust application
-listens for those reports and shows the image.
+image in a native overlay while a momentary layer key is held, on macOS, Linux
+and Windows. The keyboard reports layer presses over Raw HID; a Rust
+application listens for those reports and shows the image.
+
+Firmware is the exception: it is not compiled or flashed on Windows, and the
+targets that would do so stop with a message pointing at WSL, macOS or Linux.
 
 There are three parts:
 
@@ -67,6 +70,11 @@ share:
   are drained in `App::logic`, not `App::ui`: eframe runs no egui pass while the
   viewport is hidden, which is where this overlay sits between key holds, so
   work put in `ui` would never run when the press that shows it arrives.
+- `ui/windows.rs`: the Windows window, also eframe/egui, but mapped once and
+  never hidden. Hiding it would take focus — winit gives a window only one
+  non-activating show — so "hidden" there means drawing nothing, and the clear
+  colour has to be fully transparent rather than eframe's translucent default.
+  Read the module comment before changing anything about when it shows.
 - `ui/wayland.rs`: a `zwlr_layer_shell_v1` surface drawn into a `wl_shm` buffer.
   A plain Wayland window cannot stay on top or pass clicks through, so this is
   not a portability nicety; it is the only way the overlay works there.
@@ -77,9 +85,10 @@ share:
   `doc/design.md`.
 - `ui/linux.rs`: picks between the last two, honouring `KEYMAP_OVERLAY_BACKEND`.
 
-Cargo gates the dependencies per target, which is why eframe is macOS-only and
-hidapi uses hidraw on Linux rather than its default libusb backend. Keep new
-dependencies on the same side of that line as the code using them.
+Cargo gates the dependencies per target, which is why eframe is kept off Linux
+and hidapi uses hidraw there rather than its default libusb backend, and its
+own `windows-native` backend on Windows. Keep new dependencies on the same side
+of that line as the code using them.
 
 The overlay is event-driven. Delivering an event also wakes the UI thread —
 `request_repaint()` on macOS, a calloop channel on Linux, behind the
@@ -125,9 +134,14 @@ make install-overlay    # Generate images, build, and install the login service
 ```
 
 `make setup` and everything that installs or starts the overlay dispatch on
-`OS_FAMILY`, derived from `uname -s` at the top of the Makefile. A target that
-differs between the two systems gets an `_<action>_$(OS_FAMILY)` helper rather
-than a shell conditional inside one recipe.
+`OS_FAMILY`, derived from `uname -s` at the top of the Makefile — `windows`
+covers the `MINGW*` and `MSYS*` that an MSYS2 or Git Bash shell reports. A
+target that differs between the systems gets an `_<action>_$(OS_FAMILY)` helper
+rather than a shell conditional inside one recipe.
+
+Windows adds one such helper the other two do not need: `_stop_service_windows`,
+because a running executable is locked there and has to go before the binary is
+replaced. Its macOS and Linux siblings are deliberately empty.
 
 ### Firmware Development
 
@@ -157,13 +171,19 @@ make audit        # cargo-audit against the RustSec advisory database
 Force a rebuild of generated artifacts with `make clean` before verifying
 anything that depends on `build/`.
 
-CI runs three jobs. On Linux it runs `lint`, `format`, `test`, `test-rust` and
+CI runs four jobs. On Linux it runs `lint`, `format`, `test`, `test-rust` and
 `build-overlay`, then fails if formatting produced a diff, so anything you add
-must survive `make format` unchanged. On macOS it runs `test`, `test-rust` and
-`build-overlay`. Each job builds only its own windows, so a change to
-`ui/eframe_window.rs` is compiled by the macOS job alone, and changes to
-`ui/wayland.rs` or `ui/x11.rs` by the Linux job alone. A third job runs
-`make audit`.
+must survive `make format` unchanged. On macOS and on Windows it runs `test`,
+`test-rust` and `build-overlay`; the Windows job sets `shell: bash` so the
+Makefile runs under Git Bash. Each job builds only its own windows, so a change
+to `ui/eframe_window.rs` is compiled by the macOS job alone, `ui/windows.rs` by
+the Windows job alone, and `ui/wayland.rs` or `ui/x11.rs` by the Linux job. A
+fourth job runs `make audit`.
+
+Only the Linux job lints, so Windows-only code is never seen by clippy in CI.
+Run `cargo clippy --target x86_64-pc-windows-msvc -p keymap-overlay -- -D warnings`
+by hand after touching `ui/windows.rs`; `cargo check` for that target works
+from macOS and Linux too, and catches most of what CI would.
 
 `make audit` is the only check that can start failing without anything here
 changing, because the RustSec database grows on its own. Advisories that are
@@ -173,9 +193,15 @@ GitHub Actions weekly; the tool versions pinned in `mise.toml` and
 `mise.dev.toml` are not covered by it and still need bumping by hand.
 
 `make install-overlay` still cannot be exercised in CI, because `launchctl
-bootstrap` and `systemctl --user` both need a real login session, and the
-layer-shell window needs a running compositor. Changes to the plist, the
-systemd unit, the udev rules, or the window itself have to be verified by hand.
+bootstrap`, `systemctl --user` and `Register-ScheduledTask` all need a real
+login session, and the layer-shell window needs a running compositor. Changes
+to the plist, the systemd unit, the scheduled task, the udev rules, or the
+window itself have to be verified by hand.
+
+On Windows the check that matters most is that the overlay never takes focus:
+type into a text editor, hold a layer key while continuing to type, and confirm
+every keystroke lands and the caret does not move. Repeat it — the failure mode
+this backend is built around only appears from the _second_ show onward.
 
 ### Git Hooks
 

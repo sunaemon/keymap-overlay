@@ -3,9 +3,9 @@
 [![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml?query=branch%3Amain)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Example: GPL-2.0-or-later](https://img.shields.io/badge/Example-GPL--2.0--or--later-blue.svg)](example/LICENSE)
-[![Platform: macOS | Linux](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)](#platform-support)
+[![Platform: macOS | Linux | Windows](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
 
-This repository generates keyboard layer images from QMK keymaps and displays them in a native Rust overlay while layer modifier keys are held, on macOS and on Linux.
+This repository generates keyboard layer images from QMK keymaps and displays them in a native Rust overlay while layer modifier keys are held, on macOS, Linux and Windows.
 
 ![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
 
@@ -21,14 +21,27 @@ While holding a layer key, the firmware sends a Raw HID notification and the Rus
 
 ## Platform Support
 
-|                | macOS                       | Linux                                           |
-| -------------- | --------------------------- | ----------------------------------------------- |
-| Overlay window | eframe/egui                 | `zwlr_layer_shell_v1` surface, or an X11 window |
-| Autostart      | launchd agent               | systemd user unit                               |
-| Raw HID access | Input Monitoring permission | `uaccess` udev rule (`make install-udev-rules`) |
-| QMK toolchain  | Homebrew (`osx-cross`)      | distribution packages (pacman, apt, dnf)        |
+|                | macOS                       | Linux                                           | Windows                      |
+| -------------- | --------------------------- | ----------------------------------------------- | ---------------------------- |
+| Overlay window | eframe/egui                 | `zwlr_layer_shell_v1` surface, or an X11 window | eframe/egui                  |
+| Autostart      | launchd agent               | systemd user unit                               | Task Scheduler task          |
+| Raw HID access | Input Monitoring permission | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant             |
+| QMK toolchain  | Homebrew (`osx-cross`)      | distribution packages (pacman, apt, dnf)        | not supported — build in WSL |
 
-Image generation and the firmware workflow are the same on both.
+Image generation is the same everywhere.
+
+On Windows, run the commands below from an **MSYS2 or Git Bash** shell: the
+`Makefile` dispatches on `uname -s` and its recipes are POSIX shell. The
+overlay itself is a native Windows binary, not a WSL one — WSL cannot read the
+keyboard's HID interface, and its windows cannot sit above native applications.
+
+Building and flashing firmware is the one part that does not run on Windows.
+QMK's toolchain there is QMK MSYS, a separate environment from the shell that
+builds the overlay, so `make compile`, `make flash` and `make flash-keymap`
+stop with a message rather than half-working. Run those in **WSL**, or on a
+macOS or Linux machine; for a UF2 board you can also just copy the built
+`.uf2` onto the `RPI-RP2` drive from Explorer. Everything else — generating the
+images, building the overlay, installing it as a login task — is native.
 
 On Linux the overlay picks its window at startup:
 
@@ -121,6 +134,10 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    `dnf` — asking for `sudo` when it does — along with the libudev, Wayland
    client and libX11 libraries the overlay links against.
 
+   On Windows it installs no firmware toolchain, because firmware is not built
+   there; it checks that `cygpath` and `powershell` are reachable and prints
+   where to build firmware instead.
+
    It also installs the git hooks that format, lint, and test the project as
    you commit and push. See the Git Hooks section of `AGENTS.md` for what each
    hook runs and how to skip them.
@@ -133,7 +150,8 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
 
    This command is read-only: it reports missing dependencies but never installs them.
 
-5. Flash firmware with Raw HID support to your keyboard:
+5. Flash firmware with Raw HID support to your keyboard (**not on Windows** —
+   run this step in WSL, macOS or Linux, as described under Platform Support):
 
    ```bash
    make flash KEYBOARD_ID=1
@@ -181,6 +199,8 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    launchctl kickstart -k "gui/$(id -u)/com.sunaemon.keymap-overlay"
    # Linux
    systemctl --user restart keymap-overlay.service
+   # Windows (from MSYS2 or Git Bash, after flashing elsewhere)
+   powershell.exe -NoProfile -Command 'Stop-ScheduledTask -TaskName "KeymapOverlay"; Start-ScheduledTask -TaskName "KeymapOverlay"'
    ```
 
 6. On Linux, grant access to the keyboards' Raw HID nodes:
@@ -196,7 +216,8 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    that was already connected. `make uninstall-udev-rules` removes the file.
 
    On macOS there is no equivalent step: grant the overlay **Input Monitoring**
-   in System Settings when it first asks.
+   in System Settings when it first asks. On Windows there is nothing to grant
+   at all — a vendor-defined HID interface is open to any process.
 
 7. Install the native overlay as a login service:
 
@@ -205,9 +226,10 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    ```
 
    It starts automatically after login — as a launchd agent on macOS, as a
-   systemd user unit on Linux — and writes logs to
-   `~/.local/var/log/keymap-overlay/` (`overlay.log`). Logs rotate at 1 MiB,
-   retaining the current log plus three previous files.
+   systemd user unit on Linux, as a Task Scheduler task on Windows — and writes
+   logs to `~/.local/var/log/keymap-overlay/` (`overlay.log`, under
+   `%USERPROFILE%` on Windows). Logs rotate at 1 MiB, retaining the current log
+   plus three previous files.
    For a foreground development session, use `make run-overlay` instead.
    To stop and remove it later, run `make uninstall-overlay`.
 

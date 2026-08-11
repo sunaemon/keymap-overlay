@@ -53,7 +53,7 @@ def _get_safe_range_start(keycodes_json: Path) -> int:
 
 
 def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> KeycodesJson:
-    content = keymap_path.read_text()
+    content = keymap_path.read_text(encoding="utf-8")
 
     pattern = re.compile(
         r"enum\s+custom_keycodes\s*\{([^}]*)\};", re.DOTALL | re.MULTILINE

@@ -13,10 +13,10 @@ keymap-core = { path = "../keymap-core" }
 log = "0.4.33"
 env_logger = "0.11.11"
 
-# The window is the one part that cannot be shared: macOS gets an eframe
-# window, Linux a wlr-layer-shell surface with an X11 window as the fallback
-# for compositors that have no layer shell. eframe is macOS-only, which keeps
-# egui, glutin and accesskit out of the Linux build.
+# The window is the one part that cannot be shared: macOS and Windows get an
+# eframe window each, Linux a wlr-layer-shell surface with an X11 window as the
+# fallback for compositors that have no layer shell. eframe is left off the
+# Linux side, which keeps egui, glutin and accesskit out of that build.
 [target.'cfg(target_os = "macos")'.dependencies]
 eframe = "0.36.1"
 # Reaches the macOS activation policy, which eframe does not wrap. Kept on the
@@ -26,6 +26,15 @@ winit = { version = "0.30.13", default-features = false }
 # macOS opens the same device from several processes; VIAL tools and the
 # overlay share the keyboard's Raw HID interface.
 hidapi = { version = "2.6.6", features = ["macos-shared-device"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+eframe = "0.36.1"
+# The pure-Rust Windows backend rather than hidapi's bundled C one, so that
+# building from an MSYS2 shell needs no C compiler and no path translation for
+# it. Both report the usage page the Raw HID interface is selected by.
+hidapi = { version = "2.6.6", default-features = false, features = [
+  "windows-native",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Waking the listener when a keyboard arrives. hidapi exposes no hot-plug
