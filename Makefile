@@ -76,9 +76,9 @@ endef
 
 # Stop the login service, tolerating only the expected case where it is not loaded.
 define BOOTOUT_KEYMAP_OVERLAY
-output = "$$(launchctl bootout "gui/$$(id -u)/$(KEYMAP_OVERLAY_LABEL)" 2>&1)" || { \
+output="$$(launchctl bootout "gui/$$(id -u)/$(KEYMAP_OVERLAY_LABEL)" 2>&1)" || { \
 	case "$$output" in \
-		*"Could not find service"*) ;; \
+		*"Could not find service"*|*"No such process"*) ;; \
 		*) printf '%s\n' "$$output" >&2; exit 1 ;; \
 	esac; \
 	}
