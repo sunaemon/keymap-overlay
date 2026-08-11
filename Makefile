@@ -76,10 +76,14 @@ endef
 
 # Stop the login service, tolerating only the expected case where it is not loaded.
 define BOOTOUT_KEYMAP_OVERLAY
-case "$$(launchctl bootout "gui/$$(id -u)/$(KEYMAP_OVERLAY_LABEL)" 2>&1)" in \
-	""|*"Could not find service"*|*"No such process"*) ;; \
-	*) printf '%s\n' 'Failed to stop keymap-overlay service' >&2; exit 1 ;; \
-	esac
+if output="$$(launchctl bootout "gui/$$(id -u)/$(KEYMAP_OVERLAY_LABEL)" 2>&1)"; then \
+	:; \
+	else \
+	case "$$output" in \
+		""|*"Could not find service"*|*"No such process"*) ;; \
+		*) printf '%s\n' "$$output" >&2; exit 1 ;; \
+	esac; \
+	fi
 endef
 
 # The systemd counterpart. The unit file is ours, so its absence is what "not

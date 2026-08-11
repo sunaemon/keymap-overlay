@@ -380,11 +380,13 @@ mod tests {
     #[test]
     fn releasing_a_layer_that_is_not_on_screen_is_ignored() {
         // Layer 3 is visible; releasing the earlier layer 2 key must not
-        // replace it.
+        // replace it, but must still remove it from the held state.
+        let mut held_keys = vec![(1, 2), (1, 3)];
         assert_eq!(
-            transition_for(&mut vec![(1, 3)], event(1, 2, false)),
+            transition_for(&mut held_keys, event(1, 2, false)),
             Transition::Ignore
         );
+        assert_eq!(held_keys, vec![(1, 3)]);
         // The key is (keyboard, layer), so the same layer number released on a
         // different keyboard does not match what is on screen.
         assert_eq!(
