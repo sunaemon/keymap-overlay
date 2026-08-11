@@ -38,11 +38,12 @@ matching <keyboard>_L<layer>.png is displayed
   ↓
 matching layer key released
   ↓
-overlay is hidden
+previous held layer is restored, or the overlay is hidden when none remain
 ```
 
-The overlay remains visible for the complete key hold. It is hidden only when
-the corresponding release report arrives.
+The overlay remains visible for the complete key hold. If momentary layers are
+held together, it shows the most recently pressed one and restores the next
+most-recent one still held on release; it hides once none remain.
 
 ## Raw HID Protocol
 
