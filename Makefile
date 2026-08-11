@@ -117,17 +117,17 @@ if [ -f "$(KEYMAP_OVERLAY_UNIT)" ]; then \
 	fi
 endef
 
-# The Task Scheduler counterpart. Query first because Stop-ScheduledTask exits
-# unsuccessfully when its task has never been registered (the normal first-run
-# case). The command is single-quoted so that the shell leaves PowerShell's $
-# alone, and MSYS2_ARG_CONV_EXCL stops MSYS2 rewriting the arguments as paths.
+# The Windows Run key is per-user, so it needs no administrator access. Stop
+# the previous process before replacing its executable, if it is running. The
+# command is single-quoted so that the shell leaves PowerShell's $ alone, and
+# MSYS2_ARG_CONV_EXCL stops MSYS2 rewriting the arguments as paths.
 #
 # Run through `env` so the line does not open with NAME=VALUE, which the
 # Makefile formatter rewrites to NAME = VALUE — turning the variable this needs
 # in the environment into a command it would try to run.
-define STOP_KEYMAP_OVERLAY_TASK
+define STOP_KEYMAP_OVERLAY_PROCESS
 env MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'$$task = Get-ScheduledTask -TaskName "$(KEYMAP_OVERLAY_TASK_NAME)" -ErrorAction SilentlyContinue; if ($$null -ne $$task) { Stop-ScheduledTask -InputObject $$task }'
+	'Get-Process -Name "keymap-overlay" -ErrorAction SilentlyContinue | Stop-Process; exit 0'
 endef
 
 # ================= QMK CONFIGURATION =================
@@ -249,10 +249,9 @@ KEYMAP_OVERLAY_LABEL := com.sunaemon.keymap-overlay
 KEYMAP_OVERLAY_PLIST := $(HOME)/Library/LaunchAgents/$(KEYMAP_OVERLAY_LABEL).plist
 KEYMAP_OVERLAY_UNIT_NAME := keymap-overlay.service
 KEYMAP_OVERLAY_UNIT := $(HOME)/.config/systemd/user/$(KEYMAP_OVERLAY_UNIT_NAME)
-# The Task Scheduler counterpart. The task name doubles as the path of the
-# folder it lives in, so it is a name and not a reverse-DNS label.
-KEYMAP_OVERLAY_TASK_NAME := KeymapOverlay
-KEYMAP_OVERLAY_TASK_XML := $(KEYMAP_OVERLAY_DIR)/keymap-overlay-task.xml
+# The registry value under the current user's Run key that starts the overlay
+# when they sign in. It is intentionally a user-level autostart, not a service.
+KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
 # One rule per keyboard, tagged uaccess so the logged-in user may open the Raw
 # HID node; without it the overlay enumerates the keyboards but cannot read
 # from them.
@@ -316,7 +315,7 @@ _setup_toolchain_linux:
 # There is no QMK toolchain to install here: firmware is built elsewhere (see
 # the note this prints). What this does check is the two things every other
 # Windows target assumes — cygpath, to hand native paths to native programs,
-# and powershell, which registers the login task.
+# and powershell, which writes the current user's login Run key.
 .PHONY: _setup_toolchain_windows
 _setup_toolchain_windows:
 	@missing=""; \
@@ -477,7 +476,7 @@ _stop_service_linux:
 
 .PHONY: _stop_service_windows
 _stop_service_windows:
-	@$(STOP_KEYMAP_OVERLAY_TASK)
+	@$(STOP_KEYMAP_OVERLAY_PROCESS)
 
 .PHONY: _install_service_macos
 _install_service_macos:
@@ -549,73 +548,24 @@ _install_service_linux:
 # still holds the previous binary.
 	systemctl --user restart "$(KEYMAP_OVERLAY_UNIT_NAME)"
 
-# Task Scheduler is the one per-user "start this at login" mechanism Windows
-# offers that also brings a crashed process back. Three of its defaults would
-# otherwise stop the overlay and are set explicitly: tasks are killed after
-# three days, stopped when the machine goes on battery, and not started at all
-# while on battery.
-#
-# It has no equivalent of the plist's EnvironmentVariables or the unit's
-# Environment, so KEYMAP_OVERLAY_LOG_DIR cannot travel to the task; the overlay
-# falls back to the same directory under USERPROFILE, which is where this
-# variable points anyway unless it was overridden.
+# The current user's Run key starts the overlay at sign-in without requiring an
+# administrator to create a Task Scheduler entry. It has no equivalent of the
+# plist's EnvironmentVariables or the unit's Environment, so
+# KEYMAP_OVERLAY_LOG_DIR cannot travel there; the overlay falls back to the same
+# directory under USERPROFILE, which is where this variable points anyway unless
+# it was overridden.
 .PHONY: _install_service_windows
 _install_service_windows:
 	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay" ]; then \
 		echo "ERROR: KEYMAP_OVERLAY_LOG_DIR cannot be honoured on Windows."; \
-		echo "A scheduled task is given no environment, so the overlay would keep"; \
+		echo "The Windows Run key is given no environment, so the overlay would keep"; \
 		echo "logging to its default directory. Leave the variable unset."; \
 		exit 1; \
 	fi
-	@mkdir -p "$(dir $(KEYMAP_OVERLAY_TASK_XML))"
-# cygpath because the task is run by Windows, which cannot follow an MSYS path,
-# and the sed escapes a & or < that a Windows user name may contain.
-	@xml_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }; \
-	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)" | xml_escape)"; \
-	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)" | xml_escape)"; \
-	{ \
-	printf '%s\n' \
-	'<?xml version="1.0"?>' \
-	'<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' \
-	'  <RegistrationInfo>' \
-	'    <Description>QMK keymap layer overlay</Description>' \
-	'    <URI>\$(KEYMAP_OVERLAY_TASK_NAME)</URI>' \
-	'  </RegistrationInfo>' \
-	'  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>' \
-	'  <Principals>' \
-	'    <Principal id="Author">' \
-	'      <LogonType>InteractiveToken</LogonType>' \
-	'      <RunLevel>LeastPrivilege</RunLevel>' \
-	'    </Principal>' \
-	'  </Principals>' \
-	'  <Settings>' \
-	'    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' \
-	'    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' \
-	'    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' \
-	'    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>' \
-	'    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd></IdleSettings>' \
-	'    <AllowStartOnDemand>true</AllowStartOnDemand>' \
-	'    <Enabled>true</Enabled>' \
-	'    <RunOnlyIfIdle>false</RunOnlyIfIdle>' \
-	'    <!-- Matches KeepAlive/SuccessfulExit=false in the launchd plist and' \
-	'         Restart=on-failure in the systemd unit: a task is only retried' \
-	'         when it exits non-zero, so a clean exit stays stopped. -->' \
-	'    <RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure>' \
-	'  </Settings>' \
-	'  <Actions Context="Author">' \
-	'    <Exec>' \
-	"      <Command>$$binary</Command>" \
-	"      <Arguments>\"$$assets\"</Arguments>" \
-	'    </Exec>' \
-	'  </Actions>' \
-	'</Task>'; \
-	} > "$(KEYMAP_OVERLAY_TASK_XML).tmp" && mv "$(KEYMAP_OVERLAY_TASK_XML).tmp" "$(KEYMAP_OVERLAY_TASK_XML)"
-# -Force is the update path: it replaces a task that is already registered.
-	@xml="$$(cygpath -w "$(KEYMAP_OVERLAY_TASK_XML)" | sed "s/'/''/g")"; \
-	MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	"Register-ScheduledTask -TaskName '$(KEYMAP_OVERLAY_TASK_NAME)' -Xml (Get-Content -Raw -LiteralPath '$$xml') -Force | Out-Null"
-	MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-		'Start-ScheduledTask -TaskName "$(KEYMAP_OVERLAY_TASK_NAME)"'
+	@binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
+	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)")"; \
+	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	'$$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote)'
 
 .PHONY: uninstall-overlay
 uninstall-overlay:
@@ -637,10 +587,9 @@ _uninstall_service_linux:
 
 .PHONY: _uninstall_service_windows
 _uninstall_service_windows:
-	@$(STOP_KEYMAP_OVERLAY_TASK)
+	@$(STOP_KEYMAP_OVERLAY_PROCESS)
 	@MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-		'Unregister-ScheduledTask -TaskName "$(KEYMAP_OVERLAY_TASK_NAME)" -Confirm:$$false -ErrorAction SilentlyContinue'
-	rm -f "$(KEYMAP_OVERLAY_TASK_XML)"
+		'Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -ErrorAction SilentlyContinue; exit 0'
 
 # Linux only: macOS asks for Input Monitoring permission instead, which is
 # granted in System Settings rather than by a file, and Windows needs no

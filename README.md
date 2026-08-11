@@ -37,12 +37,12 @@ While holding a layer key, the firmware sends a Raw HID notification and the Rus
 
 ## Platform Support
 
-|                | macOS                       | Linux                                           | Windows                      |
-| -------------- | --------------------------- | ----------------------------------------------- | ---------------------------- |
-| Overlay window | eframe/egui                 | `zwlr_layer_shell_v1` surface, or an X11 window | eframe/egui                  |
-| Autostart      | launchd agent               | systemd user unit                               | Task Scheduler task          |
-| Raw HID access | Input Monitoring permission | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant             |
-| QMK toolchain  | Homebrew (`osx-cross`)      | distribution packages (pacman, apt, dnf)        | not supported — build in WSL |
+|                | macOS                       | Linux                                           | Windows                       |
+| -------------- | --------------------------- | ----------------------------------------------- | ----------------------------- |
+| Overlay window | eframe/egui                 | `zwlr_layer_shell_v1` surface, or an X11 window | eframe/egui                   |
+| Autostart      | launchd agent               | systemd user unit                               | current-user Run registry key |
+| Raw HID access | Input Monitoring permission | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant              |
+| QMK toolchain  | Homebrew (`osx-cross`)      | distribution packages (pacman, apt, dnf)        | not supported — build in WSL  |
 
 Image generation is the same everywhere.
 

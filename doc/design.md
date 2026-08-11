@@ -158,7 +158,7 @@ top, so that backend pins `pixels_per_point` to 1.
 ### Requirements on Windows
 
 - An MSYS2 or Git Bash shell, which is what `make` and the recipes here need,
-  with PowerShell reachable on `PATH` for registering the login task.
+  with PowerShell reachable on `PATH` for writing the current user's Run key.
 - Nothing has to be granted to read the keyboard: a vendor-defined HID
   interface is open to any process, unlike macOS Input Monitoring or the
   `hidraw` node on Linux. hidapi is built on its own Windows backend, which
@@ -180,22 +180,21 @@ top, so that backend pins `pixels_per_point` to 1.
    - Linux: the systemd user unit
      `~/.config/systemd/user/keymap-overlay.service`, wanted by
      `graphical-session.target` because the overlay needs the compositor.
-   - Windows: the Task Scheduler task `KeymapOverlay`, registered from
-     `~/.config/keymap-overlay/keymap-overlay-task.xml` with PowerShell.
+   - Windows: the current user's `KeymapOverlay` value under
+     `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 4. Restarts the service so updates take effect immediately and starts it at
    future logins.
 
-The three service definitions agree on behaviour: start at login, restart after
-a crash, and stay stopped after a clean exit.
+All three definitions start at login. macOS and Linux also restart after a
+crash and stay stopped after a clean exit; Windows uses the per-user Run key,
+which starts a fresh overlay at the next login.
 
 Two things are specific to Windows. A running executable is locked there, so
 the service is stopped before the binary is replaced rather than afterwards.
-And a scheduled task is given no environment, so `KEYMAP_OVERLAY_LOG_DIR`
+And the Run key is given no environment, so `KEYMAP_OVERLAY_LOG_DIR`
 cannot be passed the way the plist and the unit pass it; the overlay falls back
 to the same path under `USERPROFILE` instead, and `make install-overlay`
-refuses to run if that variable was overridden. The three-day execution limit
-and stopping on battery can end a running overlay; not starting on battery only
-prevents a new task from starting. All three settings are set explicitly.
+refuses to run if that variable was overridden.
 
 The overlay writes logs to:
 

@@ -1,4 +1,4 @@
-// Without this, Windows gives the login task a console window that flashes on
+// Without this, Windows gives the login autostart process a console window that flashes on
 // screen at every start and lingers behind the overlay. The subsystem also
 // discards stdout and stderr, which costs nothing here: everything this binary
 // reports goes through the rotating log below.
@@ -165,7 +165,7 @@ fn home_directory() -> Option<OsString> {
 /// The user's home directory, under whichever name this system knows it by.
 ///
 /// Windows sets `USERPROFILE` and not `HOME`, and the overlay runs there as a
-/// native process started by Task Scheduler, so it inherits no shell's idea of
+/// native process started from the Run key, so it inherits no shell's idea of
 /// `HOME`. An MSYS2 `HOME` such as `/home/user` is not an absolute Windows
 /// path, so Windows ignores it and uses `USERPROFILE` when both are set.
 fn resolve_home_directory(
@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn user_profile_stands_in_for_an_unset_home() {
-        // The Windows login task inherits no HOME at all.
+        // The Windows login autostart process inherits no HOME at all.
         assert_eq!(
             resolve_home_directory(None, Some(OsString::from(r"C:\Users\user"))),
             Some(OsString::from(r"C:\Users\user"))

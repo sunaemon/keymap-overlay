@@ -200,10 +200,10 @@ GitHub Actions weekly; the tool versions pinned in `mise.toml` and
 `mise.dev.toml` are not covered by it and still need bumping by hand.
 
 `make install-overlay` still cannot be exercised in CI, because `launchctl
-bootstrap`, `systemctl --user` and `Register-ScheduledTask` all need a real
-login session, and the layer-shell window needs a running compositor. Changes
-to the plist, the systemd unit, the scheduled task, the udev rules, or the
-window itself have to be verified by hand.
+bootstrap` and `systemctl --user` need a real login session, and the layer-shell
+window needs a running compositor. Changes to the plist, the systemd unit, the
+Windows Run key, the udev rules, or the window itself have to be verified by
+hand.
 
 On Windows the check that matters most is that the overlay never takes focus:
 type into a text editor, hold a layer key while continuing to type, and confirm
