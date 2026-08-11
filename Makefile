@@ -866,6 +866,10 @@ _force_build:
 QMK_KEYMAP_JSON_RAW_DEPS := $(QMK_KEYMAP_C)
 ifeq ($(VIAL),true)
 QMK_KEYMAP_JSON_RAW_DEPS += _force_build
+else
+# The example's keyboard definition and keymap live outside QMK's vendored
+# tree. Install them before c2json validates -kb, including on a fresh clone.
+QMK_KEYMAP_JSON_RAW_DEPS += _copy_firmware
 endif
 
 QMK_KEYMAP_JSON_DEPS := scripts/postprocess_qmk_keymap.py $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_JSON_RAW)
