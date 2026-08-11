@@ -78,7 +78,7 @@ into the Windows configuration directory:
 
 ```bash
 cd /mnt/c/Users/<your-Windows-user-name>/keymap-overlay
-make install \
+make install-assets \
   KEYMAP_OVERLAY_DIR=/mnt/c/Users/<your-Windows-user-name>/.config/keymap-overlay
 ```
 

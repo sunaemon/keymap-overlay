@@ -130,7 +130,8 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 ```bash
 make setup              # Install system dependencies and toolchains
 make install-udev-rules # Linux only: grant Raw HID access to the login user
-make install-overlay    # Generate images, build, and install the login service
+make install-assets     # Generate and copy layer PNG assets
+make install-overlay    # Build and install the login service
 ```
 
 `make setup` and everything that installs or starts the overlay dispatch on

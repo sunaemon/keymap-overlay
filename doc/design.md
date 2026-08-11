@@ -15,12 +15,15 @@ build/<keyboard>/keymap-drawer.yaml
 build/<keyboard>/<keyboard>_L<n>.svg
   ↓ resvg
 build/<keyboard>/<keyboard>_L<n>.png
-  ↓ make install-overlay
-~/.config/keymap-overlay/<keyboard>_L<n>.png
+  ↓ make install-assets
+platform configuration directory/<keyboard>_L<n>.png
 ```
 
-`make install-overlay` runs the existing image-install workflow before it
-installs the native application, so `make install` is not needed separately.
+`make install-assets` is the platform-independent image-generation and copy
+target. On macOS and Linux, `make install-overlay` invokes it before installing
+the application. On Windows, generate assets from WSL with `make
+install-assets`, then run the native `make install-overlay`; WSL writes the
+PNGs directly to `%USERPROFILE%/.config/keymap-overlay/`.
 
 ## Runtime Data Flow
 
@@ -166,7 +169,9 @@ top, so that backend pins `pixels_per_point` to 1.
 
 `make install-overlay` performs the following steps:
 
-1. Generates and installs all layer PNG assets in `~/.config/keymap-overlay/`.
+1. On macOS and Linux, generates and installs all layer PNG assets with `make
+   install-assets`. On Windows, verifies that WSL has already generated them
+   under `%USERPROFILE%/.config/keymap-overlay/`.
 2. Builds a release binary and installs it as
    `~/.config/keymap-overlay/keymap-overlay`.
 3. Writes the per-user service definition:

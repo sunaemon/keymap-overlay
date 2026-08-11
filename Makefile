@@ -39,7 +39,7 @@ WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WS
 
 # ================= VIA CONFIGURATION =================
 
-# If VIAL is enabled, the keymap will load from the VIAL EEPROM dump in `make install` and `make draw-layers`.
+# If VIAL is enabled, the keymap will load from the VIAL EEPROM dump in `make install-assets` and `make draw-layers`.
 # If VIAL is disabled, the keymap will be compiled from the firmware source.
 VIAL ?= false
 
@@ -225,7 +225,7 @@ VIAL_JSON := $(BUILD_DIR)/vial.json
 VITALY_JSON := $(BUILD_DIR)/vitaly.json
 
 # Same lazy-and-cached treatment as DEVICE_PID. These are only meaningful once
-# $(QMK_KEYMAP_JSON) exists, which is why install/draw-layers build it in a
+# $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
 # first pass and then re-enter make to expand $(PNG).
 LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
 PNG = $(eval PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.png" 0 $$(( $(LAYERS) - 1 )); fi))$(PNG)
@@ -340,9 +340,10 @@ doctor:
 	status=$${PIPESTATUS[0]}; \
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
-# Because  LAYERS variable depends on $(QMK_KEYMAP_JSON), we need to call draw-layers with another make invocation
-.PHONY: install
-install:
+# Because LAYERS depends on $(QMK_KEYMAP_JSON), install-assets and draw-layers
+# build the JSON in a first make invocation, then re-enter make to expand PNG.
+.PHONY: install-assets
+install-assets:
 ifdef KEYBOARD_ID
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
@@ -351,9 +352,15 @@ else
 	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
 		echo "----------------------------------------------------------------"; \
 		echo "Installing $$kb"; \
-		$(MAKE) install KEYBOARD_ID=$$kb || exit 1; \
+		$(MAKE) install-assets KEYBOARD_ID=$$kb || exit 1; \
 	done
 endif
+
+# Kept as a compatibility alias for existing scripts. New callers should use
+# install-assets, which states exactly what is installed and is identical on
+# macOS, Linux, Windows, and WSL.
+.PHONY: install
+install: install-assets
 
 .PHONY: draw-layers
 draw-layers:
@@ -435,11 +442,11 @@ ifeq ($(OS_FAMILY),windows)
 install-overlay: build-overlay
 	@if ! compgen -G "$(KEYMAP_OVERLAY_DIR)/*.png" >/dev/null; then \
 		echo "ERROR: no layer PNGs found in $(KEYMAP_OVERLAY_DIR)."; \
-		echo "Generate them in WSL with 'make install KEYMAP_OVERLAY_DIR=/mnt/c/Users/<user>/.config/keymap-overlay' first."; \
+		echo "Generate them in WSL with 'make install-assets KEYMAP_OVERLAY_DIR=/mnt/c/Users/<user>/.config/keymap-overlay' first."; \
 		exit 1; \
 	fi
 else
-install-overlay: install build-overlay
+install-overlay: install-assets build-overlay
 endif
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
 # Windows holds an open executable locked, so the running overlay has to go
