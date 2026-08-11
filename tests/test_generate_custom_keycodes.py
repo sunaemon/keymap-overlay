@@ -14,7 +14,7 @@ def _write_keycodes(tmp_path: Path, safe_range: str | None = "0x7E40") -> Path:
     if safe_range is not None:
         keycodes[safe_range] = "SAFE_RANGE"
     path = tmp_path / "keycodes.json"
-    path.write_text(json.dumps(keycodes))
+    path.write_text(json.dumps(keycodes), encoding="utf-8")
     return path
 
 
@@ -22,7 +22,8 @@ def _write_keymap(tmp_path: Path, body: str) -> Path:
     """Writes a keymap.c containing body as the custom_keycodes enum."""
     path = tmp_path / "keymap.c"
     path.write_text(
-        f'#include QMK_KEYBOARD_H\n\nenum custom_keycodes {{{body}}};\n\nconst char *name = "x";\n'
+        f'#include QMK_KEYBOARD_H\n\nenum custom_keycodes {{{body}}};\n\nconst char *name = "x";\n',
+        encoding="utf-8",
     )
     return path
 

@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -45,6 +45,8 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          cache: false
 
       - name: Build release binary
         run: mise exec -- cargo build --release -p keymap-overlay
@@ -80,6 +82,9 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
 
     steps:
       - name: Download release assets
@@ -92,4 +97,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: gh release create "$RELEASE_TAG" release/* --title "$RELEASE_TAG" --generate-notes
+        run: |
+          tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null || true)"
+          if [ -n "$tag_ref" ]; then
+            tag_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
+            tag_type="$(jq -r '.object.type' <<<"$tag_ref")"
+            if [ "$tag_type" = tag ]; then
+              tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" --jq '.object.sha')"
+            fi
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "ERROR: $RELEASE_TAG points to $tag_sha, not $GITHUB_SHA." >&2
+              exit 1
+            fi
+          fi
+          gh release create "$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "$RELEASE_TAG" --generate-notes
