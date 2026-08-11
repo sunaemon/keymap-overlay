@@ -166,12 +166,19 @@ fn home_directory() -> Option<OsString> {
 ///
 /// Windows sets `USERPROFILE` and not `HOME`, and the overlay runs there as a
 /// native process started by Task Scheduler, so it inherits no shell's idea of
-/// `HOME`. `HOME` still wins where both are set, which is what a Windows user
-/// running the overlay from MSYS2 for a foreground session would expect.
+/// `HOME`. An MSYS2 `HOME` such as `/home/user` is not an absolute Windows
+/// path, so Windows ignores it and uses `USERPROFILE` when both are set.
 fn resolve_home_directory(
     home: Option<OsString>,
     user_profile: Option<OsString>,
 ) -> Option<OsString> {
+    #[cfg(target_os = "windows")]
+    {
+        home.filter(|path| Path::new(path).is_absolute())
+            .or(user_profile)
+    }
+
+    #[cfg(not(target_os = "windows"))]
     home.or(user_profile)
 }
 
@@ -499,16 +506,27 @@ mod tests {
         assert!(resolve_log_directory(None, None).is_err());
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn home_wins_over_user_profile_where_both_are_set() {
-        // Running the overlay from an MSYS2 shell on Windows sets both, and
-        // that session's HOME is the one the user means.
         assert_eq!(
             resolve_home_directory(
                 Some(OsString::from("/home/user")),
                 Some(OsString::from(r"C:\Users\user"))
             ),
             Some(OsString::from("/home/user"))
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_profile_replaces_a_non_native_home() {
+        assert_eq!(
+            resolve_home_directory(
+                Some(OsString::from("/home/user")),
+                Some(OsString::from(r"C:\Users\user"))
+            ),
+            Some(OsString::from(r"C:\Users\user"))
         );
     }
 

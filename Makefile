@@ -604,7 +604,7 @@ _install_service_windows:
 	'</Task>'; \
 	} > "$(KEYMAP_OVERLAY_TASK_XML).tmp" && mv "$(KEYMAP_OVERLAY_TASK_XML).tmp" "$(KEYMAP_OVERLAY_TASK_XML)"
 # -Force is the update path: it replaces a task that is already registered.
-	@xml="$$(cygpath -w "$(KEYMAP_OVERLAY_TASK_XML)")"; \
+	@xml="$$(cygpath -w "$(KEYMAP_OVERLAY_TASK_XML)" | sed "s/'/''/g")"; \
 	MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
 	"Register-ScheduledTask -TaskName '$(KEYMAP_OVERLAY_TASK_NAME)' -Xml (Get-Content -Raw -LiteralPath '$$xml') -Force | Out-Null"
 	MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \

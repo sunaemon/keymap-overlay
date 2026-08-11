@@ -169,9 +169,9 @@ top, so that backend pins `pixels_per_point` to 1.
 
 `make install-overlay` performs the following steps:
 
-1. On macOS and Linux, generates and installs all layer PNG assets with `make
-   install-assets`. On Windows, verifies that WSL has already generated them
-   under `%USERPROFILE%/.config/keymap-overlay/`.
+1. On macOS and Linux, uses the `install-assets` target to generate and
+   install all layer PNG assets. On Windows, verifies that WSL has already
+   generated them under `%USERPROFILE%/.config/keymap-overlay/`.
 2. Builds a release binary and installs it as
    `~/.config/keymap-overlay/keymap-overlay`.
 3. Writes the per-user service definition:
@@ -193,9 +193,9 @@ the service is stopped before the binary is replaced rather than afterwards.
 And a scheduled task is given no environment, so `KEYMAP_OVERLAY_LOG_DIR`
 cannot be passed the way the plist and the unit pass it; the overlay falls back
 to the same path under `USERPROFILE` instead, and `make install-overlay`
-refuses to run if that variable was overridden. Three Task Scheduler defaults
-would each stop a long-running overlay and are therefore set explicitly: the
-three-day execution limit, stopping on battery, and not starting on battery.
+refuses to run if that variable was overridden. The three-day execution limit
+and stopping on battery can end a running overlay; not starting on battery only
+prevents a new task from starting. All three settings are set explicitly.
 
 The overlay writes logs to:
 
@@ -221,13 +221,14 @@ keyboard device
 The shared `firmware/layer_notify.h` helper is copied into the QMK keymap as
 part of the firmware build. It constructs the `KMO` reports described above.
 
-This workflow does not run on Windows. QMK's toolchain there is QMK MSYS, a
-separate environment from the MSYS2 or Git Bash shell that builds the overlay,
-and the boards used here flash either over USB or onto a mounted UF2 volume
-that neither shell can reach. `compile`, `flash` and `flash-keymap` therefore
-stop with a message pointing at WSL, macOS or Linux. The images and the overlay
-itself are unaffected, so a Windows user builds firmware once elsewhere and
-does everything else natively.
+This workflow does not run from the overlay's Windows shell. QMK's toolchain
+there is QMK MSYS, separate from the MSYS2 or Git Bash shell that builds the
+overlay, so `compile`, `flash`, and `flash-keymap` stop with a message pointing
+at QMK MSYS, WSL, macOS, or Linux. This does not prevent manual flashing of an
+already-built `.uf2`: Windows can mount the bootloader's `RPI-RP2` volume and
+copy the file onto it in Explorer. The images and the overlay itself are
+unaffected, so a Windows user builds firmware once elsewhere and does
+everything else natively.
 
 ## Design Decisions
 
