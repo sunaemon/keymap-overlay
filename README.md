@@ -46,12 +46,32 @@ While holding a layer key, the firmware sends a Raw HID notification and the Rus
 
 Image generation is the same everywhere.
 
+On Linux the overlay picks its window at startup:
+
+- **Wayland with `zwlr_layer_shell_v1`** — COSMIC, sway, Hyprland, wayfire, KDE
+  Plasma. This is the one to want: the compositor guarantees that the overlay
+  stays above other windows, is never focused, and passes clicks through.
+- **X11, or Wayland without layer-shell** — GNOME above all. The overlay falls
+  back to an override-redirect X11 window, reached through XWayland in a Wayland
+  session. The window manager does not manage it, so it is not focused and not
+  restacked, but it is a fallback: it has none of the compositor's guarantees
+  about other always-on-top windows.
+
+Set `KEYMAP_OVERLAY_BACKEND` to `layer-shell` or `x11` to override the choice
+(`auto` is the default). That is also how to try the fallback on a machine whose
+compositor does support layer-shell.
+
+Choose the setup that matches the system running the overlay:
+
+- [macOS or Linux](#setup-on-macos-and-linux)
+- [Windows](#setup-on-windows)
+
+## Setup on Windows
+
 On Windows, run the commands below from an **MSYS2 or Git Bash** shell: the
 `Makefile` dispatches on `uname -s` and its recipes are POSIX shell. The
 overlay itself is a native Windows binary, not a WSL one — WSL cannot read the
 keyboard's HID interface, and its windows cannot sit above native applications.
-
-### Windows setup
 
 The commands in this section use the Windows package manager, `winget`, from
 PowerShell. Install Git, [MSYS2](https://www.msys2.org/), and mise:
@@ -168,21 +188,6 @@ macOS or Linux machine; for a UF2 board you can also just copy the built
 `.uf2` onto the `RPI-RP2` drive from Explorer. Everything else — generating the
 images, building the overlay, installing it as a login task — is native.
 
-On Linux the overlay picks its window at startup:
-
-- **Wayland with `zwlr_layer_shell_v1`** — COSMIC, sway, Hyprland, wayfire, KDE
-  Plasma. This is the one to want: the compositor guarantees that the overlay
-  stays above other windows, is never focused, and passes clicks through.
-- **X11, or Wayland without layer-shell** — GNOME above all. The overlay falls
-  back to an override-redirect X11 window, reached through XWayland in a Wayland
-  session. The window manager does not manage it, so it is not focused and not
-  restacked, but it is a fallback: it has none of the compositor's guarantees
-  about other always-on-top windows.
-
-Set `KEYMAP_OVERLAY_BACKEND` to `layer-shell` or `x11` to override the choice
-(`auto` is the default). That is also how to try the fallback on a machine whose
-compositor does support layer-shell.
-
 ## Using as a Submodule
 
 When using this project from a dotfiles repository, keep `keymap-overlay` as
@@ -219,7 +224,10 @@ make -C keymap-overlay \
 Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
 `install-overlay`.
 
-## Getting Started
+## Setup on macOS and Linux
+
+These steps build the firmware, generate the assets, and install the overlay
+on the same system.
 
 1. Clone this repository:
 
@@ -259,10 +267,6 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    `dnf` — asking for `sudo` when it does — along with the libudev, Wayland
    client and libX11 libraries the overlay links against.
 
-   On Windows it installs no firmware toolchain, because firmware is not built
-   there; it checks that `cygpath` and `powershell` are reachable and prints
-   where to build firmware instead.
-
    It also installs the git hooks that format, lint, and test the project as
    you commit and push. See the Git Hooks section of `AGENTS.md` for what each
    hook runs and how to skip them.
@@ -275,8 +279,7 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
 
    This command is read-only: it reports missing dependencies but never installs them.
 
-5. Flash firmware with Raw HID support to your keyboard (**not on Windows** —
-   run this step in WSL, macOS or Linux, as described under Platform Support):
+5. Flash firmware with Raw HID support to your keyboard:
 
    ```bash
    make flash KEYBOARD_ID=1
@@ -324,8 +327,6 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    launchctl kickstart -k "gui/$(id -u)/com.sunaemon.keymap-overlay"
    # Linux
    systemctl --user restart keymap-overlay.service
-   # Windows (from MSYS2 or Git Bash, after flashing elsewhere)
-   powershell.exe -NoProfile -Command 'Stop-ScheduledTask -TaskName "KeymapOverlay"; Start-ScheduledTask -TaskName "KeymapOverlay"'
    ```
 
 6. On Linux, grant access to the keyboards' Raw HID nodes:
@@ -341,8 +342,7 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    that was already connected. `make uninstall-udev-rules` removes the file.
 
    On macOS there is no equivalent step: grant the overlay **Input Monitoring**
-   in System Settings when it first asks. On Windows there is nothing to grant
-   at all — a vendor-defined HID interface is open to any process.
+   in System Settings when it first asks.
 
 7. Install the native overlay as a login service:
 
@@ -350,11 +350,10 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    make install-overlay
    ```
 
-   It starts automatically after login — as a launchd agent on macOS, as a
-   systemd user unit on Linux, as a Task Scheduler task on Windows — and writes
-   logs to `~/.local/var/log/keymap-overlay/` (`overlay.log`, under
-   `%USERPROFILE%` on Windows). Logs rotate at 1 MiB, retaining the current log
-   plus three previous files.
+   It starts automatically after login — as a launchd agent on macOS or a
+   systemd user unit on Linux — and writes logs to
+   `~/.local/var/log/keymap-overlay/overlay.log`. Logs rotate at 1 MiB,
+   retaining the current log plus three previous files.
    For a foreground development session, use `make run-overlay` instead.
    To stop and remove it later, run `make uninstall-overlay`.
 
