@@ -343,6 +343,13 @@ doctor:
 # Because LAYERS depends on $(QMK_KEYMAP_JSON), install-assets and draw-layers
 # build the JSON in a first make invocation, then re-enter make to expand PNG.
 .PHONY: install-assets
+ifeq ($(OS_FAMILY),windows)
+install-assets:
+	@echo "ERROR: install-assets must run in WSL, not MSYS2."; \
+		echo "Run it from the shared checkout with:"; \
+		echo "  make install-assets KEYMAP_OVERLAY_DIR=\"\$$WINDOWS_HOME/.config/keymap-overlay\""; \
+		exit 1
+else
 install-assets:
 ifdef KEYBOARD_ID
 	@$(MAKE) $(QMK_KEYMAP_JSON)
@@ -355,10 +362,10 @@ else
 		$(MAKE) install-assets KEYBOARD_ID=$$kb || exit 1; \
 	done
 endif
+endif
 
 # Kept as a compatibility alias for existing scripts. New callers should use
-# install-assets, which states exactly what is installed and is identical on
-# macOS, Linux, Windows, and WSL.
+# install-assets. The Windows overlay receives its assets from WSL.
 .PHONY: install
 install: install-assets
 
