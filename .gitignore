@@ -16,3 +16,6 @@ __pycache__/
 
 # Rust
 target/
+
+# Agent worktrees
+.claude/worktrees/
