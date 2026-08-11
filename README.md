@@ -110,18 +110,45 @@ git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 ```
 
-Generate the keyboard-specific PNG assets in WSL. WSL is suitable for this
-build-time work, but must not run the overlay itself. Write the result directly
-into the Windows configuration directory:
+### WSL asset setup
+
+WSL generates the keyboard-specific PNG assets. It must not run the overlay
+itself: the overlay is a native Windows binary so it can receive Raw HID events
+and display above Windows applications. If WSL is not installed, open an
+administrator PowerShell and install Ubuntu:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Restart if Windows asks, open the new Ubuntu terminal, and create the Linux
+user it prompts for. In that terminal, install the basic build tools and mise:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes build-essential curl git
+curl https://mise.run/bash | sh
+exec bash
+```
+
+Enter the checkout through WSL's mount of the Windows drive, then install its
+Linux-side dependencies. This command may ask for your Linux password while it
+installs the QMK toolchain.
 
 ```bash
 cd /mnt/c/Users/<your-Windows-user-name>/keymap-overlay
+make setup
+```
+
+Now generate the assets directly into the Windows configuration directory:
+
+```bash
 make install-assets \
   KEYMAP_OVERLAY_DIR=/mnt/c/Users/<your-Windows-user-name>/.config/keymap-overlay
 ```
 
-Run this again whenever the keymap changes. Then, from MSYS2 MSYS, build and
-install the native overlay:
+Run `make install-assets` again whenever the keymap changes. Then, from MSYS2
+MSYS, build and install the native overlay:
 
 ```bash
 make setup
