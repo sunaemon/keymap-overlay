@@ -1,0 +1,19 @@
+# Formatting and linting tools, loaded via MISE_ENV=dev.
+#
+# These live outside mise.toml so a plain `mise install` stays lean for anyone
+# who only wants to build and flash. Declaring them as real [tools] rather than
+# installing them ad hoc inside the task bodies means `mise install` resolves
+# them up front, so CI caches them like any other tool instead of refetching
+# them on every run.
+#
+# `make format` and `make lint` set MISE_ENV=dev for you.
+
+[tools]
+node = "26.7.0"
+taplo = "0.10.0"
+"cargo:cargo-audit" = "0.22.2"
+"npm:prettier" = "3.9.6"
+"pipx:mbake" = "1.4.6"
+"pipx:ruff" = "0.16.2"
+"pipx:clang-format" = "22.1.8"
+"pipx:ty" = "0.0.69"

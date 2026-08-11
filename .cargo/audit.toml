@@ -1,0 +1,11 @@
+# cargo-audit configuration, used by `make audit` and the CI audit job.
+#
+# Ignores live here rather than on the command line so the reason for each one
+# travels with it and shows up in review.
+
+# The quick-xml 0.30 advisories that used to be ignored here, RUSTSEC-2026-0194
+# and RUSTSEC-2026-0195, are gone: eframe 0.32 resolves zbus 5, whose zbus_xml
+# is on quick-xml 0.41, so the old copy has left the tree entirely.
+
+[advisories]
+ignore = []

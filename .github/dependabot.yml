@@ -1,0 +1,19 @@
+version: 2
+
+# Tool versions pinned in mise.toml and mise.dev.toml are not covered by any
+# ecosystem here; they still have to be bumped by hand.
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

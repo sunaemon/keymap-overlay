@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+
+# Logs
+*.log
+
+# Personal git hook overrides
+lefthook-local.y*ml
+.lefthook-local/
+
+# Python
+.venv/
+__pycache__/
+.ruff_cache/
+.mypy_cache/
+
+# Rust
+target/

@@ -1,0 +1,12 @@
+{
+  "name": "Test Keyboard",
+  "vendorId": "0xFEED",
+  "productId": "0x0001",
+  "matrix": {
+    "rows": 1,
+    "cols": 2
+  },
+  "layouts": {
+    "keymap": [[{ "x": 0 }, "0,0", "0,1"]]
+  }
+}

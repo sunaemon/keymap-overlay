@@ -1,0 +1,6 @@
+# Pinned so that the style does not depend on where the repository is checked
+# out: clang-format walks up the directory tree, and a .clang-format in a parent
+# directory or in $HOME would otherwise decide how these files are formatted.
+# LLVM is the default style the C files here were already written in.
+---
+BasedOnStyle: LLVM

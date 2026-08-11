@@ -1,0 +1,109 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  linux-lint-and-test:
+    runs-on: ubuntu-latest
+
+    # Loads mise.dev.toml on top of mise.toml so the format and lint tools are
+    # resolved by `mise install` and cached by mise-action, instead of being
+    # fetched inside every task run.
+    env:
+      MISE_ENV: dev
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      # libudev backs hidapi's hidraw enumeration, libwayland-client the
+      # layer-shell window and libX11 the fallback one, so all three are needed
+      # to compile the overlay at all, not just to link the release binary.
+      - name: Install Rust system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libudev-dev libwayland-dev libx11-dev
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+
+      # Must follow mise, which is what puts rustc on PATH for the cache key.
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: mise exec -- uv sync
+
+      - name: Run Lint
+        run: mise run lint
+
+      - name: Run Format
+        run: mise run format
+
+      - name: Run Tests
+        run: make test
+
+      - name: Run Rust Tests
+        run: make test-rust
+
+      # The two systems build different windows out of the same crate, so each
+      # one builds the binary it ships.
+      - name: Build the release binary
+        run: make build-overlay
+
+      - name: Check for unformatted files
+        run: git diff --exit-code
+
+  # The macOS half of the overlay: hidapi talks to IOKit, the window comes from
+  # eframe, and the binary is installed as a launchd agent. None of that is
+  # compiled by the Linux job, which builds the layer-shell backend instead.
+  macos-build-and-test:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: mise exec -- uv sync
+
+      - name: Run Tests
+        run: make test
+
+      - name: Run Rust Tests
+        run: make test-rust
+
+      # `make install-overlay` ships this binary, so a release-only build
+      # failure would surface at install time rather than here.
+      - name: Build the release binary
+        run: make build-overlay
+
+  # Audits Cargo.lock against the RustSec advisory database. Unlike the other
+  # jobs this one can start failing without anything here changing, because the
+  # database grows. It builds nothing, so it needs no Rust cache.
+  cargo-audit:
+    runs-on: ubuntu-latest
+
+    env:
+      MISE_ENV: dev
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+
+      - name: Audit Rust dependencies
+        run: make audit

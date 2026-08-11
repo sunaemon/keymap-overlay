@@ -1,0 +1,234 @@
+# QMK Keymap Overlay
+
+[![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml?query=branch%3Amain)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Example: GPL-2.0-or-later](https://img.shields.io/badge/Example-GPL--2.0--or--later-blue.svg)](example/LICENSE)
+[![Platform: macOS | Linux](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)](#platform-support)
+
+This repository generates keyboard layer images from QMK keymaps and displays them in a native Rust overlay while layer modifier keys are held, on macOS and on Linux.
+
+![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
+
+## Overview
+
+See `doc/design.md` for the end-to-end data flow and design notes.
+
+This repo is set up for the `salicylic_acid3/insixty_en` and `doio/kb16/rev2` keyboards, but the workflow should work for any QMK-compatible keyboard with minor configuration changes. Keyboard configurations are stored in the `example/` directory (configurable via `KEYBOARDS_DIR` in the `Makefile`).
+
+Each keyboard lives in a directory named after its `KEYBOARD_ID`. That ID is compiled into the firmware and travels in one byte of the Raw HID report, so it must be an **integer between 0 and 255** — `example/1`, `example/2`, and so on.
+
+While holding a layer key, the firmware sends a Raw HID notification and the Rust app displays the matching layer image on screen.
+
+## Platform Support
+
+|                | macOS                       | Linux                                           |
+| -------------- | --------------------------- | ----------------------------------------------- |
+| Overlay window | eframe/egui                 | `zwlr_layer_shell_v1` surface, or an X11 window |
+| Autostart      | launchd agent               | systemd user unit                               |
+| Raw HID access | Input Monitoring permission | `uaccess` udev rule (`make install-udev-rules`) |
+| QMK toolchain  | Homebrew (`osx-cross`)      | distribution packages (pacman, apt, dnf)        |
+
+Image generation and the firmware workflow are the same on both.
+
+On Linux the overlay picks its window at startup:
+
+- **Wayland with `zwlr_layer_shell_v1`** — COSMIC, sway, Hyprland, wayfire, KDE
+  Plasma. This is the one to want: the compositor guarantees that the overlay
+  stays above other windows, is never focused, and passes clicks through.
+- **X11, or Wayland without layer-shell** — GNOME above all. The overlay falls
+  back to an override-redirect X11 window, reached through XWayland in a Wayland
+  session. The window manager does not manage it, so it is not focused and not
+  restacked, but it is a fallback: it has none of the compositor's guarantees
+  about other always-on-top windows.
+
+Set `KEYMAP_OVERLAY_BACKEND` to `layer-shell` or `x11` to override the choice
+(`auto` is the default). That is also how to try the fallback on a machine whose
+compositor does support layer-shell.
+
+## Using as a Submodule
+
+When using this project from a dotfiles repository, keep `keymap-overlay` as
+an unmodified submodule and store keyboard-specific configuration beside it in
+the parent repository. This lets the overlay stay easy to update while your
+keymaps remain under your own version control.
+
+```text
+dotfiles/
+├── keymap-overlay/           # this repository, as a submodule
+└── keymap-overlay-keyboards/ # keyboard-specific configuration
+    ├── 1/
+    └── 2/
+```
+
+Seed the external configuration directory from the included examples:
+
+```bash
+cd ~/dotfiles
+cp -R keymap-overlay/example keymap-overlay-keyboards
+```
+
+Run commands from the parent repository, passing the external directory with
+`KEYBOARDS_DIR`. Use an absolute path because `make -C keymap-overlay` changes
+the working directory:
+
+```bash
+cd ~/dotfiles
+make -C keymap-overlay \
+  KEYBOARDS_DIR="$PWD/keymap-overlay-keyboards" \
+  compile KEYBOARD_ID=2
+```
+
+Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
+`install-overlay`.
+
+## Getting Started
+
+1. Clone this repository:
+
+   ```bash
+   git clone https://github.com/sunaemon/keymap-overlay.git
+   cd keymap-overlay
+   git submodule update --init --recursive
+   ```
+
+2. Install mise:
+
+   See the [mise installation instructions](https://mise.jdx.dev/getting-started.html).
+
+   If you are using Homebrew, you can install it with:
+
+   ```bash
+   brew install mise
+   ```
+
+3. Install the project dependencies and QMK toolchain:
+
+   ```bash
+   make setup
+   ```
+
+   On macOS, if you previously installed Homebrew core's `arm-none-eabi-gcc`,
+   remove it first:
+
+   ```bash
+   brew uninstall arm-none-eabi-gcc
+   ```
+
+   The setup target installs QMK's supported `osx-cross` compiler instead.
+   It configures the compiler path for project commands; no shell-profile changes are needed.
+
+   On Linux it installs the ARM and AVR toolchains with `pacman`, `apt-get` or
+   `dnf` — asking for `sudo` when it does — along with the libudev, Wayland
+   client and libX11 libraries the overlay links against.
+
+   It also installs the git hooks that format, lint, and test the project as
+   you commit and push. See the Git Hooks section of `AGENTS.md` for what each
+   hook runs and how to skip them.
+
+4. Check setup (optional):
+
+   ```bash
+   make doctor
+   ```
+
+   This command is read-only: it reports missing dependencies but never installs them.
+
+5. Flash firmware with Raw HID support to your keyboard:
+
+   ```bash
+   make flash KEYBOARD_ID=1
+   ```
+
+   `make flash` compiles first and then waits for the keyboard to appear in
+   bootloader mode, so start the command and put the board into the bootloader
+   while it waits.
+
+   The recommended way is to keep a `QK_BOOT` key in the keymap and press it
+   once `make flash` starts waiting. Both example keymaps already have one:
+
+   | Keyboard             | `QK_BOOT` binding                              |
+   | -------------------- | ---------------------------------------------- |
+   | `1` (insixty_en)     | hold the `L1` key (right of `RSFT`), press `Q` |
+   | `2` (doio/kb16/rev2) | hold the `MO(3)` key (bottom left), press `1`  |
+
+   If the firmware on the board is broken or does not have `QK_BOOT`, use the
+   hardware method instead:
+   - **insixty_en**: hold the top-left key while plugging in the USB cable. The
+     board mounts as a USB drive; the firmware is flashed by copying the `.uf2`
+     onto it. Flash each half separately. See the
+     [build guide](https://salicylic-acid3.hatenablog.com/entry/in60en-build-guide#Tips%E3%83%95%E3%82%A1%E3%83%BC%E3%83%A0%E3%82%A6%E3%82%A7%E3%82%A2%E3%82%92%E6%9B%B8%E3%81%8D%E6%8F%9B%E3%81%88%E3%82%8B).
+   - **doio/kb16/rev2**: hold the `1!` key (matrix position 0,0) while plugging
+     in, or briefly press the reset button on the back of the PCB. See the
+     [QMK keyboard README](https://github.com/qmk/qmk_firmware/tree/master/keyboards/doio/kb16/rev2#bootloader).
+
+   On Linux, a board with an `rp2040` bootloader appears as a `RPI-RP2` USB
+   mass storage volume, and QMK only deploys to that volume once something
+   else has mounted it. Nothing reliably does: desktops do not all auto-mount,
+   and `udisks` refuses an SSH session or mounts under `/run/media/root`, where
+   QMK cannot read it — so `qmk flash` sits at `Waiting for drive to deploy...`
+   forever. `make flash` therefore mounts the volume itself, with `sudo`, at
+   `/run/media/$USER/RPI-RP2`, and may prompt for a password once the board
+   enters its bootloader. Set `SUDO=` to disable that (for a setup that
+   auto-mounts already) or `UF2_VOLUME_LABEL=` for a differently labelled
+   volume. Boards that flash over USB, such as `doio/kb16/rev2`, are
+   unaffected.
+
+   If the overlay service is already running, restart it after flashing so it
+   reconnects to the keyboard's Raw HID interface:
+
+   ```bash
+   # macOS
+   launchctl kickstart -k "gui/$(id -u)/com.sunaemon.keymap-overlay"
+   # Linux
+   systemctl --user restart keymap-overlay.service
+   ```
+
+6. On Linux, grant access to the keyboards' Raw HID nodes:
+
+   ```bash
+   make install-udev-rules
+   ```
+
+   This writes one `uaccess` rule per keyboard to
+   `/etc/udev/rules.d/50-keymap-overlay.rules` (with `sudo`), so that whoever is
+   logged in at the seat may read them. Without it the overlay finds the
+   keyboards but cannot open them, and says so in its log. Replug a keyboard
+   that was already connected. `make uninstall-udev-rules` removes the file.
+
+   On macOS there is no equivalent step: grant the overlay **Input Monitoring**
+   in System Settings when it first asks.
+
+7. Install the native overlay as a login service:
+
+   ```bash
+   make install-overlay
+   ```
+
+   It starts automatically after login — as a launchd agent on macOS, as a
+   systemd user unit on Linux — and writes logs to
+   `~/.local/var/log/keymap-overlay/` (`overlay.log`). Logs rotate at 1 MiB,
+   retaining the current log plus three previous files.
+   For a foreground development session, use `make run-overlay` instead.
+   To stop and remove it later, run `make uninstall-overlay`.
+
+### Use VIAL
+
+These commands are for users who have VIAL-enabled firmware on their keyboard.
+
+1. Install the overlay using the current keymap in EEPROM instead of the compiled keymap:
+
+   ```bash
+   make install-overlay VIAL=true
+   ```
+
+2. Parse keymap.c and write the keymap to EEPROM:
+
+   ```bash
+   make flash-keymap
+   ```
+
+## License
+
+This project is licensed under multiple licenses. Keymap files in `example/` are under **GPL v2.0 or later**, while the tools and scripts are under the **MIT License**.
+
+See [LICENSE](LICENSE) for details on file origins and full license texts.

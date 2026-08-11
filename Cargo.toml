@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/keymap-core", "crates/keymap-overlay"]
+resolver = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+cognitive_complexity = "warn"

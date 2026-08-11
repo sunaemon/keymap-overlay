@@ -1,0 +1,45 @@
+[tools]
+# Not in mise.dev.toml with the other tooling: the installed git hooks resolve
+# lefthook with a plain `mise exec`, which never loads MISE_ENV=dev. Move it
+# there and the hooks fall through to a hardcoded install path, then to an
+# `echo` that exits 0, so every check silently stops running.
+lefthook = "2.1.10"
+rust = { version = "1.97.1", components = "rustfmt,clippy", profile = "default" }
+python = "3.14.7"
+uv = "0.12.3"
+pipx = "1.16.6"
+"pipx:qmk" = "1.2.0"
+"pipx:keymap-drawer" = "0.23.0"
+"cargo:resvg" = "0.48.1"
+
+[env]
+# vitaly is only needed for the VIAL flashing workflow and is an expensive
+# cargo build, so it stays pinned here and is fetched on demand by the Makefile
+# rather than installed with everything else.
+VITALY_VERSION = "0.1.32"
+
+# Formatting and linting tools live in mise.dev.toml; these tasks expect
+# MISE_ENV=dev, which `make format` and `make lint` set.
+
+[tasks.format]
+description = "Format code (requires MISE_ENV=dev)"
+run = """
+set -e
+uv sync
+ruff format .
+cargo fmt
+git ls-files Makefile "*.mk" | xargs mbake format --config .mbake.toml
+git ls-files "*.md" "*.yml" "*.yaml" "*.json" | grep -v '.gemini/.*' | xargs prettier --write
+git ls-files "*.toml" | xargs taplo fmt
+git ls-files "*.c" "*.h" | while IFS= read -r file; do clang-format -i "$file"; done
+"""
+
+[tasks.lint]
+description = "Lint code (requires MISE_ENV=dev)"
+run = """
+set -e
+uv sync
+ruff check --fix .
+ty check --extra-search-path typings .
+cargo clippy --workspace --all-targets -- -D warnings
+"""

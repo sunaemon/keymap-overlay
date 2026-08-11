@@ -1,0 +1,43 @@
+[project]
+name = "keymap-overlay"
+version = "0.1.0"
+description = "Generates QMK keymap layer images for the keymap-overlay app"
+
+readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = ["License :: OSI Approved :: MIT License"]
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.0.0",
+  "typer>=0.12.0",
+  "hjson>=3.1.0",
+  "jsonschema>=4.25.1",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.0.3"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+extend-exclude = ["qmk_firmware/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "ANN", "C90"]
+ignore = ["E501"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.isort]
+known-first-party = ["scripts", "src"]
+
+[tool.ty.src]
+exclude = ["qmk_firmware"]
+
+[build-system]
+requires = ["hatchling>=1.31.0"]
+build-backend = "hatchling.build"

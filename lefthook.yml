@@ -1,0 +1,33 @@
+# Git hooks, installed by `make setup` or `make install-hooks`.
+#
+# The hooks call the same make targets CI runs, so a commit that passes here
+# passes the pipeline. Set LEFTHOOK=0 to skip them for a single command, e.g.
+# `LEFTHOOK=0 git commit`.
+
+pre-commit:
+  # `make format` rewrites files and `make lint` applies ruff's fixes, so both
+  # restage what they touched.
+  jobs:
+    - name: format
+      run: make format
+      stage_fixed: true
+    - name: lint
+      run: make lint
+      stage_fixed: true
+
+commit-msg:
+  jobs:
+    - name: check-message
+      # Quoted: git passes an absolute path, which may contain spaces.
+      run: make check-commit-message COMMIT_MSG_FILE="{1}"
+
+# Tests stay out of pre-commit: they are the slowest gate and nothing they
+# catch is worth blocking a local checkpoint commit over. lefthook skips these
+# jobs when there is nothing new to push, which reads as "no matching push
+# files" in its output.
+pre-push:
+  jobs:
+    - name: test
+      run: make test
+    - name: test-rust
+      run: make test-rust
