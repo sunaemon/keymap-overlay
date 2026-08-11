@@ -73,6 +73,14 @@ Close and reopen Windows Terminal after the installs. Start the **MSYS2 MSYS**
 shell — not `UCRT64` — then update its package database. If the first command
 asks you to close the shell, do so, reopen MSYS2 MSYS, and run it again.
 
+To add that shell to Windows Terminal, create a profile named **MSYS2 MSYS**
+with this command line. `-use-full-path` makes Windows-installed tools such as
+mise and GitHub CLI available inside the shell.
+
+```text
+C:\msys64\msys2_shell.cmd -defterm -here -no-start -msys -use-full-path
+```
+
 ```bash
 pacman -Syu
 pacman -Syu
