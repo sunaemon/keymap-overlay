@@ -10,6 +10,7 @@ lefthook-local.y*ml
 
 # Python
 .venv/
+.venv-wsl/
 __pycache__/
 .ruff_cache/
 .mypy_cache/

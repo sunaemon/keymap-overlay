@@ -312,11 +312,11 @@ git -c core.autocrlf=false clone --recurse-submodules https://github.com/sunaemo
 cd keymap-overlay
 ```
 
-This checkout is shared by MSYS2 and WSL. The documented workflow is safe when
-run sequentially: WSL creates keyboard images in `build/<keyboard-id>/`, while
-MSYS2 builds the Windows executable in `target/`. Do not run their build
-commands at the same time. If you also build or test Rust in WSL, keep its
-Cargo output separate:
+This checkout is shared by MSYS2 and WSL. It is safe to run `make setup` once
+in each shell, as long as the commands do not run at the same time. WSL creates
+keyboard images in `build/<keyboard-id>/`, while MSYS2 builds the Windows
+executable in `target/`. If you also build or test Rust in WSL, keep its Cargo
+output separate:
 
 ```bash
 CARGO_TARGET_DIR=target-wsl make test-rust
@@ -343,10 +343,13 @@ exec bash
 
 Enter the checkout through WSL's mount of the Windows drive, then install its
 Linux-side dependencies. This command may ask for your Linux password while it
-installs the QMK toolchain.
+installs the QMK toolchain. Give WSL its own Python virtual environment before
+running setup, so a future Windows-side Python command cannot reuse it:
 
 ```bash
 cd /mnt/c/Users/<your-Windows-user-name>/keymap-overlay
+echo 'export UV_PROJECT_ENVIRONMENT=.venv-wsl' >> ~/.bashrc
+export UV_PROJECT_ENVIRONMENT=.venv-wsl
 make setup
 ```
 
