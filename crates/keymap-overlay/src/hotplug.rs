@@ -43,6 +43,7 @@ impl RunningSession {
     /// Returns whether this changed anything: one keyboard registers several
     /// `hidraw` nodes and so arrives several times, and all but the first of
     /// those find the session already on its way out.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) fn end(&self) -> bool {
         let mut state = self.state();
         match &state.cancelled {

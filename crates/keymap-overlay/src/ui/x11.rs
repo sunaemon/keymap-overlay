@@ -54,7 +54,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     let mut app = OverlayApp {
         assets_dir,
         window: None,
-        active_key: None,
+        held_keys: Vec::new(),
         image: None,
         error: None,
     };
@@ -82,7 +82,7 @@ impl LayerEventSink for ProxySink {
 struct OverlayApp {
     assets_dir: PathBuf,
     window: Option<OverlayWindow>,
-    active_key: Option<(u8, u8)>,
+    held_keys: Vec<(u8, u8)>,
     image: Option<RgbaImage>,
     error: Option<anyhow::Error>,
 }
@@ -158,12 +158,10 @@ impl OverlayApp {
         state.window.set_visible(true);
         state.window.request_redraw();
 
-        self.active_key = Some((keyboard_id, layer));
         self.image = Some(image);
     }
 
     fn hide(&mut self) {
-        self.active_key = None;
         self.image = None;
         if let Some(state) = &self.window {
             state.window.set_visible(false);
@@ -312,7 +310,7 @@ impl ApplicationHandler<RawLayerEvent> for OverlayApp {
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, event: RawLayerEvent) {
-        match transition_for(self.active_key, event) {
+        match transition_for(&mut self.held_keys, event) {
             Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
             Transition::Hide => self.hide(),
             Transition::Ignore => {}

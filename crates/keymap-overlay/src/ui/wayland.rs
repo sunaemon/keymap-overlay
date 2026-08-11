@@ -111,7 +111,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         pool,
         layer,
         input_region,
-        active_key: None,
+        held_keys: Vec::new(),
         image: None,
         mapped: false,
         closed: false,
@@ -146,7 +146,7 @@ struct OverlayState {
     pool: SlotPool,
     layer: LayerSurface,
     input_region: Region,
-    active_key: Option<(u8, u8)>,
+    held_keys: Vec<(u8, u8)>,
     image: Option<RgbaImage>,
     /// Whether a buffer is attached. A layer surface only exists on screen
     /// while one is, and the two states accept different requests.
@@ -156,7 +156,7 @@ struct OverlayState {
 
 impl OverlayState {
     fn handle_layer_event(&mut self, event: RawLayerEvent) {
-        match transition_for(self.active_key, event) {
+        match transition_for(&mut self.held_keys, event) {
             Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
             Transition::Hide => self.hide(),
             Transition::Ignore => {}
@@ -177,7 +177,6 @@ impl OverlayState {
         };
 
         let (width, height) = (image.width(), image.height());
-        self.active_key = Some((keyboard_id, layer));
         self.image = Some(image);
 
         // Unmap first even when a layer is already on screen: a commit that
@@ -200,7 +199,6 @@ impl OverlayState {
     }
 
     fn hide(&mut self) {
-        self.active_key = None;
         self.image = None;
         self.unmap();
     }

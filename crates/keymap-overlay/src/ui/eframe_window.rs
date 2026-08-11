@@ -67,7 +67,7 @@ impl LayerEventSink for RepaintSink {
 struct OverlayApp {
     assets_dir: PathBuf,
     receiver: Receiver<RawLayerEvent>,
-    active_key: Option<(u8, u8)>,
+    held_keys: Vec<(u8, u8)>,
     texture: Option<TextureHandle>,
     viewport_initialized: bool,
 }
@@ -77,7 +77,7 @@ impl OverlayApp {
         Self {
             assets_dir,
             receiver,
-            active_key: None,
+            held_keys: Vec::new(),
             texture: None,
             viewport_initialized: false,
         }
@@ -85,7 +85,7 @@ impl OverlayApp {
 
     fn process_events(&mut self, context: &egui::Context) {
         while let Ok(event) = self.receiver.try_recv() {
-            match transition_for(self.active_key, event) {
+            match transition_for(&mut self.held_keys, event) {
                 Transition::Show { keyboard_id, layer } => {
                     self.show_layer(context, keyboard_id, layer);
                 }
@@ -106,7 +106,6 @@ impl OverlayApp {
                     image,
                     Default::default(),
                 ));
-                self.active_key = Some((keyboard_id, layer));
                 context.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(
                     size[0] as f32,
                     size[1] as f32,
@@ -116,15 +115,13 @@ impl OverlayApp {
             }
             Err(error) => {
                 warn!("Failed to load overlay image {}: {error:#}", path.display());
-                // Stay hidden rather than leaving the previous layer on screen
-                // and its key recorded as active.
+                // Stay hidden rather than leaving the previous layer on screen.
                 self.hide(context);
             }
         }
     }
 
     fn hide(&mut self, context: &egui::Context) {
-        self.active_key = None;
         context.send_viewport_cmd(ViewportCommand::Visible(false));
     }
 }

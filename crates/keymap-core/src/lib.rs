@@ -48,11 +48,16 @@ pub fn parse_raw_layer_event(report: &[u8]) -> Option<RawLayerEvent> {
     if *version != RAW_HID_REPORT_VERSION {
         return None;
     }
+    let pressed = match *pressed {
+        0 => false,
+        1 => true,
+        _ => return None,
+    };
 
     Some(RawLayerEvent {
         keyboard_id: *keyboard_id,
         layer: *layer,
-        pressed: *pressed != 0,
+        pressed,
     })
 }
 
@@ -100,6 +105,14 @@ mod tests {
                 layer: 2,
                 pressed: false,
             })
+        );
+    }
+
+    #[test]
+    fn rejects_an_invalid_pressed_flag() {
+        assert_eq!(
+            parse_raw_layer_event(&report(RAW_HID_REPORT_VERSION, 1, 2, 2)),
+            None
         );
     }
 
