@@ -96,7 +96,14 @@ printf 'launchctl %s\n' "$*" >>"$TEST_COMMAND_LOG"
 exit 0
 EOF
 
-chmod +x "$FAKE_BIN"/*
+chmod +x \
+  "$FAKE_BIN/uname" \
+  "$FAKE_BIN/curl" \
+  "$FAKE_BIN/sha256sum" \
+  "$FAKE_BIN/shasum" \
+  "$FAKE_BIN/install" \
+  "$FAKE_BIN/systemctl" \
+  "$FAKE_BIN/launchctl"
 
 assert_file_contains() {
   file=$1
