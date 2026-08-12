@@ -63,24 +63,43 @@ git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 ```
 
-Install [mise](https://mise.jdx.dev/getting-started.html). With Homebrew:
+Install [mise](https://mise.jdx.dev/installing-mise.html) with the platform
+package manager.
+
+On macOS with Homebrew:
 
 ```bash
 brew install mise
 ```
 
+On Arch Linux:
+
+```bash
+sudo pacman -S mise
+```
+
+On Ubuntu 26.04 or later:
+
+```bash
+sudo add-apt-repository -y ppa:jdxcode/mise
+sudo apt-get update
+sudo apt-get install --yes mise
+```
+
+On Ubuntu 22.04 through 25.10, enable the mise repository with `extrepo`
+instead:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes extrepo
+sudo extrepo enable mise
+sudo apt-get update
+sudo apt-get install --yes mise
+```
+
 Install the pinned tools and QMK toolchain:
 
 ```bash
-make setup
-```
-
-On macOS, if Homebrew core's incompatible `arm-none-eabi-gcc` is already
-installed, remove it before setup. The Makefile installs QMK's supported
-`osx-cross` compiler instead.
-
-```bash
-brew uninstall arm-none-eabi-gcc
 make setup
 ```
 
@@ -239,11 +258,12 @@ Run this again after changing the keymap.
 
 ### 4. Install the latest Windows overlay release
 
-Download [install.ps](install.ps), then run it from PowerShell in the download
-directory:
+Download and run `install.ps` from PowerShell:
 
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\install.ps
+$installer = Join-Path $env:TEMP "keymap-overlay-install.ps"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sunaemon/keymap-overlay/main/install.ps" -OutFile $installer
+powershell.exe -ExecutionPolicy Bypass -File $installer
 ```
 
 The installer downloads the Windows x86_64 release, installs it under
