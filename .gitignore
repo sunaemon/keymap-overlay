@@ -21,5 +21,11 @@ target/
 # keep their output away from the MSYS2 one; see README's Setup on Windows.
 target-wsl/
 
+# Terraform local state and provider cache
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/crash.log
+
 # Agent worktrees
 .claude/worktrees/

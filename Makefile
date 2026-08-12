@@ -73,6 +73,7 @@ SUDO ?= sudo
 UF2_VOLUME_LABEL ?= RPI-RP2
 CARGO_AUDIT ?= $(MISE_DEV) exec -- cargo-audit
 CARGO_ABOUT ?= $(MISE_DEV) exec -- cargo-about
+TERRAFORM ?= $(MISE_DEV) exec -- terraform
 LEFTHOOK ?= $(MISE) exec -- lefthook
 QMK ?= $(QMK_ENV) $(MISE) exec -- qmk
 KEYMAP ?= $(MISE) exec -- keymap
@@ -445,6 +446,26 @@ licenses:
 	$(CARGO_ABOUT) generate doc/third-party-licenses.hbs --workspace --all-features --locked --fail --output-file THIRD-PARTY-LICENSES.html.tmp
 	sed 's/[[:space:]]*$$//' THIRD-PARTY-LICENSES.html.tmp > THIRD-PARTY-LICENSES.html
 	rm THIRD-PARTY-LICENSES.html.tmp
+
+.PHONY: terraform-init
+terraform-init:
+	$(TERRAFORM) -chdir=terraform init
+
+.PHONY: terraform-format
+terraform-format:
+	$(TERRAFORM) -chdir=terraform fmt
+
+.PHONY: terraform-validate
+terraform-validate: terraform-init
+	$(TERRAFORM) -chdir=terraform validate
+
+.PHONY: terraform-plan
+terraform-plan: terraform-init
+	$(TERRAFORM) -chdir=terraform plan
+
+.PHONY: terraform-apply
+terraform-apply: terraform-init
+	$(TERRAFORM) -chdir=terraform apply
 
 .PHONY: test
 test:
