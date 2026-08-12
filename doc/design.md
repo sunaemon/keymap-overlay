@@ -173,7 +173,8 @@ top, so that backend pins `pixels_per_point` to 1.
    install all layer PNG assets. On Windows, verifies that WSL has already
    generated them under `%USERPROFILE%/.config/keymap-overlay/`.
 2. Builds a release binary and installs it as
-   `~/.config/keymap-overlay/keymap-overlay`.
+   `~/.config/keymap-overlay/keymap-overlay` on macOS and Linux, and as
+   `%USERPROFILE%/.config/keymap-overlay/keymap-overlay.exe` on Windows.
 3. Writes the per-user service definition:
    - macOS: the launchd agent
      `~/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist`.

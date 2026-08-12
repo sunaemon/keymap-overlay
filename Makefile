@@ -125,9 +125,14 @@ endef
 # Run through `env` so the line does not open with NAME=VALUE, which the
 # Makefile formatter rewrites to NAME = VALUE — turning the variable this needs
 # in the environment into a command it would try to run.
+#
+# Stop-Process only asks the process to terminate; Windows holds the image lock
+# until it is gone, so the caller has to wait or the copy that follows hits a
+# sharing violation. Wait-Process supplies the wait, and the whole pipeline is
+# a no-op when nothing is running.
 define STOP_KEYMAP_OVERLAY_PROCESS
 env MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'Get-Process -Name "keymap-overlay" -ErrorAction SilentlyContinue | Stop-Process; exit 0'
+	'Get-Process -Name "keymap-overlay" -ErrorAction SilentlyContinue | Stop-Process -PassThru | Wait-Process -Timeout 10; exit 0'
 endef
 
 # ================= QMK CONFIGURATION =================
@@ -235,9 +240,17 @@ endif
 # ================= OVERLAY CONFIGURATION =================
 ifeq ($(OS_FAMILY),windows)
 # MSYS2's HOME is /home/<user>, which is private to MSYS2. Assets, logs, and
-# the scheduled-task definition instead belong beside the Windows user's other
+# the Run key's target instead belong beside the Windows user's other
 # configuration so WSL can generate the assets directly into this directory.
-WINDOWS_USER_HOME := $(shell cygpath -u "$$USERPROFILE")
+#
+# This is expanded on every invocation, not just `make setup`, so it cannot
+# lean on _setup_toolchain_windows having checked for cygpath. Left empty it
+# would silently root every path at /, and `make uninstall-overlay` would
+# delete from /.config/keymap-overlay.
+WINDOWS_USER_HOME := $(shell cygpath -u "$$USERPROFILE" 2>/dev/null)
+ifeq ($(strip $(WINDOWS_USER_HOME)),)
+$(error Could not resolve USERPROFILE with cygpath; run make from an MSYS2 or Git Bash shell)
+endif
 KEYMAP_OVERLAY_DIR ?= $(WINDOWS_USER_HOME)/.config/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay
 else
@@ -562,10 +575,15 @@ _install_service_windows:
 		echo "logging to its default directory. Leave the variable unset."; \
 		exit 1; \
 	fi
-	@binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
+# set -e so a failing cygpath does not hand an empty path to the registry, and
+# $ErrorActionPreference so PowerShell's non-terminating errors become failures
+# make can see: without it, Set-ItemProperty or Start-Process can fail while
+# powershell.exe still exits 0 and install-overlay reports success.
+	@set -e; \
+	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
 	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)")"; \
 	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'$$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote)'
+	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote)'
 
 .PHONY: uninstall-overlay
 uninstall-overlay:
@@ -813,17 +831,25 @@ $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
 _force_build:
 
 QMK_KEYMAP_JSON_RAW_DEPS := $(QMK_KEYMAP_C)
+QMK_KEYMAP_JSON_RAW_ORDER_DEPS := $(BUILD_DIR)
 ifeq ($(VIAL),true)
 QMK_KEYMAP_JSON_RAW_DEPS += _force_build
 else
 # The example's keyboard definition and keymap live outside QMK's vendored
 # tree. Install them before c2json validates -kb, including on a fresh clone.
-QMK_KEYMAP_JSON_RAW_DEPS += _copy_firmware
+#
+# Order-only, unlike _force_build above, which is phony on purpose. A phony
+# normal prerequisite is always out of date, so it would remake the raw JSON on
+# every invocation and cascade through the YAML, every SVG and every PNG —
+# re-running keymap draw and resvg per layer per keyboard with nothing changed.
+# This only has to have run before c2json validates -kb, which is what
+# order-only means.
+QMK_KEYMAP_JSON_RAW_ORDER_DEPS += _copy_firmware
 endif
 
 QMK_KEYMAP_JSON_DEPS := scripts/postprocess_qmk_keymap.py $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_JSON_RAW)
 
-$(QMK_KEYMAP_JSON_RAW): $(QMK_KEYMAP_JSON_RAW_DEPS) | $(BUILD_DIR)
+$(QMK_KEYMAP_JSON_RAW): $(QMK_KEYMAP_JSON_RAW_DEPS) | $(QMK_KEYMAP_JSON_RAW_ORDER_DEPS)
 ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)

@@ -94,7 +94,7 @@ jobs:
         run: make build-overlay
 
   # The Windows half: hidapi's own Windows backend, an eframe window that is
-  # never unmapped, and a scheduled task instead of a login agent. Every step
+  # never unmapped, and a per-user Run key instead of a login agent. Every step
   # runs under Git Bash, because the Makefile dispatches on `uname -s` and the
   # recipes are POSIX shell.
   #

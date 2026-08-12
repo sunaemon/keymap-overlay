@@ -91,7 +91,6 @@ struct OverlayApp {
     receiver: Receiver<RawLayerEvent>,
     held_keys: Vec<(u8, u8)>,
     texture: Option<TextureHandle>,
-    scale_pinned: bool,
 }
 
 impl OverlayApp {
@@ -101,7 +100,6 @@ impl OverlayApp {
             receiver,
             held_keys: Vec::new(),
             texture: None,
-            scale_pinned: false,
         }
     }
 
@@ -149,13 +147,19 @@ impl OverlayApp {
     }
 }
 
-/// Places the window in the middle of the monitor it is on.
+/// Places the window in the middle of the primary monitor.
 ///
 /// `ViewportCommand::center_on_screen` would be the obvious call, but it
 /// centres on the window's *current* `outer_rect`, which at this point is still
 /// the previous layer's size — the resize above has not been applied yet. The
-/// size is known here, so the position is computed from it directly, the way
-/// `x11.rs` centres its own unmanaged window.
+/// size is known here, so the position is computed from it directly.
+///
+/// Unlike `x11.rs::centered_position`, which adds `MonitorHandle::position()`,
+/// this cannot centre on the monitor the window happens to be on:
+/// `ViewportInfo` carries `monitor_size` but no monitor origin, while
+/// `OuterPosition` is in virtual-desktop coordinates. On a multi-monitor
+/// desktop the overlay therefore lands on the primary monitor. Fixing it needs
+/// the current monitor's rect from outside egui.
 fn center_on_monitor(context: &egui::Context, size: Vec2) {
     let Some(monitor) = context.input(|input| input.viewport().monitor_size) else {
         // Nothing to centre against; the window stays where it was, which is
@@ -182,15 +186,18 @@ impl eframe::App for OverlayApp {
     /// so an egui pass does run either way, but there is nothing to gain from
     /// the two backends disagreeing about where the events are handled.
     fn logic(&mut self, context: &egui::Context, _: &mut eframe::Frame) {
-        if !self.scale_pinned {
-            // Layer images are presented at their own pixel size, as on the
-            // other systems — `DPI` in the Makefile is where an image is sized
-            // for a screen. Windows reports a scale factor for the display,
-            // which egui would otherwise apply to both the image and the sizes
-            // sent above, so it is pinned to 1:1 here instead.
-            context.set_pixels_per_point(1.0);
-            self.scale_pinned = true;
-        }
+        // Layer images are presented at their own pixel size, as on the other
+        // systems — `DPI` in the Makefile is where an image is sized for a
+        // screen. Windows reports a scale factor for the display, which egui
+        // would otherwise apply to both the image and the sizes sent above, so
+        // it is pinned to 1:1 here instead.
+        //
+        // Every frame, not once: this sets a *zoom factor* of
+        // 1/scale_factor, which egui multiplies by the live scale factor on
+        // each pass. Pinning once would come undone the moment the overlay met
+        // a monitor scaled differently from the one it started on. The call
+        // returns early when the value is already 1:1, so repeating it is free.
+        context.set_pixels_per_point(1.0);
         self.process_events(context);
     }
 

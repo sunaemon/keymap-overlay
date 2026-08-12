@@ -55,11 +55,15 @@ jobs:
         id: package
         run: |
           mkdir -p dist
+          dist="$PWD/dist"
           arch="$(uname -m)"
           case "$RUNNER_OS" in
             Windows)
               asset="keymap-overlay-windows-${arch}.zip"
-              7z a "dist/$asset" target/release/keymap-overlay.exe
+              # 7z stores the path as given, so it runs from the directory
+              # holding the binary; the two tar branches use -C for the same
+              # reason. All three archives then hold one bare executable.
+              (cd target/release && 7z a "$dist/$asset" keymap-overlay.exe)
               ;;
             macOS)
               asset="keymap-overlay-macos-${arch}.tar.gz"
@@ -93,9 +97,13 @@ jobs:
           path: release
           merge-multiple: true
 
+      # This job checks out nothing, so `gh` has no git remote to infer the
+      # repository from; GH_REPO tells it directly. Without it, every command
+      # below that does not name the repository in its URL fails outright.
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null || true)"

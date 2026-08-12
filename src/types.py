@@ -1,6 +1,7 @@
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
 import re
+import sys
 from pathlib import Path
 from typing import Annotated, Type, TypeVar
 
@@ -273,4 +274,11 @@ def parse_json(model: Type[T], path: Path) -> T:
 
 
 def print_json(model: BaseModel, exclude_none: bool = False) -> None:
-    print(model.model_dump_json(indent=4, exclude_none=exclude_none) + "\n")
+    """Writes the model to stdout as UTF-8 JSON."""
+    # The counterpart to parse_json's explicit encoding. model_dump_json emits
+    # real non-ASCII characters rather than \\u escapes, so printing through a
+    # cp932 stdout raises UnicodeEncodeError and WRITE_OUTPUT's redirect leaves
+    # no file at all. Writing encoded bytes bypasses the locale codepage.
+    text = model.model_dump_json(indent=4, exclude_none=exclude_none) + "\n\n"
+    sys.stdout.buffer.write(text.encode("utf-8"))
+    sys.stdout.buffer.flush()
