@@ -34,7 +34,7 @@ use std::path::PathBuf;
 
 use crate::{
     LayerEventSink, ListenerEvent, Transition, image_path, load_image, premultiply,
-    spawn_raw_hid_listener, transition_for, transition_for_disconnect,
+    spawn_raw_hid_listener, transition_for_event,
 };
 
 /// The pool grows on demand; this only avoids a resize for the first image.
@@ -155,12 +155,7 @@ struct OverlayState {
 
 impl OverlayState {
     fn handle_layer_event(&mut self, event: ListenerEvent) {
-        let transition = match event {
-            ListenerEvent::Layer(event) => transition_for(&mut self.held_keys, event),
-            ListenerEvent::Disconnected { keyboard_id } => {
-                transition_for_disconnect(&mut self.held_keys, keyboard_id)
-            }
-        };
+        let transition = transition_for_event(&mut self.held_keys, event);
         match transition {
             Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
             Transition::Hide => self.hide(),

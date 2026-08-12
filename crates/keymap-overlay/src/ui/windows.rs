@@ -29,7 +29,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::{
     LayerEventSink, ListenerEvent, Transition, image_path, load_image, spawn_raw_hid_listener,
-    transition_for, transition_for_disconnect,
+    transition_for_event,
 };
 
 /// The idle window is one transparent pixel: it has to stay mapped, so it may
@@ -105,12 +105,7 @@ impl OverlayApp {
 
     fn process_events(&mut self, context: &egui::Context) {
         while let Ok(event) = self.receiver.try_recv() {
-            let transition = match event {
-                ListenerEvent::Layer(event) => transition_for(&mut self.held_keys, event),
-                ListenerEvent::Disconnected { keyboard_id } => {
-                    transition_for_disconnect(&mut self.held_keys, keyboard_id)
-                }
-            };
+            let transition = transition_for_event(&mut self.held_keys, event);
             match transition {
                 Transition::Show { keyboard_id, layer } => {
                     self.show_layer(context, keyboard_id, layer);
