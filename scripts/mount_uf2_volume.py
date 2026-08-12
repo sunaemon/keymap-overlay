@@ -46,13 +46,14 @@ def main(
 ) -> None:
     """Mount or unmount a UF2 bootloader volume where qmk looks for it."""
     initialize_logging()
+    operation = "unmount" if unmount_after else "mount"
     try:
         if unmount_after:
             unmount_uf2_volume(label=label, sudo=sudo)
         else:
             print(mount_uf2_volume(label=label, timeout=timeout, sudo=sudo))
     except Exception:
-        logger.exception("Failed to mount the %s volume", label)
+        logger.exception("Failed to %s the %s volume", operation, label)
         raise typer.Exit(code=1) from None
 
 
@@ -181,9 +182,13 @@ def mount(device: Path, target: Path, sudo: str) -> None:
 
 
 def unmount(mount_point: Path, sudo: str) -> None:
-    """Unmount a mount point, tolerating a board that already rebooted."""
-    if run(elevate(["umount", str(mount_point)], sudo)) is None:
-        logger.warning("Could not unmount %s", mount_point)
+    """Unmount a mount point, tolerating a board that already disconnected."""
+    if run(elevate(["umount", str(mount_point)], sudo)) is not None:
+        return
+    if source_of_mount_point(mount_point) is None:
+        logger.info("Bootloader volume at %s disconnected before unmount", mount_point)
+        return
+    raise Uf2VolumeError(f"Could not unmount {mount_point}")
 
 
 def elevate(command: list[str], sudo: str) -> list[str]:

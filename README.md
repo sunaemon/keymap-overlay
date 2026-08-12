@@ -208,20 +208,24 @@ generation tools:
 git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 make setup
-sed 's/TAG+="uaccess"/MODE="0666"/' qmk_firmware/util/udev/50-qmk.rules |
+sudo groupadd --force qmk
+sudo usermod --append --groups qmk "$USER"
+sed 's/TAG+="uaccess"/GROUP="qmk", MODE="0660"/' qmk_firmware/util/udev/50-qmk.rules |
   sudo tee /etc/udev/rules.d/50-qmk-wsl.rules >/dev/null
 sudo udevadm control --reload
+newgrp qmk
 ```
 
 Keeping this checkout under the WSL home directory avoids Windows filesystem
 performance and Python virtual-environment compatibility problems.
 
-The WSL rule derives from QMK's supported bootloader list but uses explicit
-device permissions because WSL has no desktop login seat for QMK's usual
-`uaccess` tags. This grants the Linux user access to devices such as the
-STM32duino `1eaf:0003` bootloader. Install and reload it before attaching the
-bootloader to WSL. If reloading reports that no udev control socket exists, run
-`sudo service udev restart` instead.
+The WSL rule derives from QMK's supported bootloader list but grants read/write
+access only to members of the dedicated `qmk` group, because WSL has no desktop
+login seat for QMK's usual `uaccess` tags. This covers devices such as the
+STM32duino `1eaf:0003` bootloader. Install and reload the rule before attaching
+the bootloader to WSL. `newgrp qmk` applies the new membership to the current
+shell; future shells inherit it automatically. If reloading reports that no
+udev control socket exists, run `sudo service udev restart` instead.
 
 ### 2. Build and flash the firmware from WSL
 

@@ -150,6 +150,40 @@ Describe 'install.ps1' {
         Should -Invoke Restart-PreviousInstallation -Times 1
     }
 
+    It 'continues rollback when stopping the failed installation times out' {
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.png') -Value 'png'
+        Set-Content -LiteralPath $binaryPath -Value 'old binary'
+        Set-Content -LiteralPath $licensePath -Value 'old license'
+        Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'old notices'
+        Set-Content -LiteralPath $installerPath -Value 'old installer'
+        $env:PROCESSOR_ARCHITECTURE = 'AMD64'
+        $script:stopCalls = 0
+
+        Mock Stage-Release {
+            param([string]$TemporaryDirectory)
+            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Value 'new binary'
+            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Value 'new license'
+            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Value 'new notices'
+            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Value 'new installer'
+            return 'v0.0.1'
+        }
+        Mock Get-ItemPropertyValue { $null }
+        Mock Stop-Overlay {
+            $script:stopCalls++
+            if ($script:stopCalls -eq 2) { throw 'stop timeout' }
+        }
+        Mock Install-Autostart { throw 'autostart failed' }
+        Mock Remove-ItemProperty
+        Mock Restart-PreviousInstallation
+
+        { Install-Release } | Should -Throw '*stopping the overlay: stop timeout*'
+        Get-Content -LiteralPath $binaryPath | Should -Be 'old binary'
+        Get-Content -LiteralPath $licensePath | Should -Be 'old license'
+        Get-Content -LiteralPath $thirdPartyLicensesPath | Should -Be 'old notices'
+        Get-Content -LiteralPath $installerPath | Should -Be 'old installer'
+        Should -Invoke Restart-PreviousInstallation -Times 1
+    }
+
     It 'leaves an existing installation untouched when layer assets are missing' {
         Get-ChildItem -LiteralPath $assetDirectory -Filter '*.png' -File -ErrorAction SilentlyContinue |
             Remove-Item -Force
