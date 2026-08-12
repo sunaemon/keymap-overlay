@@ -14,6 +14,52 @@ pub struct RawLayerEvent {
     pub pressed: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActiveLayerChange {
+    Unchanged,
+    Changed(Option<(u8, u8)>),
+}
+
+/// Updates held momentary layers and reports whether the active layer changed.
+pub fn transition_for(held_keys: &mut Vec<(u8, u8)>, event: RawLayerEvent) -> ActiveLayerChange {
+    let key = (event.keyboard_id, event.layer);
+    if event.pressed {
+        held_keys.retain(|held_key| *held_key != key);
+        held_keys.push(key);
+        ActiveLayerChange::Changed(Some(key))
+    } else {
+        let Some(index) = held_keys.iter().position(|held_key| *held_key == key) else {
+            return ActiveLayerChange::Unchanged;
+        };
+        let was_active = index == held_keys.len() - 1;
+        held_keys.remove(index);
+        if was_active {
+            ActiveLayerChange::Changed(held_keys.last().copied())
+        } else {
+            ActiveLayerChange::Unchanged
+        }
+    }
+}
+
+/// Removes held layers belonging to a disconnected keyboard.
+pub fn transition_for_disconnect(
+    held_keys: &mut Vec<(u8, u8)>,
+    keyboard_id: Option<u8>,
+) -> ActiveLayerChange {
+    let Some(keyboard_id) = keyboard_id else {
+        return ActiveLayerChange::Unchanged;
+    };
+    let was_active = held_keys
+        .last()
+        .is_some_and(|(held_keyboard_id, _)| *held_keyboard_id == keyboard_id);
+    held_keys.retain(|(held_keyboard_id, _)| *held_keyboard_id != keyboard_id);
+    if was_active {
+        ActiveLayerChange::Changed(held_keys.last().copied())
+    } else {
+        ActiveLayerChange::Unchanged
+    }
+}
+
 /// Drops the zero report ID some hosts prepend, leaving the firmware's frame.
 ///
 /// Both readers below go through this so the rule is stated once: change the
@@ -81,6 +127,77 @@ mod tests {
         let mut prefixed = vec![0_u8];
         prefixed.extend_from_slice(report);
         prefixed
+    }
+
+    fn event(keyboard_id: u8, layer: u8, pressed: bool) -> RawLayerEvent {
+        RawLayerEvent {
+            keyboard_id,
+            layer,
+            pressed,
+        }
+    }
+
+    #[test]
+    fn pressing_a_layer_makes_it_active() {
+        assert_eq!(
+            transition_for(&mut vec![], event(1, 2, true)),
+            ActiveLayerChange::Changed(Some((1, 2)))
+        );
+    }
+
+    #[test]
+    fn releasing_the_active_layer_restores_the_previous_layer() {
+        let mut held_keys = vec![(1, 2), (1, 3)];
+
+        assert_eq!(
+            transition_for(&mut held_keys, event(1, 3, false)),
+            ActiveLayerChange::Changed(Some((1, 2)))
+        );
+        assert_eq!(held_keys, vec![(1, 2)]);
+    }
+
+    #[test]
+    fn releasing_an_inactive_layer_does_not_change_the_active_layer() {
+        let mut held_keys = vec![(1, 2), (1, 3)];
+
+        assert_eq!(
+            transition_for(&mut held_keys, event(1, 2, false)),
+            ActiveLayerChange::Unchanged
+        );
+        assert_eq!(held_keys, vec![(1, 3)]);
+    }
+
+    #[test]
+    fn disconnecting_the_active_keyboard_restores_another_keyboard() {
+        let mut held_keys = vec![(2, 3), (1, 2)];
+
+        assert_eq!(
+            transition_for_disconnect(&mut held_keys, Some(1)),
+            ActiveLayerChange::Changed(Some((2, 3)))
+        );
+        assert_eq!(held_keys, vec![(2, 3)]);
+    }
+
+    #[test]
+    fn disconnecting_the_only_active_keyboard_hides_the_overlay() {
+        let mut held_keys = vec![(1, 2)];
+
+        assert_eq!(
+            transition_for_disconnect(&mut held_keys, Some(1)),
+            ActiveLayerChange::Changed(None)
+        );
+        assert!(held_keys.is_empty());
+    }
+
+    #[test]
+    fn disconnecting_an_unknown_keyboard_changes_nothing() {
+        let mut held_keys = vec![(1, 2)];
+
+        assert_eq!(
+            transition_for_disconnect(&mut held_keys, Some(2)),
+            ActiveLayerChange::Unchanged
+        );
+        assert_eq!(held_keys, vec![(1, 2)]);
     }
 
     #[test]

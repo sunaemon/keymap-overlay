@@ -18,7 +18,6 @@
 
 use anyhow::{Context as _, Result, bail};
 use image::{Rgba, RgbaImage};
-use keymap_core::RawLayerEvent;
 use log::warn;
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -37,12 +36,12 @@ use x11rb::protocol::xproto::{ConnectionExt as _, CreateGCAux};
 use x11rb::rust_connection::RustConnection;
 
 use crate::{
-    LayerEventSink, Transition, image_path, load_image, premultiply, spawn_raw_hid_listener,
-    transition_for,
+    LayerEventSink, ListenerEvent, Transition, image_path, load_image, premultiply,
+    spawn_raw_hid_listener, transition_for_event,
 };
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
-    let event_loop = EventLoop::<RawLayerEvent>::with_user_event()
+    let event_loop = EventLoop::<ListenerEvent>::with_user_event()
         .build()
         .context("Failed to create the X11 event loop")?;
     // The proxy is the wake-up: sending on it both queues the event and returns
@@ -70,11 +69,11 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
 
 #[derive(Clone)]
 struct ProxySink {
-    proxy: EventLoopProxy<RawLayerEvent>,
+    proxy: EventLoopProxy<ListenerEvent>,
 }
 
 impl LayerEventSink for ProxySink {
-    fn send(&self, event: RawLayerEvent) -> bool {
+    fn send(&self, event: ListenerEvent) -> bool {
         self.proxy.send_event(event).is_ok()
     }
 }
@@ -299,7 +298,7 @@ fn centered_position(monitor: &MonitorHandle, size: PhysicalSize<u32>) -> Physic
     )
 }
 
-impl ApplicationHandler<RawLayerEvent> for OverlayApp {
+impl ApplicationHandler<ListenerEvent> for OverlayApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -309,8 +308,9 @@ impl ApplicationHandler<RawLayerEvent> for OverlayApp {
         }
     }
 
-    fn user_event(&mut self, _: &ActiveEventLoop, event: RawLayerEvent) {
-        match transition_for(&mut self.held_keys, event) {
+    fn user_event(&mut self, _: &ActiveEventLoop, event: ListenerEvent) {
+        let transition = transition_for_event(&mut self.held_keys, event);
+        match transition {
             Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
             Transition::Hide => self.hide(),
             Transition::Ignore => {}

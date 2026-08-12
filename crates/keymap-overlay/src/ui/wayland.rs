@@ -12,7 +12,6 @@
 
 use anyhow::{Context as _, Result};
 use image::{Rgba, RgbaImage};
-use keymap_core::RawLayerEvent;
 use log::warn;
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -34,8 +33,8 @@ use smithay_client_toolkit::{delegate_dispatch2, delegate_registry, registry_han
 use std::path::PathBuf;
 
 use crate::{
-    LayerEventSink, Transition, image_path, load_image, premultiply, spawn_raw_hid_listener,
-    transition_for,
+    LayerEventSink, ListenerEvent, Transition, image_path, load_image, premultiply,
+    spawn_raw_hid_listener, transition_for_event,
 };
 
 /// The pool grows on demand; this only avoids a resize for the first image.
@@ -129,11 +128,11 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
 
 #[derive(Clone)]
 struct ChannelSink {
-    sender: Sender<RawLayerEvent>,
+    sender: Sender<ListenerEvent>,
 }
 
 impl LayerEventSink for ChannelSink {
-    fn send(&self, event: RawLayerEvent) -> bool {
+    fn send(&self, event: ListenerEvent) -> bool {
         self.sender.send(event).is_ok()
     }
 }
@@ -155,8 +154,9 @@ struct OverlayState {
 }
 
 impl OverlayState {
-    fn handle_layer_event(&mut self, event: RawLayerEvent) {
-        match transition_for(&mut self.held_keys, event) {
+    fn handle_layer_event(&mut self, event: ListenerEvent) {
+        let transition = transition_for_event(&mut self.held_keys, event);
+        match transition {
             Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
             Transition::Hide => self.hide(),
             Transition::Ignore => {}

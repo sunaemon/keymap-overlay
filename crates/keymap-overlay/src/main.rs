@@ -10,7 +10,10 @@ mod ui;
 use anyhow::{Context, Result};
 use hidapi::{HidApi, HidDevice};
 use image::RgbaImage;
-use keymap_core::{RawLayerEvent, carries_report_magic, parse_raw_layer_event};
+use keymap_core::{
+    ActiveLayerChange, RawLayerEvent, carries_report_magic, parse_raw_layer_event, transition_for,
+    transition_for_disconnect,
+};
 use log::{error, info, warn};
 use std::env;
 use std::ffi::OsString;
@@ -60,7 +63,14 @@ fn run() -> Result<()> {
 pub(crate) trait LayerEventSink: Clone + Send {
     /// Returns whether the receiving end is still there; a reader stops once
     /// it is not.
-    fn send(&self, event: RawLayerEvent) -> bool;
+    fn send(&self, event: ListenerEvent) -> bool;
+}
+
+/// An event from the HID listener, including loss of the device itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ListenerEvent {
+    Layer(RawLayerEvent),
+    Disconnected { keyboard_id: Option<u8> },
 }
 
 pub(crate) fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
@@ -86,34 +96,22 @@ pub(crate) enum Transition {
     Ignore,
 }
 
-/// The overlay shows the most recently pressed held layer. Releasing that
-/// layer restores the next-most-recent one still held, while releasing a
-/// different layer leaves the visible overlay alone.
-pub(crate) fn transition_for(held_keys: &mut Vec<(u8, u8)>, event: RawLayerEvent) -> Transition {
-    let key = (event.keyboard_id, event.layer);
-    if event.pressed {
-        held_keys.retain(|held_key| *held_key != key);
-        held_keys.push(key);
-        Transition::Show {
-            keyboard_id: event.keyboard_id,
-            layer: event.layer,
+pub(crate) fn transition_for_event(
+    held_keys: &mut Vec<(u8, u8)>,
+    event: ListenerEvent,
+) -> Transition {
+    let change = match event {
+        ListenerEvent::Layer(event) => transition_for(held_keys, event),
+        ListenerEvent::Disconnected { keyboard_id } => {
+            transition_for_disconnect(held_keys, keyboard_id)
         }
-    } else {
-        let Some(index) = held_keys.iter().position(|held_key| *held_key == key) else {
-            return Transition::Ignore;
-        };
-        let was_visible = index == held_keys.len() - 1;
-        held_keys.remove(index);
-        if !was_visible {
-            Transition::Ignore
-        } else if let Some((keyboard_id, layer)) = held_keys.last() {
-            Transition::Show {
-                keyboard_id: *keyboard_id,
-                layer: *layer,
-            }
-        } else {
-            Transition::Hide
+    };
+    match change {
+        ActiveLayerChange::Unchanged => Transition::Ignore,
+        ActiveLayerChange::Changed(Some((keyboard_id, layer))) => {
+            Transition::Show { keyboard_id, layer }
         }
+        ActiveLayerChange::Changed(None) => Transition::Hide,
     }
 }
 
@@ -204,11 +202,11 @@ fn run_raw_hid_session(
     session: &hotplug::RunningSession,
 ) -> Result<()> {
     let api = HidApi::new().context("Failed to enumerate HID devices")?;
-    let devices: Vec<HidDevice> = api
+    let devices: Vec<(HidDevice, String)> = api
         .device_list()
         .filter(|device| device.usage_page() == RAW_USAGE_PAGE && device.usage() == RAW_USAGE_ID)
         .filter_map(|device_info| match device_info.open_device(&api) {
-            Ok(device) => Some(device),
+            Ok(device) => Some((device, device_info.path().to_string_lossy().into_owned())),
             Err(error) => {
                 warn!(
                     "Failed to open Raw HID device {:04x}:{:04x}: {error}",
@@ -229,30 +227,48 @@ fn run_raw_hid_session(
     // sharing a thread would mean polling and adding latency for each keyboard.
     let cancelled = Arc::new(AtomicBool::new(false));
     session.attach(&cancelled);
-    thread::scope(|scope| {
+    let result = thread::scope(|scope| -> Result<()> {
         // HidDevice is Send but not Sync, so each reader owns its device.
-        for device in devices {
+        let mut readers = Vec::new();
+        for (device, path) in devices {
             let sink = sink.clone();
             let cancelled = Arc::clone(&cancelled);
-            scope.spawn(move || {
-                receive_from_device(&device, &sink, &cancelled);
+            readers.push(scope.spawn(move || {
+                let result = receive_from_device(&device, &path, &sink, &cancelled);
                 // Any disconnect ends the session so all devices are reopened.
                 cancelled.store(true, Ordering::Relaxed);
-            });
+                result
+            }));
         }
+        for reader in readers {
+            match reader.join() {
+                Ok(result) => result?,
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
+        }
+        Ok(())
     });
     session.detach();
-    Ok(())
+    result
 }
 
-fn receive_from_device(device: &HidDevice, sink: &impl LayerEventSink, cancelled: &AtomicBool) {
+fn receive_from_device(
+    device: &HidDevice,
+    path: &str,
+    sink: &impl LayerEventSink,
+    cancelled: &AtomicBool,
+) -> Result<()> {
     let mut report = [0_u8; 33];
+    let mut keyboard_id = None;
     while !cancelled.load(Ordering::Relaxed) {
         let length = match device.read_timeout(&mut report, READ_TIMEOUT) {
             Ok(length) => length,
             Err(error) => {
-                warn!("Failed to read Raw HID report: {error}");
-                return;
+                // A bootloader transition can remove the keyboard before it
+                // sends the matching layer release. Clear the UI state rather
+                // than leaving the last layer visible until reconnect.
+                sink.send(ListenerEvent::Disconnected { keyboard_id });
+                return Err(error).with_context(|| format!("Failed to read Raw HID device {path}"));
             }
         };
         let frame = &report[..length];
@@ -269,10 +285,12 @@ fn receive_from_device(device: &HidDevice, sink: &impl LayerEventSink, cancelled
             "Layer event: keyboard={} layer={} pressed={}",
             event.keyboard_id, event.layer, event.pressed
         );
-        if !sink.send(event) {
-            return;
+        keyboard_id = Some(event.keyboard_id);
+        if !sink.send(ListenerEvent::Layer(event)) {
+            return Ok(());
         }
     }
+    Ok(())
 }
 
 struct RotatingLogWriter {
@@ -369,79 +387,40 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn event(keyboard_id: u8, layer: u8, pressed: bool) -> RawLayerEvent {
-        RawLayerEvent {
-            keyboard_id,
-            layer,
-            pressed,
-        }
-    }
-
     #[test]
-    fn a_press_shows_its_layer() {
+    fn active_layer_changes_are_translated_for_the_ui() {
         assert_eq!(
-            transition_for(&mut vec![], event(1, 2, true)),
-            Transition::Show {
-                keyboard_id: 1,
-                layer: 2
-            }
-        );
-    }
-
-    #[test]
-    fn a_press_replaces_the_layer_already_on_screen() {
-        assert_eq!(
-            transition_for(&mut vec![(1, 2)], event(1, 3, true)),
-            Transition::Show {
-                keyboard_id: 1,
-                layer: 3
-            }
-        );
-    }
-
-    #[test]
-    fn releasing_the_layer_on_screen_hides_it() {
-        assert_eq!(
-            transition_for(&mut vec![(1, 2)], event(1, 2, false)),
-            Transition::Hide
-        );
-    }
-
-    #[test]
-    fn releasing_a_layer_that_is_not_on_screen_is_ignored() {
-        // Layer 3 is visible; releasing the earlier layer 2 key must not
-        // replace it, but must still remove it from the held state.
-        let mut held_keys = vec![(1, 2), (1, 3)];
-        assert_eq!(
-            transition_for(&mut held_keys, event(1, 2, false)),
-            Transition::Ignore
-        );
-        assert_eq!(held_keys, vec![(1, 3)]);
-        // The key is (keyboard, layer), so the same layer number released on a
-        // different keyboard does not match what is on screen.
-        assert_eq!(
-            transition_for(&mut vec![(1, 2)], event(2, 2, false)),
-            Transition::Ignore
-        );
-        // A release with nothing on screen happens after a failed image load.
-        assert_eq!(
-            transition_for(&mut vec![], event(1, 2, false)),
-            Transition::Ignore
-        );
-    }
-
-    #[test]
-    fn releasing_the_latest_layer_restores_the_previous_held_layer() {
-        let mut held_keys = vec![(1, 2), (1, 3)];
-
-        assert_eq!(
-            transition_for(&mut held_keys, event(1, 3, false)),
+            transition_for_event(
+                &mut vec![],
+                ListenerEvent::Layer(RawLayerEvent {
+                    keyboard_id: 1,
+                    layer: 2,
+                    pressed: true,
+                }),
+            ),
             Transition::Show {
                 keyboard_id: 1,
                 layer: 2,
             }
         );
-        assert_eq!(held_keys, vec![(1, 2)]);
+        assert_eq!(
+            transition_for_event(
+                &mut vec![(1, 2)],
+                ListenerEvent::Disconnected {
+                    keyboard_id: Some(1),
+                },
+            ),
+            Transition::Hide
+        );
+        assert_eq!(
+            transition_for_event(
+                &mut vec![(1, 2)],
+                ListenerEvent::Disconnected {
+                    keyboard_id: Some(2),
+                },
+            ),
+            Transition::Ignore
+        );
     }
 
     #[test]

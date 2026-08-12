@@ -23,13 +23,13 @@
 
 use anyhow::Result;
 use eframe::egui::{self, ColorImage, Pos2, TextureHandle, Vec2, ViewportCommand};
-use keymap_core::RawLayerEvent;
 use log::warn;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::{
-    LayerEventSink, Transition, image_path, load_image, spawn_raw_hid_listener, transition_for,
+    LayerEventSink, ListenerEvent, Transition, image_path, load_image, spawn_raw_hid_listener,
+    transition_for_event,
 };
 
 /// The idle window is one transparent pixel: it has to stay mapped, so it may
@@ -72,12 +72,12 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
 
 #[derive(Clone)]
 struct RepaintSink {
-    sender: Sender<RawLayerEvent>,
+    sender: Sender<ListenerEvent>,
     context: egui::Context,
 }
 
 impl LayerEventSink for RepaintSink {
-    fn send(&self, event: RawLayerEvent) -> bool {
+    fn send(&self, event: ListenerEvent) -> bool {
         if self.sender.send(event).is_err() {
             return false;
         }
@@ -88,13 +88,13 @@ impl LayerEventSink for RepaintSink {
 
 struct OverlayApp {
     assets_dir: PathBuf,
-    receiver: Receiver<RawLayerEvent>,
+    receiver: Receiver<ListenerEvent>,
     held_keys: Vec<(u8, u8)>,
     texture: Option<TextureHandle>,
 }
 
 impl OverlayApp {
-    fn new(assets_dir: PathBuf, receiver: Receiver<RawLayerEvent>) -> Self {
+    fn new(assets_dir: PathBuf, receiver: Receiver<ListenerEvent>) -> Self {
         Self {
             assets_dir,
             receiver,
@@ -105,7 +105,8 @@ impl OverlayApp {
 
     fn process_events(&mut self, context: &egui::Context) {
         while let Ok(event) = self.receiver.try_recv() {
-            match transition_for(&mut self.held_keys, event) {
+            let transition = transition_for_event(&mut self.held_keys, event);
+            match transition {
                 Transition::Show { keyboard_id, layer } => {
                     self.show_layer(context, keyboard_id, layer);
                 }
