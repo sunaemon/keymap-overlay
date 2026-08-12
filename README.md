@@ -298,15 +298,17 @@ make flash-keymap
 `flash-keymap` preserves `KC_TRNS` on the device-writing path so transparent
 keys continue to inherit lower layers.
 
-## Using as a Submodule
+## Managing Custom Keyboard Configuration
 
-When this project belongs to a dotfiles repository, keep it as an unmodified
-submodule and store keyboard-specific configuration beside it:
+If you want to change and version your keyboard-specific configuration, you can
+fork this repository. Keeping it as an unmodified submodule and storing your
+configuration beside it is usually more convenient: upstream updates remain
+separate from your keyboard changes.
 
 ```text
-dotfiles/
+keyboard-config/
 ├── keymap-overlay/           # this repository, as a submodule
-└── keymap-overlay-keyboards/ # private keyboard configuration
+└── keyboards/                # private keyboard configuration
     ├── 1/
     └── 2/
 ```
@@ -314,21 +316,21 @@ dotfiles/
 Seed the external configuration from the included examples:
 
 ```bash
-cd ~/dotfiles
-cp -R keymap-overlay/example keymap-overlay-keyboards
+cd ~/keyboard-config
+cp -R keymap-overlay/example keyboards
 ```
 
 Run source-based firmware and image commands with an absolute
 `KEYBOARDS_DIR`, because `make -C` changes the working directory:
 
 ```bash
-cd ~/dotfiles
+cd ~/keyboard-config
 make -C keymap-overlay \
-  KEYBOARDS_DIR="$PWD/keymap-overlay-keyboards" \
+  KEYBOARDS_DIR="$PWD/keyboards" \
   flash KEYBOARD_ID=2
 
 make -C keymap-overlay \
-  KEYBOARDS_DIR="$PWD/keymap-overlay-keyboards" \
+  KEYBOARDS_DIR="$PWD/keyboards" \
   install-assets
 ```
 
