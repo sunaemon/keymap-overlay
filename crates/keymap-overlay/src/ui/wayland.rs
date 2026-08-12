@@ -31,10 +31,11 @@ use smithay_client_toolkit::shm::slot::SlotPool;
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{delegate_dispatch2, delegate_registry, registry_handlers};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::{
-    LayerEventSink, ListenerEvent, Transition, image_path, load_image, premultiply,
-    spawn_raw_hid_listener, transition_for_event,
+    ImageCache, LayerEventSink, ListenerEvent, Transition, image_path, load_image_cache,
+    premultiply, spawn_raw_hid_listener, transition_for_event,
 };
 
 /// The pool grows on demand; this only avoids a resize for the first image.
@@ -102,6 +103,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         .map_err(|error| anyhow::anyhow!("Failed to watch for layer events: {error}"))?;
     spawn_raw_hid_listener(ChannelSink { sender });
 
+    let images = load_image_cache(&assets_dir)?;
     let mut state = OverlayState {
         assets_dir,
         registry_state: RegistryState::new(&globals),
@@ -111,6 +113,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         layer,
         input_region,
         held_keys: Vec::new(),
+        images,
         image: None,
         mapped: false,
         closed: false,
@@ -146,7 +149,8 @@ struct OverlayState {
     layer: LayerSurface,
     input_region: Region,
     held_keys: Vec<(u8, u8)>,
-    image: Option<RgbaImage>,
+    images: ImageCache,
+    image: Option<Arc<RgbaImage>>,
     /// Whether a buffer is attached. A layer surface only exists on screen
     /// while one is, and the two states accept different requests.
     mapped: bool,
@@ -165,10 +169,10 @@ impl OverlayState {
 
     fn show_layer(&mut self, keyboard_id: u8, layer: u8) {
         let path = image_path(&self.assets_dir, keyboard_id, layer);
-        let image = match load_image(&path) {
-            Ok(image) => image,
-            Err(error) => {
-                warn!("Failed to load overlay image {}: {error:#}", path.display());
+        let image = match self.images.get(&(keyboard_id, layer)) {
+            Some(image) => Arc::clone(image),
+            None => {
+                warn!("Overlay image is unavailable: {}", path.display());
                 // Stay hidden rather than leaving the previous layer on screen
                 // and its key recorded as active.
                 self.hide();
@@ -176,12 +180,21 @@ impl OverlayState {
             }
         };
 
-        let (width, height) = (image.width(), image.height());
+        let (width, height) = image.dimensions();
+        let same_size = self
+            .image
+            .as_ref()
+            .is_some_and(|current| current.dimensions() == image.dimensions());
         self.image = Some(image);
 
-        // Unmap first even when a layer is already on screen: a commit that
-        // changes nothing the compositor cares about need not produce a
-        // configure, and the draw hangs off the configure.
+        if self.mapped && same_size {
+            self.draw();
+            return;
+        }
+
+        // A differently sized or currently hidden surface needs a fresh
+        // configure. Same-sized visible layers take the direct path above so
+        // the compositor replaces their buffers in one atomic commit.
         self.unmap();
         // Unmapping resets the layer surface to the state it had when it was
         // created, so every one of these has to be sent again. A layer surface
@@ -219,15 +232,12 @@ impl OverlayState {
     }
 
     fn draw(&mut self) {
-        // Taken so the pool can be borrowed mutably alongside it, then put back
-        // for the next configure.
-        let Some(image) = self.image.take() else {
+        let Some(image) = self.image.clone() else {
             return;
         };
         if let Err(error) = self.present(&image) {
             warn!("Failed to present the overlay: {error:#}");
         }
-        self.image = Some(image);
     }
 
     fn present(&mut self, image: &RgbaImage) -> Result<()> {

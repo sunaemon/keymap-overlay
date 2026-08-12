@@ -22,6 +22,7 @@ use log::warn;
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::WindowEvent;
@@ -36,8 +37,8 @@ use x11rb::protocol::xproto::{ConnectionExt as _, CreateGCAux};
 use x11rb::rust_connection::RustConnection;
 
 use crate::{
-    LayerEventSink, ListenerEvent, Transition, image_path, load_image, premultiply,
-    spawn_raw_hid_listener, transition_for_event,
+    ImageCache, LayerEventSink, ListenerEvent, Transition, image_path, load_image_cache,
+    premultiply, spawn_raw_hid_listener, transition_for_event,
 };
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
@@ -50,10 +51,12 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         proxy: event_loop.create_proxy(),
     });
 
+    let images = load_image_cache(&assets_dir)?;
     let mut app = OverlayApp {
         assets_dir,
         window: None,
         held_keys: Vec::new(),
+        images,
         image: None,
         error: None,
     };
@@ -82,7 +85,8 @@ struct OverlayApp {
     assets_dir: PathBuf,
     window: Option<OverlayWindow>,
     held_keys: Vec<(u8, u8)>,
-    image: Option<RgbaImage>,
+    images: ImageCache,
+    image: Option<Arc<RgbaImage>>,
     error: Option<anyhow::Error>,
 }
 
@@ -125,10 +129,10 @@ impl OverlayApp {
 
     fn show_layer(&mut self, keyboard_id: u8, layer: u8) {
         let path = image_path(&self.assets_dir, keyboard_id, layer);
-        let image = match load_image(&path) {
-            Ok(image) => image,
-            Err(error) => {
-                warn!("Failed to load overlay image {}: {error:#}", path.display());
+        let image = match self.images.get(&(keyboard_id, layer)) {
+            Some(image) => Arc::clone(image),
+            None => {
+                warn!("Overlay image is unavailable: {}", path.display());
                 // Stay hidden rather than leaving the previous layer on screen
                 // and its key recorded as active.
                 self.hide();
@@ -138,6 +142,18 @@ impl OverlayApp {
         let Some(state) = &self.window else {
             return;
         };
+
+        if self
+            .image
+            .as_ref()
+            .is_some_and(|current| current.dimensions() == image.dimensions())
+        {
+            if let Err(error) = present(state, &image) {
+                warn!("Failed to present the overlay: {error:#}");
+            }
+            self.image = Some(image);
+            return;
+        }
 
         let size = PhysicalSize::new(image.width(), image.height());
         // An unmanaged window is placed by nobody else, and the size has to be

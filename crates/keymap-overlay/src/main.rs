@@ -15,6 +15,7 @@ use keymap_core::{
     transition_for_disconnect,
 };
 use log::{error, info, warn};
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
@@ -126,6 +127,44 @@ pub(crate) fn load_image(path: &Path) -> Result<RgbaImage> {
         .with_context(|| format!("Failed to open {}", path.display()))?
         .into_rgba8();
     Ok(image)
+}
+
+pub(crate) type ImageCache = HashMap<(u8, u8), Arc<RgbaImage>>;
+
+/// Loads every installed layer image before the listener can show one.
+pub(crate) fn load_image_cache(assets_dir: &Path) -> Result<ImageCache> {
+    let mut images = HashMap::new();
+    for entry in fs::read_dir(assets_dir)
+        .with_context(|| format!("Failed to read asset directory {}", assets_dir.display()))?
+    {
+        let entry = entry
+            .with_context(|| format!("Failed to read an entry in {}", assets_dir.display()))?;
+        let path = entry.path();
+        let Some(key) = image_key(&path) else {
+            continue;
+        };
+        match load_image(&path) {
+            Ok(image) => {
+                images.insert(key, Arc::new(image));
+            }
+            Err(error) => warn!(
+                "Failed to preload overlay image {}: {error:#}",
+                path.display()
+            ),
+        }
+    }
+    Ok(images)
+}
+
+fn image_key(path: &Path) -> Option<(u8, u8)> {
+    if !path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+    {
+        return None;
+    }
+    let (keyboard_id, layer) = path.file_stem()?.to_str()?.split_once("_L")?;
+    Some((keyboard_id.parse().ok()?, layer.parse().ok()?))
 }
 
 /// Scales a colour channel by its alpha, which is how both Wayland's
@@ -429,6 +468,14 @@ mod tests {
             image_path(Path::new("/assets"), 2, 3),
             PathBuf::from("/assets/2_L3.png")
         );
+    }
+
+    #[test]
+    fn installed_image_names_are_parsed_for_preloading() {
+        assert_eq!(image_key(Path::new("12_L3.png")), Some((12, 3)));
+        assert_eq!(image_key(Path::new("12_L3.PNG")), Some((12, 3)));
+        assert_eq!(image_key(Path::new("overlay.log")), None);
+        assert_eq!(image_key(Path::new("keyboard_Llayer.png")), None);
     }
 
     #[test]

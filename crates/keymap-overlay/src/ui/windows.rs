@@ -24,12 +24,13 @@
 use anyhow::Result;
 use eframe::egui::{self, ColorImage, Pos2, TextureHandle, Vec2, ViewportCommand};
 use log::warn;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::{
-    LayerEventSink, ListenerEvent, Transition, image_path, load_image, spawn_raw_hid_listener,
-    transition_for_event,
+    LayerEventSink, ListenerEvent, Transition, image_path, load_image_cache,
+    spawn_raw_hid_listener, transition_for_event,
 };
 
 /// The idle window is one transparent pixel: it has to stay mapped, so it may
@@ -64,7 +65,11 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
                 sender,
                 context: creation.egui_ctx.clone(),
             });
-            Ok(Box::new(OverlayApp::new(assets_dir, receiver)))
+            Ok(Box::new(OverlayApp::new(
+                creation.egui_ctx.clone(),
+                assets_dir,
+                receiver,
+            )?))
         }),
     )
     .map_err(|error| anyhow::anyhow!("Failed to start the keymap overlay: {error}"))
@@ -90,17 +95,36 @@ struct OverlayApp {
     assets_dir: PathBuf,
     receiver: Receiver<ListenerEvent>,
     held_keys: Vec<(u8, u8)>,
-    texture: Option<TextureHandle>,
+    textures: HashMap<(u8, u8), TextureHandle>,
+    texture: Option<(u8, u8)>,
 }
 
 impl OverlayApp {
-    fn new(assets_dir: PathBuf, receiver: Receiver<ListenerEvent>) -> Self {
-        Self {
+    fn new(
+        context: egui::Context,
+        assets_dir: PathBuf,
+        receiver: Receiver<ListenerEvent>,
+    ) -> Result<Self> {
+        let textures = load_image_cache(&assets_dir)?
+            .into_iter()
+            .map(|(key, image)| {
+                let size = [image.width() as usize, image.height() as usize];
+                let image = ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+                let texture = context.load_texture(
+                    format!("{}_L{}", key.0, key.1),
+                    image,
+                    Default::default(),
+                );
+                (key, texture)
+            })
+            .collect();
+        Ok(Self {
             assets_dir,
             receiver,
             held_keys: Vec::new(),
+            textures,
             texture: None,
-        }
+        })
     }
 
     fn process_events(&mut self, context: &egui::Context) {
@@ -118,22 +142,23 @@ impl OverlayApp {
 
     fn show_layer(&mut self, context: &egui::Context, keyboard_id: u8, layer: u8) {
         let path = image_path(&self.assets_dir, keyboard_id, layer);
-        match load_image(&path) {
-            Ok(image) => {
-                let size = [image.width() as usize, image.height() as usize];
-                let image = ColorImage::from_rgba_unmultiplied(size, image.as_raw());
-                self.texture = Some(context.load_texture(
-                    path.display().to_string(),
-                    image,
-                    Default::default(),
-                ));
+        match self.textures.get(&(keyboard_id, layer)) {
+            Some(texture) => {
+                let size = texture.size();
+                let size_changed = self
+                    .texture
+                    .and_then(|key| self.textures.get(&key))
+                    .is_none_or(|current| current.size() != size);
+                self.texture = Some((keyboard_id, layer));
                 let size = Vec2::new(size[0] as f32, size[1] as f32);
-                context.send_viewport_cmd(ViewportCommand::InnerSize(size));
-                center_on_monitor(context, size);
+                if size_changed {
+                    context.send_viewport_cmd(ViewportCommand::InnerSize(size));
+                    center_on_monitor(context, size);
+                }
                 context.request_repaint();
             }
-            Err(error) => {
-                warn!("Failed to load overlay image {}: {error:#}", path.display());
+            None => {
+                warn!("Overlay image is unavailable: {}", path.display());
                 // Stay hidden rather than leaving the previous layer on screen.
                 self.hide(context);
             }
@@ -206,7 +231,7 @@ impl eframe::App for OverlayApp {
     /// which is all the central panel with a transparent `Frame::NONE` was
     /// there for, so the image is drawn straight into it.
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
-        if let Some(texture) = &self.texture {
+        if let Some(texture) = self.texture.and_then(|key| self.textures.get(&key)) {
             ui.image(texture);
         }
         // No periodic repaint: the Raw HID listener wakes the UI thread when a
