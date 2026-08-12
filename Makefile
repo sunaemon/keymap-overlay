@@ -830,7 +830,14 @@ $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
 .PHONY: _force_build
 _force_build:
 
-QMK_KEYMAP_JSON_RAW_DEPS := $(QMK_KEYMAP_C)
+# c2json reads the keymap and resolves its layout against the keyboard
+# definition, so both are inputs, as is anything keymap.c includes from beside
+# it. _copy_firmware installs config.h and layer_notify.h too, but those only
+# reach the compiler, never this JSON, so listing them would rebuild the assets
+# for changes that cannot alter them. sort also dedupes keymap.c out of the
+# wildcard; the explicit entry stays so a missing keymap.c is still an error.
+QMK_KEYMAP_JSON_RAW_DEPS := $(sort $(QMK_KEYMAP_C) $(KEYBOARD_JSON) \
+	$(wildcard $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/*))
 QMK_KEYMAP_JSON_RAW_ORDER_DEPS := $(BUILD_DIR)
 ifeq ($(VIAL),true)
 QMK_KEYMAP_JSON_RAW_DEPS += _force_build
@@ -843,7 +850,7 @@ else
 # every invocation and cascade through the YAML, every SVG and every PNG —
 # re-running keymap draw and resvg per layer per keyboard with nothing changed.
 # This only has to have run before c2json validates -kb, which is what
-# order-only means.
+# order-only means. The files it copies are tracked above, as themselves.
 QMK_KEYMAP_JSON_RAW_ORDER_DEPS += _copy_firmware
 endif
 

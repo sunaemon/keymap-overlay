@@ -280,5 +280,16 @@ def print_json(model: BaseModel, exclude_none: bool = False) -> None:
     # cp932 stdout raises UnicodeEncodeError and WRITE_OUTPUT's redirect leaves
     # no file at all. Writing encoded bytes bypasses the locale codepage.
     text = model.model_dump_json(indent=4, exclude_none=exclude_none) + "\n\n"
-    sys.stdout.buffer.write(text.encode("utf-8"))
-    sys.stdout.buffer.flush()
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        # A text-only stream — io.StringIO, or pytest's capsys — has no binary
+        # buffer and applies no encoding of its own, so the text goes straight
+        # out.
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    else:
+        # Flush first, so anything already written through the text layer stays
+        # ahead of these bytes rather than trailing them.
+        sys.stdout.flush()
+        buffer.write(text.encode("utf-8"))
+        buffer.flush()
