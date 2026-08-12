@@ -1,6 +1,7 @@
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
 import re
+import sys
 from pathlib import Path
 from typing import Annotated, Type, TypeVar
 
@@ -262,7 +263,10 @@ T = TypeVar("T", bound=BaseModel)
 
 def parse_json(model: Type[T], path: Path) -> T:
     try:
-        return model.model_validate_json(path.read_text())
+        # Explicit encoding: read_text otherwise decodes with the locale's
+        # codepage, which on a Japanese Windows install is cp932 and mangles
+        # every non-ASCII keymap this reads.
+        return model.model_validate_json(path.read_text(encoding="utf-8"))
     except OSError as e:
         raise JSONReadError(path, e) from e
     except Exception as e:
@@ -270,4 +274,22 @@ def parse_json(model: Type[T], path: Path) -> T:
 
 
 def print_json(model: BaseModel, exclude_none: bool = False) -> None:
-    print(model.model_dump_json(indent=4, exclude_none=exclude_none) + "\n")
+    """Writes the model to stdout as UTF-8 JSON."""
+    # The counterpart to parse_json's explicit encoding. model_dump_json emits
+    # real non-ASCII characters rather than \\u escapes, so printing through a
+    # cp932 stdout raises UnicodeEncodeError and WRITE_OUTPUT's redirect leaves
+    # no file at all. Writing encoded bytes bypasses the locale codepage.
+    text = model.model_dump_json(indent=4, exclude_none=exclude_none) + "\n\n"
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        # A text-only stream — io.StringIO, or pytest's capsys — has no binary
+        # buffer and applies no encoding of its own, so the text goes straight
+        # out.
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    else:
+        # Flush first, so anything already written through the text layer stays
+        # ahead of these bytes rather than trailing them.
+        sys.stdout.flush()
+        buffer.write(text.encode("utf-8"))
+        buffer.flush()

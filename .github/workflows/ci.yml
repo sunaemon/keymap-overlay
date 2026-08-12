@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       # libudev backs hidapi's hidraw enumeration, libwayland-client the
       # layer-shell window and libX11 the fallback one, so all three are needed
@@ -51,8 +53,8 @@ jobs:
       - name: Run Rust Tests
         run: make test-rust
 
-      # The two systems build different windows out of the same crate, so each
-      # one builds the binary it ships.
+      # The three systems build different windows out of the same crate, so
+      # each one builds the binary it ships.
       - name: Build the release binary
         run: make build-overlay
 
@@ -68,6 +70,50 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: mise exec -- uv sync
+
+      - name: Run Tests
+        run: make test
+
+      - name: Run Rust Tests
+        run: make test-rust
+
+      # `make install-overlay` ships this binary, so a release-only build
+      # failure would surface at install time rather than here.
+      - name: Build the release binary
+        run: make build-overlay
+
+  # The Windows half: hidapi's own Windows backend, an eframe window that is
+  # never unmapped, and a per-user Run key instead of a login agent. Every step
+  # runs under Git Bash, because the Makefile dispatches on `uname -s` and the
+  # recipes are POSIX shell.
+  #
+  # What this job cannot prove is the part that matters most — that showing the
+  # overlay never takes focus. No CI runner has a session to test that in, the
+  # same way the layer-shell and launchd paths have always needed a real
+  # machine.
+  windows-build-and-test:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install mise
         uses: jdx/mise-action@v4
@@ -101,6 +147,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install mise
         uses: jdx/mise-action@v4

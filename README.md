@@ -3,15 +3,31 @@
 [![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml?query=branch%3Amain)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Example: GPL-2.0-or-later](https://img.shields.io/badge/Example-GPL--2.0--or--later-blue.svg)](example/LICENSE)
-[![Platform: macOS | Linux](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)](#platform-support)
+[![Platform: macOS | Linux | Windows](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
 
-This repository generates keyboard layer images from QMK keymaps and displays them in a native Rust overlay while layer modifier keys are held, on macOS and on Linux.
+This repository generates keyboard layer images from QMK keymaps and displays them in a native Rust overlay while layer modifier keys are held, on macOS, Linux and Windows.
 
 ![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
 
 ## Overview
 
 See `doc/design.md` for the end-to-end data flow and design notes.
+
+## Binary Releases
+
+Tagged releases contain native binaries for macOS, Linux, and Windows. Download
+the archive matching the operating system and CPU architecture, then run the
+binary with the directory containing the layer PNGs:
+
+```bash
+keymap-overlay <asset-directory>
+```
+
+The release archive contains only the overlay binary. Generate the
+keyboard-specific PNGs with `make install-assets` and keep them in the asset
+directory; the Windows workflow below uses
+`%USERPROFILE%/.config/keymap-overlay`. The source checkout is therefore only
+needed to generate or update those assets, not to build the overlay binary.
 
 This repo is set up for the `salicylic_acid3/insixty_en` and `doio/kb16/rev2` keyboards, but the workflow should work for any QMK-compatible keyboard with minor configuration changes. Keyboard configurations are stored in the `example/` directory (configurable via `KEYBOARDS_DIR` in the `Makefile`).
 
@@ -21,14 +37,14 @@ While holding a layer key, the firmware sends a Raw HID notification and the Rus
 
 ## Platform Support
 
-|                | macOS                       | Linux                                           |
-| -------------- | --------------------------- | ----------------------------------------------- |
-| Overlay window | eframe/egui                 | `zwlr_layer_shell_v1` surface, or an X11 window |
-| Autostart      | launchd agent               | systemd user unit                               |
-| Raw HID access | Input Monitoring permission | `uaccess` udev rule (`make install-udev-rules`) |
-| QMK toolchain  | Homebrew (`osx-cross`)      | distribution packages (pacman, apt, dnf)        |
+|                | macOS                       | Linux                                           | Windows                             |
+| -------------- | --------------------------- | ----------------------------------------------- | ----------------------------------- |
+| Overlay window | eframe/egui                 | `zwlr_layer_shell_v1` surface, or an X11 window | eframe/egui                         |
+| Autostart      | launchd agent               | systemd user unit                               | current-user Run registry key       |
+| Raw HID access | Input Monitoring permission | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant                    |
+| QMK toolchain  | Homebrew (`osx-cross`)      | distribution packages (pacman, apt, dnf)        | not in this shell — QMK MSYS or WSL |
 
-Image generation and the firmware workflow are the same on both.
+Image generation is the same everywhere.
 
 On Linux the overlay picks its window at startup:
 
@@ -44,6 +60,11 @@ On Linux the overlay picks its window at startup:
 Set `KEYMAP_OVERLAY_BACKEND` to `layer-shell` or `x11` to override the choice
 (`auto` is the default). That is also how to try the fallback on a machine whose
 compositor does support layer-shell.
+
+Choose the setup that matches the system running the overlay:
+
+- [macOS or Linux](#setup-on-macos-and-linux)
+- [Windows](#setup-on-windows)
 
 ## Using as a Submodule
 
@@ -81,7 +102,10 @@ make -C keymap-overlay \
 Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
 `install-overlay`.
 
-## Getting Started
+## Setup on macOS and Linux
+
+These steps build the firmware, generate the assets, and install the overlay
+on the same system.
 
 1. Clone this repository:
 
@@ -204,9 +228,9 @@ Use the same `KEYBOARDS_DIR` argument for `flash`, `flash-keymap`, and
    make install-overlay
    ```
 
-   It starts automatically after login — as a launchd agent on macOS, as a
+   It starts automatically after login — as a launchd agent on macOS or a
    systemd user unit on Linux — and writes logs to
-   `~/.local/var/log/keymap-overlay/` (`overlay.log`). Logs rotate at 1 MiB,
+   `~/.local/var/log/keymap-overlay/overlay.log`. Logs rotate at 1 MiB,
    retaining the current log plus three previous files.
    For a foreground development session, use `make run-overlay` instead.
    To stop and remove it later, run `make uninstall-overlay`.
@@ -226,6 +250,175 @@ These commands are for users who have VIAL-enabled firmware on their keyboard.
    ```bash
    make flash-keymap
    ```
+
+## Setup on Windows
+
+Build and run the overlay from the **MSYS2 MSYS** shell. Do not use WSL for the
+overlay: it cannot receive the keyboard's Raw HID events or display above native
+Windows applications. The commands in this section use the Windows package
+manager, `winget`, from PowerShell.
+
+```powershell
+winget install --id Git.Git -e
+winget install --id MSYS2.MSYS2 -e
+winget install --id jdx.mise -e
+```
+
+To build the native Windows executable from source, install the Microsoft C++
+build tools too (this is a several-gigabyte download):
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+Close and reopen Windows Terminal after the installs. Add an **MSYS2 MSYS**
+profile with this command line. `-use-full-path` makes Windows-installed tools
+such as mise and GitHub CLI available inside the shell.
+
+```text
+C:\msys64\msys2_shell.cmd -defterm -here -no-start -msys -use-full-path
+```
+
+Start a new MSYS2 MSYS tab. If the first update asks you to close the shell, do
+so, reopen it, and run the update again. This also installs GNU Make, which is
+not included with MSYS2 by default.
+
+```bash
+pacman -Syu
+pacman -Syu
+pacman -S --needed make
+```
+
+Verify that the shell inherited Git for Windows:
+
+```bash
+git --version
+```
+
+If `git` is not found, add Git for Windows to the MSYS2 shell's path, then
+reload the shell configuration:
+
+```bash
+echo 'export PATH="/c/Program Files/Git/cmd:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Use the Windows home directory for the checkout so it is accessible from
+Explorer, PowerShell, and MSYS2:
+
+```bash
+WINDOWS_HOME="$(cygpath -u "$USERPROFILE")"
+cd "$WINDOWS_HOME"
+git -c core.autocrlf=false clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+cd keymap-overlay
+```
+
+This checkout is shared by MSYS2 and WSL. It is safe to run `make setup` once
+in each shell, as long as the commands do not run at the same time. WSL creates
+keyboard images in `build/<keyboard-id>/`, while MSYS2 builds the Windows
+executable in `target/`. If you also build or test Rust in WSL, keep its Cargo
+output separate:
+
+```bash
+CARGO_TARGET_DIR=target-wsl make test-rust
+```
+
+### WSL asset setup
+
+WSL generates the keyboard-specific PNG assets. If WSL is not installed, open
+an administrator PowerShell and install Ubuntu:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Restart if Windows asks, open the new Ubuntu terminal, and create the Linux
+user it prompts for. In that terminal, install the basic build tools and mise:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes build-essential curl git usbutils
+curl https://mise.run/bash | sh
+exec bash
+```
+
+Enter the checkout through WSL's mount of the Windows drive, then install its
+Linux-side dependencies. This command may ask for your Linux password while it
+installs the QMK toolchain. Give WSL its own Python virtual environment before
+running setup, so a future Windows-side Python command cannot reuse it:
+
+```bash
+WINDOWS_HOME="$(wslpath "$(cmd.exe /C echo %USERPROFILE% | tr -d '\r')")"
+cd "$WINDOWS_HOME/keymap-overlay"
+echo 'export UV_PROJECT_ENVIRONMENT=.venv-wsl' >> ~/.bashrc
+export UV_PROJECT_ENVIRONMENT=.venv-wsl
+make setup
+```
+
+Generate the assets directly into the Windows configuration directory:
+
+```bash
+make install-assets \
+  KEYMAP_OVERLAY_DIR="$(dirname "$(git rev-parse --show-toplevel)")/.config/keymap-overlay"
+```
+
+Run `make install-assets` again whenever the keymap changes. Then, from MSYS2
+MSYS, build and install the native overlay:
+
+```bash
+make setup
+make install-overlay
+```
+
+`install-overlay` deliberately does not generate images on Windows. It checks
+for the PNGs generated by WSL, installs the `.exe`, and registers a per-user
+login autostart entry. Do not run `mise setup`: `setup` is a Makefile target,
+while mise is the tool manager it invokes.
+
+### Optional: flash from WSL
+
+To use `make flash` directly from WSL, install
+[usbipd-win](https://github.com/dorssel/usbipd-win) and update WSL from an
+administrator PowerShell:
+
+```powershell
+winget install --interactive --exact dorssel.usbipd-win
+wsl --update
+```
+
+Keep the normal keyboard attached to Windows so it continues to type there.
+After putting it in bootloader mode, use an administrator PowerShell to list
+the newly enumerated bootloader and share it. Sharing is persistent, so this is
+normally needed only once for each bootloader device.
+
+```powershell
+usbipd list
+usbipd bind --busid <BUSID>
+```
+
+With an Ubuntu terminal already open, attach the bootloader to WSL from a
+normal PowerShell, then flash from WSL:
+
+```powershell
+usbipd attach --wsl --busid <BUSID>
+```
+
+```bash
+lsusb
+make flash KEYBOARD_ID=<keyboard-id>
+```
+
+While attached, the bootloader cannot be used by Windows. It is detached when
+the keyboard resets or is unplugged; to detach it manually, run
+`usbipd detach --busid <BUSID>` in PowerShell. For a `.uf2` bootloader, copying
+the built file onto the `RPI-RP2` drive in Explorer remains the simpler
+fallback.
+
+Building and flashing firmware is the one part that does not run from the
+overlay's Windows shell. QMK's toolchain there is QMK MSYS, separate from
+MSYS2. Run `make compile`, `make flash`, and `make flash-keymap` in QMK MSYS,
+WSL, macOS, or Linux. To flash an already-built `.uf2`, put the keyboard in its
+bootloader and copy the file onto the mounted `RPI-RP2` drive in Explorer.
 
 ## License
 

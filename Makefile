@@ -2,21 +2,44 @@ SHELL := /bin/bash
 
 # ================= PLATFORM CONFIGURATION =================
 
-# The image generation and firmware workflows are portable; the overlay's
-# window, its login service, and the toolchain packages are not. Every target
-# that differs between the two systems dispatches on this.
+# The image generation workflow is portable; the overlay's window, its login
+# service, the toolchain packages, and the firmware workflow are not. Every
+# target that differs between the systems dispatches on this.
+#
+# Windows means an MSYS2 or Git Bash shell driving a native Windows build:
+# `uname -s` there reports MINGW64_NT-10.0-… or MSYS_NT-…, which no `ifeq` can
+# match exactly, hence findstring. Compiling and flashing firmware is not
+# supported on it — see `_setup_toolchain_windows`.
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
 OS_FAMILY := macos
 else ifeq ($(UNAME_S),Linux)
 OS_FAMILY := linux
+else ifneq (,$(findstring MINGW,$(UNAME_S)))
+OS_FAMILY := windows
+else ifneq (,$(findstring MSYS,$(UNAME_S)))
+OS_FAMILY := windows
 else
-$(error keymap-overlay supports macOS and Linux, not '$(UNAME_S)')
+$(error keymap-overlay supports macOS, Linux and Windows, not '$(UNAME_S)')
 endif
+
+# Cargo names the binary after the target, and the login service needs the name
+# that exists on disk.
+ifeq ($(OS_FAMILY),windows)
+EXE_SUFFIX := .exe
+else
+EXE_SUFFIX :=
+endif
+
+# QMK's Windows toolchain is QMK MSYS, a separate environment from the one that
+# builds the overlay, and the boards here flash over USB or a mounted UF2
+# volume that MSYS2 cannot reach either. Rather than half-support it, the
+# firmware targets say where to go.
+WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WSL, macOS or Linux (see Platform Support in README.md)
 
 # ================= VIA CONFIGURATION =================
 
-# If VIAL is enabled, the keymap will load from the VIAL EEPROM dump in `make install` and `make draw-layers`.
+# If VIAL is enabled, the keymap will load from the VIAL EEPROM dump in `make install-assets` and `make draw-layers`.
 # If VIAL is disabled, the keymap will be compiled from the firmware source.
 VIAL ?= false
 
@@ -60,9 +83,9 @@ QMK_TOOLCHAIN_PACKAGES := osx-cross/arm/arm-none-eabi-gcc@8 osx-cross/avr/avr-gc
 # The same set per distribution, plus the libraries the overlay itself links:
 # libudev for hidraw enumeration, libwayland-client for the layer-shell window,
 # and libX11 for the fallback one.
-LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs wayland libx11
-LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev libwayland-dev libx11-dev
-LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel wayland-devel libX11-devel
+LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs wayland libx11 ttf-liberation
+LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev libwayland-dev libx11-dev fonts-liberation
+LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel wayland-devel libX11-devel liberation-mono-fonts
 
 # Escape XML character data so that a HOME containing & or < still produces a
 # valid plist. Ampersands must be substituted first.
@@ -92,6 +115,24 @@ define STOP_KEYMAP_OVERLAY_UNIT
 if [ -f "$(KEYMAP_OVERLAY_UNIT)" ]; then \
 	systemctl --user disable --now "$(KEYMAP_OVERLAY_UNIT_NAME)"; \
 	fi
+endef
+
+# The Windows Run key is per-user, so it needs no administrator access. Stop
+# the previous process before replacing its executable, if it is running. The
+# command is single-quoted so that the shell leaves PowerShell's $ alone, and
+# MSYS2_ARG_CONV_EXCL stops MSYS2 rewriting the arguments as paths.
+#
+# Run through `env` so the line does not open with NAME=VALUE, which the
+# Makefile formatter rewrites to NAME = VALUE — turning the variable this needs
+# in the environment into a command it would try to run.
+#
+# Stop-Process only asks the process to terminate; Windows holds the image lock
+# until it is gone, so the caller has to wait or the copy that follows hits a
+# sharing violation. Wait-Process supplies the wait, and the whole pipeline is
+# a no-op when nothing is running.
+define STOP_KEYMAP_OVERLAY_PROCESS
+env MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	'Get-Process -Name "keymap-overlay" -ErrorAction SilentlyContinue | Stop-Process -PassThru | Wait-Process -Timeout 10; exit 0'
 endef
 
 # ================= QMK CONFIGURATION =================
@@ -189,7 +230,7 @@ VIAL_JSON := $(BUILD_DIR)/vial.json
 VITALY_JSON := $(BUILD_DIR)/vitaly.json
 
 # Same lazy-and-cached treatment as DEVICE_PID. These are only meaningful once
-# $(QMK_KEYMAP_JSON) exists, which is why install/draw-layers build it in a
+# $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
 # first pass and then re-enter make to expand $(PNG).
 LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
 PNG = $(eval PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.png" 0 $$(( $(LAYERS) - 1 )); fi))$(PNG)
@@ -197,13 +238,33 @@ PNG = $(eval PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(
 endif
 
 # ================= OVERLAY CONFIGURATION =================
+ifeq ($(OS_FAMILY),windows)
+# MSYS2's HOME is /home/<user>, which is private to MSYS2. Assets, logs, and
+# the Run key's target instead belong beside the Windows user's other
+# configuration so WSL can generate the assets directly into this directory.
+#
+# This is expanded on every invocation, not just `make setup`, so it cannot
+# lean on _setup_toolchain_windows having checked for cygpath. Left empty it
+# would silently root every path at /, and `make uninstall-overlay` would
+# delete from /.config/keymap-overlay.
+WINDOWS_USER_HOME := $(shell cygpath -u "$$USERPROFILE" 2>/dev/null)
+ifeq ($(strip $(WINDOWS_USER_HOME)),)
+$(error Could not resolve USERPROFILE with cygpath; run make from an MSYS2 or Git Bash shell)
+endif
+KEYMAP_OVERLAY_DIR ?= $(WINDOWS_USER_HOME)/.config/keymap-overlay
+KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay
+else
 KEYMAP_OVERLAY_DIR := $(HOME)/.config/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
-KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay
+endif
+KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay$(EXE_SUFFIX)
 KEYMAP_OVERLAY_LABEL := com.sunaemon.keymap-overlay
 KEYMAP_OVERLAY_PLIST := $(HOME)/Library/LaunchAgents/$(KEYMAP_OVERLAY_LABEL).plist
 KEYMAP_OVERLAY_UNIT_NAME := keymap-overlay.service
 KEYMAP_OVERLAY_UNIT := $(HOME)/.config/systemd/user/$(KEYMAP_OVERLAY_UNIT_NAME)
+# The registry value under the current user's Run key that starts the overlay
+# when they sign in. It is intentionally a user-level autostart, not a service.
+KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
 # One rule per keyboard, tagged uaccess so the logged-in user may open the Raw
 # HID node; without it the overlay enumerates the keyboards but cannot read
 # from them.
@@ -224,9 +285,15 @@ setup:
 	@$(MAKE) _setup_toolchain_$(OS_FAMILY)
 	git submodule update --init --recursive
 	$(MISE) trust
+ifeq ($(OS_FAMILY),windows)
+	# Assets are generated in WSL. Installing just Rust and lefthook keeps the
+	# native Windows setup independent of QMK and Python tooling.
+	$(MISE) install rust lefthook
+else
 # The dev tools come too: the git hooks installed below run format and lint.
 	$(MISE_DEV) install
 	$(UV) sync
+endif
 	@$(MAKE) install-hooks
 
 .PHONY: _setup_toolchain_macos
@@ -258,6 +325,26 @@ _setup_toolchain_linux:
 		exit 1; \
 	fi
 
+# There is no QMK toolchain to install here: firmware is built elsewhere (see
+# the note this prints). What this does check is the two things every other
+# Windows target assumes — cygpath, to hand native paths to native programs,
+# and powershell, which writes the current user's login Run key.
+.PHONY: _setup_toolchain_windows
+_setup_toolchain_windows:
+	@missing=""; \
+	for tool in cygpath powershell; do \
+		command -v "$$tool" >/dev/null || missing="$$missing $$tool"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "ERROR: missing required command(s):$$missing"; \
+		echo "Run 'make setup' from an MSYS2 or Git Bash shell on Windows, with"; \
+		echo "the Windows PowerShell directory on PATH."; \
+		exit 1; \
+	fi
+	@echo "NOTE: firmware is not built or flashed on Windows."
+	@echo "      Use WSL, macOS or Linux for 'make compile', 'make flash' and"
+	@echo "      'make flash-keymap'; see the Platform Support section of README.md."
+
 .PHONY: doctor
 doctor:
 	@set -o pipefail; \
@@ -265,9 +352,17 @@ doctor:
 	status=$${PIPESTATUS[0]}; \
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
-# Because  LAYERS variable depends on $(QMK_KEYMAP_JSON), we need to call draw-layers with another make invocation
-.PHONY: install
-install:
+# Because LAYERS depends on $(QMK_KEYMAP_JSON), install-assets and draw-layers
+# build the JSON in a first make invocation, then re-enter make to expand PNG.
+.PHONY: install-assets
+ifeq ($(OS_FAMILY),windows)
+install-assets:
+	@echo "ERROR: install-assets must run in WSL, not MSYS2."; \
+		echo "Run it from the shared checkout with:"; \
+		echo "  make install-assets KEYMAP_OVERLAY_DIR=\"\$$WINDOWS_HOME/.config/keymap-overlay\""; \
+		exit 1
+else
+install-assets:
 ifdef KEYBOARD_ID
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
@@ -276,9 +371,15 @@ else
 	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
 		echo "----------------------------------------------------------------"; \
 		echo "Installing $$kb"; \
-		$(MAKE) install KEYBOARD_ID=$$kb || exit 1; \
+		$(MAKE) install-assets KEYBOARD_ID=$$kb || exit 1; \
 	done
 endif
+endif
+
+# Kept as a compatibility alias for existing scripts. New callers should use
+# install-assets. The Windows overlay receives its assets from WSL.
+.PHONY: install
+install: install-assets
 
 .PHONY: draw-layers
 draw-layers:
@@ -356,11 +457,39 @@ build-overlay:
 	$(CARGO) build --release -p keymap-overlay
 
 .PHONY: install-overlay
-install-overlay: install build-overlay
+ifeq ($(OS_FAMILY),windows)
+install-overlay: build-overlay
+	@if ! compgen -G "$(KEYMAP_OVERLAY_DIR)/*.png" >/dev/null; then \
+		echo "ERROR: no layer PNGs found in $(KEYMAP_OVERLAY_DIR)."; \
+		echo "Generate them in WSL with the command in README's Setup on Windows section first."; \
+		exit 1; \
+	fi
+else
+install-overlay: install-assets build-overlay
+endif
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
-	install -C target/release/keymap-overlay "$(KEYMAP_OVERLAY_BINARY)"
+# Windows holds an open executable locked, so the running overlay has to go
+# before its binary can be replaced. The other two systems replace the file
+# underneath the running process and stop it as part of installing the service.
+	@$(MAKE) _stop_service_$(OS_FAMILY)
+	install -C target/release/keymap-overlay$(EXE_SUFFIX) "$(KEYMAP_OVERLAY_BINARY)"
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
+
+# Nothing to do where a running binary can be replaced in place; the service is
+# stopped and started again by _install_service_<system> below. The `:` keeps
+# make from reporting that there was nothing to do on every install.
+.PHONY: _stop_service_macos
+_stop_service_macos:
+	@:
+
+.PHONY: _stop_service_linux
+_stop_service_linux:
+	@:
+
+.PHONY: _stop_service_windows
+_stop_service_windows:
+	@$(STOP_KEYMAP_OVERLAY_PROCESS)
 
 .PHONY: _install_service_macos
 _install_service_macos:
@@ -432,6 +561,30 @@ _install_service_linux:
 # still holds the previous binary.
 	systemctl --user restart "$(KEYMAP_OVERLAY_UNIT_NAME)"
 
+# The current user's Run key starts the overlay at sign-in without requiring an
+# administrator to create a Task Scheduler entry. It has no equivalent of the
+# plist's EnvironmentVariables or the unit's Environment, so
+# KEYMAP_OVERLAY_LOG_DIR cannot travel there; the overlay falls back to the same
+# directory under USERPROFILE, which is where this variable points anyway unless
+# it was overridden.
+.PHONY: _install_service_windows
+_install_service_windows:
+	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay" ]; then \
+		echo "ERROR: KEYMAP_OVERLAY_LOG_DIR cannot be honoured on Windows."; \
+		echo "The Windows Run key is given no environment, so the overlay would keep"; \
+		echo "logging to its default directory. Leave the variable unset."; \
+		exit 1; \
+	fi
+# set -e so a failing cygpath does not hand an empty path to the registry, and
+# $ErrorActionPreference so PowerShell's non-terminating errors become failures
+# make can see: without it, Set-ItemProperty or Start-Process can fail while
+# powershell.exe still exits 0 and install-overlay reports success.
+	@set -e; \
+	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
+	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)")"; \
+	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote)'
+
 .PHONY: uninstall-overlay
 uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
@@ -450,12 +603,19 @@ _uninstall_service_linux:
 	rm -f "$(KEYMAP_OVERLAY_UNIT)"
 	systemctl --user daemon-reload
 
+.PHONY: _uninstall_service_windows
+_uninstall_service_windows:
+	@$(STOP_KEYMAP_OVERLAY_PROCESS)
+	@MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+		'Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -ErrorAction SilentlyContinue; exit 0'
+
 # Linux only: macOS asks for Input Monitoring permission instead, which is
-# granted in System Settings rather than by a file.
+# granted in System Settings rather than by a file, and Windows needs no
+# permission at all to read a vendor-defined HID interface.
 .PHONY: install-udev-rules
 install-udev-rules:
 ifneq ($(OS_FAMILY),linux)
-	$(error install-udev-rules is Linux-only; macOS grants Raw HID access through Input Monitoring)
+	$(error install-udev-rules is Linux-only; macOS grants Raw HID access through Input Monitoring, and Windows needs no grant)
 endif
 	@mkdir -p build
 	@{ \
@@ -508,6 +668,9 @@ endif
 
 .PHONY: compile
 compile:
+ifeq ($(OS_FAMILY),windows)
+	$(error compile $(WINDOWS_FIRMWARE_ERROR))
+endif
 ifdef KEYBOARD_ID
 	@$(MAKE) _copy_firmware
 	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
@@ -522,6 +685,9 @@ endif
 
 .PHONY: flash
 flash:
+ifeq ($(OS_FAMILY),windows)
+	$(error flash $(WINDOWS_FIRMWARE_ERROR))
+endif
 ifndef KEYBOARD_ID
 	$(error KEYBOARD_ID is required for flash)
 endif
@@ -554,6 +720,9 @@ _mount_uf2_volume:
 
 .PHONY: flash-keymap
 flash-keymap:
+ifeq ($(OS_FAMILY),windows)
+	$(error flash-keymap $(WINDOWS_FIRMWARE_ERROR))
+endif
 ifeq ($(VIAL),true)
 	$(error flash-keymap writes keymap.c to the device; VIAL=true would read the device and write it straight back)
 endif
@@ -661,14 +830,33 @@ $(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
 .PHONY: _force_build
 _force_build:
 
-QMK_KEYMAP_JSON_RAW_DEPS := $(QMK_KEYMAP_C)
+# c2json reads the keymap and resolves its layout against the keyboard
+# definition, so both are inputs, as is anything keymap.c includes from beside
+# it. _copy_firmware installs config.h and layer_notify.h too, but those only
+# reach the compiler, never this JSON, so listing them would rebuild the assets
+# for changes that cannot alter them. sort also dedupes keymap.c out of the
+# wildcard; the explicit entry stays so a missing keymap.c is still an error.
+QMK_KEYMAP_JSON_RAW_DEPS := $(sort $(QMK_KEYMAP_C) $(KEYBOARD_JSON) \
+	$(wildcard $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/*))
+QMK_KEYMAP_JSON_RAW_ORDER_DEPS := $(BUILD_DIR)
 ifeq ($(VIAL),true)
 QMK_KEYMAP_JSON_RAW_DEPS += _force_build
+else
+# The example's keyboard definition and keymap live outside QMK's vendored
+# tree. Install them before c2json validates -kb, including on a fresh clone.
+#
+# Order-only, unlike _force_build above, which is phony on purpose. A phony
+# normal prerequisite is always out of date, so it would remake the raw JSON on
+# every invocation and cascade through the YAML, every SVG and every PNG —
+# re-running keymap draw and resvg per layer per keyboard with nothing changed.
+# This only has to have run before c2json validates -kb, which is what
+# order-only means. The files it copies are tracked above, as themselves.
+QMK_KEYMAP_JSON_RAW_ORDER_DEPS += _copy_firmware
 endif
 
 QMK_KEYMAP_JSON_DEPS := scripts/postprocess_qmk_keymap.py $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_JSON_RAW)
 
-$(QMK_KEYMAP_JSON_RAW): $(QMK_KEYMAP_JSON_RAW_DEPS) | $(BUILD_DIR)
+$(QMK_KEYMAP_JSON_RAW): $(QMK_KEYMAP_JSON_RAW_DEPS) | $(QMK_KEYMAP_JSON_RAW_ORDER_DEPS)
 ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)

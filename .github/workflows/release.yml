@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create, for example v1.0.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            runner: ubuntu-latest
+          - platform: macOS
+            runner: macos-latest
+          - platform: Windows
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libudev-dev libwayland-dev libx11-dev
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          cache: false
+
+      - name: Build release binary
+        run: mise exec -- cargo build --release -p keymap-overlay
+
+      - name: Package binary
+        id: package
+        run: |
+          mkdir -p dist
+          dist="$PWD/dist"
+          arch="$(uname -m)"
+          case "$RUNNER_OS" in
+            Windows)
+              asset="keymap-overlay-windows-${arch}.zip"
+              # 7z stores the path as given, so it runs from the directory
+              # holding the binary; the two tar branches use -C for the same
+              # reason. All three archives then hold one bare executable.
+              (cd target/release && 7z a "$dist/$asset" keymap-overlay.exe)
+              ;;
+            macOS)
+              asset="keymap-overlay-macos-${arch}.tar.gz"
+              tar -C target/release -czf "dist/$asset" keymap-overlay
+              ;;
+            Linux)
+              asset="keymap-overlay-linux-${arch}.tar.gz"
+              tar -C target/release -czf "dist/$asset" keymap-overlay
+              ;;
+          esac
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.asset }}
+          path: dist/${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      # This job checks out nothing, so `gh` has no git remote to infer the
+      # repository from; GH_REPO tells it directly. Without it, every command
+      # below that does not name the repository in its URL fails outright.
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null || true)"
+          if [ -n "$tag_ref" ]; then
+            tag_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
+            tag_type="$(jq -r '.object.type' <<<"$tag_ref")"
+            if [ "$tag_type" = tag ]; then
+              tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" --jq '.object.sha')"
+            fi
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "ERROR: $RELEASE_TAG points to $tag_sha, not $GITHUB_SHA." >&2
+              exit 1
+            fi
+          fi
+          gh release create "$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "$RELEASE_TAG" --generate-notes

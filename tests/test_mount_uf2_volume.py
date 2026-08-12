@@ -1,5 +1,6 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,16 @@ from scripts.mount_uf2_volume import (
 )
 from scripts.mount_uf2_volume import (
     mount_uf2_volume as mount_volume,
+)
+
+# The module under test mounts the UF2 bootloader volume on Linux, and reaches
+# for os.getuid, os.geteuid, chmod permissions and findmnt to do it. None of
+# those behave on Windows — patching os.geteuid there raises AttributeError
+# before a test can run — and there is nothing to cover either way, because
+# Windows does not flash firmware at all.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="mount_uf2_volume is Linux-only; Windows does not flash firmware",
 )
 
 

@@ -1,10 +1,12 @@
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
+import io
 import json
+import sys
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from src.types import (
     KeyboardJson,
@@ -13,6 +15,7 @@ from src.types import (
     QmkKeymapJson,
     VialJson,
     VitalyJson,
+    print_json,
 )
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -160,3 +163,37 @@ def test_kle_key_props_reports_whether_anything_is_set() -> None:
     assert KleKeyProps(x=0.25).has_values() is True
     # Zero is a real offset, not an absent one.
     assert KleKeyProps(x=0.0).has_values() is True
+
+
+class _Named(BaseModel):
+    """A minimal model for exercising print_json's output stream."""
+
+    name: str
+
+
+# An em dash is the trap here: cp932 encodes the kana but not this.
+_NON_ASCII = "かな配列 — L1"
+
+
+def test_print_json_writes_utf8_whatever_the_stream_encoding_is(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cp932 console must not decide how the generated JSON is encoded."""
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp932"))
+
+    print_json(_Named(name=_NON_ASCII))
+
+    assert json.loads(raw.getvalue().decode("utf-8"))["name"] == _NON_ASCII
+
+
+def test_print_json_accepts_a_stdout_without_a_binary_buffer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """io.StringIO and pytest's capsys have no .buffer to write bytes to."""
+    stdout = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    print_json(_Named(name=_NON_ASCII))
+
+    assert json.loads(stdout.getvalue())["name"] == _NON_ASCII

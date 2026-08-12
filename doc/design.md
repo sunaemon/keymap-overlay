@@ -1,7 +1,7 @@
 # Keymap Overlay Design
 
 This project generates images for QMK keymap layers and displays the active
-momentary layer in a native overlay, on macOS and on Linux.
+momentary layer in a native overlay, on macOS, Linux and Windows.
 
 ## Image Generation
 
@@ -15,12 +15,15 @@ build/<keyboard>/keymap-drawer.yaml
 build/<keyboard>/<keyboard>_L<n>.svg
   ↓ resvg
 build/<keyboard>/<keyboard>_L<n>.png
-  ↓ make install-overlay
-~/.config/keymap-overlay/<keyboard>_L<n>.png
+  ↓ make install-assets
+platform configuration directory/<keyboard>_L<n>.png
 ```
 
-`make install-overlay` runs the existing image-install workflow before it
-installs the native application, so `make install` is not needed separately.
+`make install-assets` is the platform-independent image-generation and copy
+target. On macOS and Linux, `make install-overlay` invokes it before installing
+the application. On Windows, generate assets from WSL with `make
+install-assets`, then run the native `make install-overlay`; WSL writes the
+PNGs directly to `%USERPROFILE%/.config/keymap-overlay/`.
 
 ## Runtime Data Flow
 
@@ -32,7 +35,9 @@ QMK Raw HID report (KMO protocol)
 Rust HID listener (hidapi)
   ↓
 native transparent window
-  macOS: eframe/egui        Linux: wlr-layer-shell surface
+  macOS: eframe/egui
+  Windows: eframe/egui
+  Linux: wlr-layer-shell surface, or an override-redirect X11 window
   ↓
 matching <keyboard>_L<layer>.png is displayed
   ↓
@@ -66,17 +71,40 @@ uses the same HID interface, so unrelated VIAL traffic is ignored.
 
 ## Native Overlay
 
-`crates/keymap-overlay` is one Rust application with two windows. Reading the
+`crates/keymap-overlay` is one Rust application with four windows. Reading the
 keyboard, deciding what a report means, loading the image, and writing the log
 are shared; only the window differs, behind `src/ui/`.
 
-On **macOS** (`src/ui/macos.rs`) the window is an eframe/egui window that is
-undecorated, transparent, always-on-top and click-through. It is explicitly
-hidden on its first frame to avoid a macOS visibility quirk, and resized to the
-PNG dimensions immediately before it is shown.
+On **macOS** (`src/ui/eframe_window.rs`) the window is an eframe/egui window
+that is undecorated, transparent, always-on-top and click-through. It is
+explicitly hidden on its first frame to avoid a macOS visibility quirk, and
+resized to the PNG dimensions immediately before it is shown.
 
 The application replaces the former Hammerspoon and Lua integration entirely.
 No synthetic function-key events or Hammerspoon configuration are required.
+
+On **Windows** (`src/ui/windows.rs`) the window is an eframe/egui window with
+the same four properties, kept out of the taskbar and the alt-tab list. It
+differs from every other backend in one way: **it is mapped once and never
+hidden.**
+
+Hiding it would take focus. `ViewportCommand::Visible(true)` becomes winit's
+`WindowFlags::VISIBLE`, and winit issues `SW_SHOWNOACTIVATE` only for the first
+show of a window built with `with_active(false)`; it then flips an internal
+marker, so every later show is a plain `SW_SHOW`, which activates. Since the
+overlay shows and hides on every key hold, from the second press onward the
+window would take focus and swallow the keystrokes the layer key was held for —
+the same failure described for X11 below. Nothing in winit 0.30 exposes
+`WS_EX_NOACTIVATE` for an application window, and the workspace forbids unsafe,
+so the style cannot be set by hand either.
+
+So on Windows "hidden" means _drawing nothing_: the window keeps its place in
+the stack, transparent and click-through, and hiding drops the texture. Two
+consequences are load-bearing. The clear colour must be fully transparent —
+eframe's default is a translucent grey that no other backend ever shows,
+because they all unmap, but here it would be a permanent rectangle across the
+screen. And resizing must not activate either, which holds: winit's resize path
+passes `SWP_NOACTIVATE`.
 
 On **Linux** there are two windows, chosen at startup by `src/ui/linux.rs` and
 overridable with `KEYMAP_OVERLAY_BACKEND` (`auto`, `layer-shell`, `x11`).
@@ -108,11 +136,13 @@ Hiding is unmapping: the overlay attaches a null buffer, which per the protocol
 returns the layer surface to the state it had when it was created. Showing a
 layer therefore re-sends the layer state, commits without a buffer, and attaches
 the image when the configure that follows arrives. The surface is unmapped
-between key holds, so a hidden overlay is not a window at all.
+between key holds, so a hidden overlay is not a window at all. That holds on
+macOS and Linux; Windows is the exception described above.
 
-The image is presented at its own pixel size on both systems rather than being
-scaled to the display; `DPI` in the Makefile is where an image is sized for a
-screen.
+The image is presented at its own pixel size on all three systems rather than
+being scaled to the display; `DPI` in the Makefile is where an image is sized
+for a screen. Windows reports a scale factor that egui would otherwise apply on
+top, so that backend pins `pixels_per_point` to 1.
 
 ### Requirements on Linux
 
@@ -125,25 +155,47 @@ screen.
   and stop the keyboard from typing, and only hidraw reports the usage page the
   Raw HID interface is selected by.
 
+### Requirements on Windows
+
+- An MSYS2 or Git Bash shell, which is what `make` and the recipes here need,
+  with PowerShell reachable on `PATH` for writing the current user's Run key.
+- Nothing has to be granted to read the keyboard: a vendor-defined HID
+  interface is open to any process, unlike macOS Input Monitoring or the
+  `hidraw` node on Linux. hidapi is built on its own Windows backend, which
+  reports the usage page the Raw HID interface is selected by and needs no C
+  compiler to build.
+
 ## Installation and Autostart
 
 `make install-overlay` performs the following steps:
 
-1. Generates and installs all layer PNG assets in `~/.config/keymap-overlay/`.
+1. On macOS and Linux, uses the `install-assets` target to generate and
+   install all layer PNG assets. On Windows, verifies that WSL has already
+   generated them under `%USERPROFILE%/.config/keymap-overlay/`.
 2. Builds a release binary and installs it as
-   `~/.config/keymap-overlay/keymap-overlay`.
+   `~/.config/keymap-overlay/keymap-overlay` on macOS and Linux, and as
+   `%USERPROFILE%/.config/keymap-overlay/keymap-overlay.exe` on Windows.
 3. Writes the per-user service definition:
    - macOS: the launchd agent
      `~/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist`.
    - Linux: the systemd user unit
      `~/.config/systemd/user/keymap-overlay.service`, wanted by
      `graphical-session.target` because the overlay needs the compositor.
+   - Windows: the current user's `KeymapOverlay` value under
+     `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 4. Restarts the service so updates take effect immediately and starts it at
    future logins.
 
-The two service definitions agree on behaviour: start at login, restart after a
-crash, stay stopped after a clean exit, and pass the log directory in the
-environment.
+All three definitions start at login. macOS and Linux also restart after a
+crash and stay stopped after a clean exit; Windows uses the per-user Run key,
+which starts a fresh overlay at the next login.
+
+Two things are specific to Windows. A running executable is locked there, so
+the service is stopped before the binary is replaced rather than afterwards.
+And the Run key is given no environment, so `KEYMAP_OVERLAY_LOG_DIR`
+cannot be passed the way the plist and the unit pass it; the overlay falls back
+to the same path under `USERPROFILE` instead, and `make install-overlay`
+refuses to run if that variable was overridden.
 
 The overlay writes logs to:
 
@@ -153,8 +205,8 @@ The overlay writes logs to:
 
 Logs rotate at 1 MiB and retain the current file plus three previous files.
 
-`make uninstall-overlay` stops and removes the launchd service, installed
-binary, and generated PNG assets. It keeps the logs for troubleshooting.
+`make uninstall-overlay` stops and removes the login service, installed binary,
+and generated PNG assets. It keeps the logs for troubleshooting.
 
 ## Firmware Workflow
 
@@ -169,6 +221,15 @@ keyboard device
 The shared `firmware/layer_notify.h` helper is copied into the QMK keymap as
 part of the firmware build. It constructs the `KMO` reports described above.
 
+This workflow does not run from the overlay's Windows shell. QMK's toolchain
+there is QMK MSYS, separate from the MSYS2 or Git Bash shell that builds the
+overlay, so `compile`, `flash`, and `flash-keymap` stop with a message pointing
+at QMK MSYS, WSL, macOS, or Linux. This does not prevent manual flashing of an
+already-built `.uf2`: Windows can mount the bootloader's `RPI-RP2` volume and
+copy the file onto it in Explorer. The images and the overlay itself are
+unaffected, so a Windows user builds firmware once elsewhere and does
+everything else natively.
+
 ## Design Decisions
 
 ### VIAL over VIA
@@ -182,7 +243,7 @@ path reads the keymap source compiled into the firmware.
 The runtime loads PNG files rather than SVGs. Rendering happens during the
 build, leaving the overlay with a small and predictable image-loading path.
 
-### Three Windows Rather Than One Toolkit
+### Four Windows Rather Than One Toolkit
 
 eframe runs on Linux too, so the overlay could have had a single window
 implementation. It would not have worked. On Wayland an application window
@@ -192,10 +253,18 @@ cannot ask for an override-redirect window, so what it produces is a managed
 window: measured taking focus every time it appeared, and never receiving the
 always-on-top state it asked for.
 
-So each system gets the window it can actually support, and eframe stays on
-macOS, where it works and where keeping it also keeps egui, glutin and accesskit
-out of the Linux dependency tree.
+So each system gets the window it can actually support. eframe covers macOS and
+Windows, where it works; keeping it off Linux also keeps egui, glutin and
+accesskit out of that dependency tree.
 
-The cost is three windows to maintain, each exercised only by the CI job for its
-own system, and only one of the three — the layer surface — with real guarantees
-behind it.
+Windows and macOS run the same toolkit but not the same file, because the one
+thing that matters most differs between them: macOS hides the window between
+key holds and Windows cannot, for the reasons above. Merging the two behind
+`cfg` attributes would put that difference in the middle of every method rather
+than in one place.
+
+The cost is four windows to maintain, each exercised only by the CI job for its
+own system, and only one of the four — the layer surface — with real guarantees
+behind it. What CI can prove is that each compiles and that the shared logic
+passes; that a window stays on top, passes clicks through and never takes focus
+has always needed a real machine.
