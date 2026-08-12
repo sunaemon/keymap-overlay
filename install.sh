@@ -138,12 +138,12 @@ stage_release() {
 }
 
 verify_attestations_if_available() {
-  if command -v gh >/dev/null 2>&1; then
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     for file in "$@"; do
       gh attestation verify "$file" --repo "$REPOSITORY"
     done
   else
-    echo "NOTE: SHA-256 verified; install GitHub CLI to also verify artifact provenance."
+    echo "NOTE: SHA-256 verified; install and authenticate GitHub CLI to also verify artifact provenance."
   fi
 }
 
@@ -314,7 +314,9 @@ uninstall_linux_service() {
 }
 
 restart_previous_linux_service() {
-  systemctl --user daemon-reload && systemctl --user restart keymap-overlay.service
+  systemctl --user daemon-reload &&
+    systemctl --user enable keymap-overlay.service &&
+    systemctl --user restart keymap-overlay.service
 }
 
 stop_and_remove_service() {

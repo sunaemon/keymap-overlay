@@ -27,6 +27,12 @@ make build-overlay
 make audit
 ```
 
+On Windows PowerShell, also run the installer tests:
+
+```powershell
+Invoke-Pester -Path tests/install.Tests.ps1 -CI
+```
+
 `make format` must leave no diff. Platform UI and login-service changes also
 need the manual checks described in AGENTS.md because CI has no interactive
 desktop or attached keyboard.

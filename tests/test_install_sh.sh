@@ -96,6 +96,14 @@ printf 'launchctl %s\n' "$*" >>"$TEST_COMMAND_LOG"
 exit 0
 EOF
 
+cat >"$FAKE_BIN/gh" <<'EOF'
+#!/bin/sh
+case "$*" in
+  'auth status') exit 1 ;;
+  *) echo "Unexpected unauthenticated gh invocation: $*" >&2; exit 1 ;;
+esac
+EOF
+
 chmod +x \
   "$FAKE_BIN/uname" \
   "$FAKE_BIN/curl" \
@@ -103,7 +111,8 @@ chmod +x \
   "$FAKE_BIN/shasum" \
   "$FAKE_BIN/install" \
   "$FAKE_BIN/systemctl" \
-  "$FAKE_BIN/launchctl"
+  "$FAKE_BIN/launchctl" \
+  "$FAKE_BIN/gh"
 
 assert_file_contains() {
   file=$1
@@ -196,9 +205,30 @@ test_failed_service_install_rolls_back() {
   assert_file_contains "$assets/THIRD-PARTY-LICENSES.html" 'old notices'
   assert_file_contains "$assets/install.sh" 'old installer'
   assert_file_contains "$unit" 'old service'
+  enable_count=$(grep -c '^systemctl --user enable keymap-overlay.service$' "$home/commands.log")
+  test "$enable_count" -eq 2
+}
+
+test_missing_layer_assets_fails_without_installing_files() {
+  home="$TEST_DIRECTORY/no assets home"
+  assets="$home/.config/keymap-overlay"
+  mkdir -p "$assets"
+  : >"$home/commands.log"
+
+  if run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz; then
+    echo 'Expected installation without layer assets to fail.' >&2
+    exit 1
+  fi
+
+  test ! -e "$assets/keymap-overlay"
+  test ! -e "$assets/LICENSE"
+  test ! -e "$assets/THIRD-PARTY-LICENSES.html"
+  test ! -e "$assets/install.sh"
+  test ! -e "$home/.config/systemd/user/keymap-overlay.service"
 }
 
 test_linux_install_and_uninstall
 test_macos_stops_service_before_replacing_binary
 test_failed_service_install_rolls_back
+test_missing_layer_assets_fails_without_installing_files
 echo 'install.sh tests passed'

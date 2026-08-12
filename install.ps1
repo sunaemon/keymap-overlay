@@ -69,7 +69,7 @@ function Initialize-Paths {
     $script:binaryPath = Join-Path $assetDirectory 'keymap-overlay.exe'
     $script:licensePath = Join-Path $assetDirectory 'LICENSE'
     $script:thirdPartyLicensesPath = Join-Path $assetDirectory 'THIRD-PARTY-LICENSES.html'
-    $script:installerPath = Join-Path $assetDirectory 'install.ps'
+    $script:installerPath = Join-Path $assetDirectory 'install.ps1'
     $script:logDirectory = Join-Path $env:USERPROFILE '.local\var\log\keymap-overlay'
 }
 
@@ -97,13 +97,13 @@ function Stage-Release {
     $assetName = 'keymap-overlay-windows-x86_64.zip'
     $archivePath = Join-Path $TemporaryDirectory $assetName
     $checksumsPath = Join-Path $TemporaryDirectory 'SHA256SUMS'
-    $stagedInstallerPath = Join-Path $TemporaryDirectory 'release-install.ps'
+    $stagedInstallerPath = Join-Path $TemporaryDirectory 'release-install.ps1'
     $releaseUrl = "https://github.com/$repository/releases/download/$releaseTag"
     Invoke-WebRequest -Uri "$releaseUrl/$assetName" -OutFile $archivePath
     Invoke-WebRequest -Uri "$releaseUrl/SHA256SUMS" -OutFile $checksumsPath
-    Invoke-WebRequest -Uri "$releaseUrl/install.ps" -OutFile $stagedInstallerPath
+    Invoke-WebRequest -Uri "$releaseUrl/install.ps1" -OutFile $stagedInstallerPath
     Confirm-Checksum -ArchivePath $archivePath -ChecksumsPath $checksumsPath -AssetName $assetName
-    Confirm-Checksum -ArchivePath $stagedInstallerPath -ChecksumsPath $checksumsPath -AssetName 'install.ps'
+    Confirm-Checksum -ArchivePath $stagedInstallerPath -ChecksumsPath $checksumsPath -AssetName 'install.ps1'
     Confirm-AttestationsIfAvailable -Paths @($archivePath, $checksumsPath, $stagedInstallerPath)
     Expand-Archive -LiteralPath $archivePath -DestinationPath $TemporaryDirectory
 
@@ -139,17 +139,26 @@ function Confirm-Checksum {
 function Confirm-AttestationsIfAvailable {
     param([string[]]$Paths)
 
-    if (Get-Command 'gh' -ErrorAction SilentlyContinue) {
-        foreach ($path in $Paths) {
-            & gh attestation verify $path --repo $repository | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                throw "GitHub artifact attestation verification failed for $path with exit code $LASTEXITCODE."
-            }
+    if (-not (Test-GitHubCliAuthentication)) {
+        Write-Host 'NOTE: SHA-256 verified; install and authenticate GitHub CLI to also verify artifact provenance.'
+        return
+    }
+
+    foreach ($path in $Paths) {
+        & gh attestation verify $path --repo $repository | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "GitHub artifact attestation verification failed for $path with exit code $LASTEXITCODE."
         }
     }
-    else {
-        Write-Host 'NOTE: SHA-256 verified; install GitHub CLI to also verify artifact provenance.'
+}
+
+function Test-GitHubCliAuthentication {
+    if (-not (Get-Command 'gh' -ErrorAction SilentlyContinue)) {
+        return $false
     }
+
+    & gh auth status *> $null
+    return $LASTEXITCODE -eq 0
 }
 
 function Backup-Installation {
@@ -171,17 +180,18 @@ function Backup-Installation {
 function Stop-Overlay {
     Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue |
         Stop-Process -PassThru |
-        Wait-Process -Timeout 10
+        Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
 }
 
 function Install-StagedFiles {
     param([string]$TemporaryDirectory)
 
     New-Item -ItemType Directory -Path $assetDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Destination $licensePath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Destination $thirdPartyLicensesPath -Force
-    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps') -Destination $installerPath -Force
+    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Destination $installerPath -Force
 }
 
 function Install-Autostart {

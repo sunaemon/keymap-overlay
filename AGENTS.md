@@ -185,7 +185,7 @@ CI runs four jobs. On Linux it runs `lint`, `format`, `test`,
 `test-installer-sh`, `test-rust` and `build-overlay`, regenerates the
 third-party notices, then fails if any of that produced a diff. On macOS it
 runs `test`, `test-installer-sh`, `test-rust` and `build-overlay`. On Windows it
-runs `test`, the `install.ps` Pester suite, `test-rust` and `build-overlay`; the
+runs `test`, the `install.ps1` Pester suite, `test-rust` and `build-overlay`; the
 other Windows steps set `shell: bash` so the Makefile runs under Git Bash. Each
 job builds only its own windows, so a change to `ui/eframe_window.rs` is
 compiled by the macOS job alone, `ui/windows.rs` by the Windows job alone, and
@@ -339,7 +339,7 @@ Use one-line triple-quoted docstrings for functions and classes, e.g.:
 - `mise.toml`: Pinned tool versions and the `format`/`lint` tasks.
 - `firmware/layer_notify.h`: Raw HID report construction and MO detection.
 - `pyproject.toml`: Python dependencies and tool configurations.
-- `install.sh`, `install.ps`: verified release install, upgrade, rollback, and
+- `install.sh`, `install.ps1`: verified release install, upgrade, rollback, and
   uninstall paths.
 - `.github/workflows/release.yml`: cross-platform archives, checksums,
   attestations, and publishing.

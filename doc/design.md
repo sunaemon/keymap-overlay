@@ -157,9 +157,10 @@ top, so that backend pins `pixels_per_point` to 1.
 
 ### Requirements on Windows
 
-- An MSYS2 UCRT64 shell, which is what `make` and the recipes here need, with
-  MSYS2's Git and GNU Make installed and PowerShell reachable on `PATH` for
-  writing the current user's Run key.
+- Normal release installation through `install.ps1` requires only PowerShell.
+  Make-based source development and builds additionally require an MSYS2
+  UCRT64 shell with MSYS2's Git and GNU Make installed, and PowerShell
+  reachable on `PATH` for writing the current user's Run key.
 - Nothing has to be granted to read the keyboard: a vendor-defined HID
   interface is open to any process, unlike macOS Input Monitoring or the
   `hidraw` node on Linux. hidapi is built on its own Windows backend, which

@@ -9,11 +9,11 @@ notes. Backward compatibility is a goal, not yet a guarantee.
 
 Release CI builds and tests these targets:
 
-| Platform | Release architecture | Runtime expectation |
-| --- | --- | --- |
-| macOS | Apple silicon (`arm64`) | Current GitHub-hosted macOS runner and Input Monitoring permission |
-| Linux | `x86_64` | Wayland with layer shell, or X11/XWayland, plus systemd user services |
-| Windows | `x86_64` | Native Windows overlay installed from PowerShell |
+| Platform | Release architecture    | Runtime expectation                                                   |
+| -------- | ----------------------- | --------------------------------------------------------------------- |
+| macOS    | Apple silicon (`arm64`) | Current GitHub-hosted macOS runner and Input Monitoring permission    |
+| Linux    | `x86_64`                | Wayland with layer shell, or X11/XWayland, plus systemd user services |
+| Windows  | `x86_64`                | Native Windows overlay installed from PowerShell                      |
 
 Firmware compilation and flashing are supported on macOS and Linux. On a
 Windows host, use WSL for firmware and layer-image work; the overlay itself is
