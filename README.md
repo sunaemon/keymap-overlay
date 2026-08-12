@@ -370,12 +370,10 @@ For a foreground UI session, use `make run-overlay`.
 
 ### Windows overlay development with MSYS2
 
-The released Windows overlay is native, so develop it from **MSYS2 MSYS**, not
-WSL. Install Git, MSYS2, mise, and the Microsoft C++ build tools from
-PowerShell:
+The released Windows overlay is native, so develop it from **MSYS2 UCRT64**, not
+WSL. Install MSYS2, mise, and the Microsoft C++ build tools from PowerShell:
 
 ```powershell
-winget install --id Git.Git -e
 winget install --id MSYS2.MSYS2 -e
 winget install --id jdx.mise -e
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
@@ -384,22 +382,28 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait
 Add a Windows Terminal profile with this command line:
 
 ```text
-C:\msys64\msys2_shell.cmd -defterm -here -no-start -msys -use-full-path
+C:\msys64\msys2_shell.cmd -defterm -here -no-start -ucrt64 -use-full-path
 ```
 
-Open that profile, complete the MSYS2 update, and install GNU Make:
+Open that profile and update MSYS2:
 
 ```bash
 pacman -Syu
-pacman -Syu
-pacman -S --needed make
 ```
 
-`-use-full-path` normally exposes Git for Windows. If `git` is still missing:
+Close the UCRT64 shell if the update asks you to, reopen the Windows Terminal
+profile, then finish the update and install MSYS2's Git and GNU Make:
 
 ```bash
-echo 'export PATH="/c/Program Files/Git/cmd:$PATH"' >> ~/.bashrc
-source ~/.bashrc
+pacman -Syu
+pacman -S --needed mingw-w64-ucrt-x86_64-git make
+```
+
+Confirm that the shell is using MSYS2's Git:
+
+```bash
+command -v git
+# /ucrt64/bin/git
 ```
 
 Clone into the Windows profile and set up the native development tools:

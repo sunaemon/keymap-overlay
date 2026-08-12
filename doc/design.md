@@ -157,8 +157,9 @@ top, so that backend pins `pixels_per_point` to 1.
 
 ### Requirements on Windows
 
-- An MSYS2 or Git Bash shell, which is what `make` and the recipes here need,
-  with PowerShell reachable on `PATH` for writing the current user's Run key.
+- An MSYS2 UCRT64 shell, which is what `make` and the recipes here need, with
+  MSYS2's Git and GNU Make installed and PowerShell reachable on `PATH` for
+  writing the current user's Run key.
 - Nothing has to be granted to read the keyboard: a vendor-defined HID
   interface is open to any process, unlike macOS Input Monitoring or the
   `hidraw` node on Linux. hidapi is built on its own Windows backend, which
@@ -222,9 +223,9 @@ The shared `firmware/layer_notify.h` helper is copied into the QMK keymap as
 part of the firmware build. It constructs the `KMO` reports described above.
 
 This workflow does not run from the overlay's Windows shell. QMK's toolchain
-there is QMK MSYS, separate from the MSYS2 or Git Bash shell that builds the
-overlay, so `compile`, `flash`, and `flash-keymap` stop with a message pointing
-at QMK MSYS, WSL, macOS, or Linux. This does not prevent manual flashing of an
+there is QMK MSYS, separate from the MSYS2 UCRT64 shell that builds the overlay,
+so `compile`, `flash`, and `flash-keymap` stop with a message pointing at QMK
+MSYS, WSL, macOS, or Linux. This does not prevent manual flashing of an
 already-built `.uf2`: Windows can mount the bootloader's `RPI-RP2` volume and
 copy the file onto it in Explorer. The images and the overlay itself are
 unaffected, so a Windows user builds firmware once elsewhere and does

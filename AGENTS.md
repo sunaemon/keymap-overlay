@@ -136,9 +136,10 @@ make install-overlay    # Build and install the login service
 
 `make setup` and everything that installs or starts the overlay dispatch on
 `OS_FAMILY`, derived from `uname -s` at the top of the Makefile — `windows`
-covers the `MINGW*` and `MSYS*` that an MSYS2 or Git Bash shell reports. A
-target that differs between the systems gets an `_<action>_$(OS_FAMILY)` helper
-rather than a shell conditional inside one recipe.
+covers the `MINGW*` and `MSYS*` that MSYS2 UCRT64 and the Windows CI shell
+report. A target that differs between the systems gets an
+`_<action>_$(OS_FAMILY)` helper rather than a shell conditional inside one
+recipe.
 
 Windows adds one such helper the other two do not need: `_stop_service_windows`,
 because a running executable is locked there and has to go before the binary is
@@ -158,7 +159,7 @@ deploys to a volume something else already mounted; see `mount_uf2_volume.py`.
 It reads `BOOTLOADER` out of `keyboard.json` the same lazy way as `DEVICE_PID`,
 so targets that never flash do not pay for the lookup.
 
-The overlay build shell on Windows is MSYS2 or Git Bash, not QMK MSYS, so its
+The overlay build shell on Windows is MSYS2 UCRT64, not QMK MSYS, so its
 `make compile`, `make flash`, and `make flash-keymap` targets deliberately stop
 there. This does not prevent manual flashing of an already-built `.uf2`: put
 the keyboard in its bootloader and copy the file onto the mounted `RPI-RP2`
