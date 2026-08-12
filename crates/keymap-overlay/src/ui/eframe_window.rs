@@ -10,7 +10,7 @@ use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 
 use crate::{
     LayerEventSink, ListenerEvent, Transition, image_path, load_image_cache,
-    spawn_raw_hid_listener, transition_for_event,
+    spawn_raw_hid_listener, transition_for_events,
 };
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
@@ -108,15 +108,12 @@ impl OverlayApp {
     }
 
     fn process_events(&mut self, context: &egui::Context) {
-        while let Ok(event) = self.receiver.try_recv() {
-            let transition = transition_for_event(&mut self.held_keys, event);
-            match transition {
-                Transition::Show { keyboard_id, layer } => {
-                    self.show_layer(context, keyboard_id, layer);
-                }
-                Transition::Hide => self.hide(context),
-                Transition::Ignore => {}
+        match transition_for_events(&mut self.held_keys, self.receiver.try_iter()) {
+            Transition::Show { keyboard_id, layer } => {
+                self.show_layer(context, keyboard_id, layer);
             }
+            Transition::Hide => self.hide(context),
+            Transition::Ignore => {}
         }
     }
 
@@ -148,7 +145,12 @@ impl OverlayApp {
     }
 
     fn hide(&mut self, context: &egui::Context) {
+        // The compositor may retain a hidden window's last frame and expose it
+        // briefly when the window is mapped again. Paint an empty frame while
+        // hiding so the next show cannot flash the previous layer.
+        self.texture = None;
         context.send_viewport_cmd(ViewportCommand::Visible(false));
+        context.request_repaint();
     }
 }
 

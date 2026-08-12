@@ -116,6 +116,21 @@ pub(crate) fn transition_for_event(
     }
 }
 
+/// Reduces queued listener events to the one window update their final state needs.
+pub(crate) fn transition_for_events(
+    held_keys: &mut Vec<(u8, u8)>,
+    events: impl IntoIterator<Item = ListenerEvent>,
+) -> Transition {
+    events
+        .into_iter()
+        .filter_map(|event| match transition_for_event(held_keys, event) {
+            Transition::Ignore => None,
+            transition => Some(transition),
+        })
+        .last()
+        .unwrap_or(Transition::Ignore)
+}
+
 pub(crate) fn image_path(assets_dir: &Path, keyboard_id: u8, layer: u8) -> PathBuf {
     assets_dir.join(format!("{keyboard_id}_L{layer}.png"))
 }
@@ -460,6 +475,34 @@ mod tests {
             ),
             Transition::Ignore
         );
+    }
+
+    #[test]
+    fn queued_events_only_expose_their_final_state_to_the_ui() {
+        let mut held_keys = vec![(1, 2)];
+        let events = [
+            ListenerEvent::Layer(RawLayerEvent {
+                keyboard_id: 1,
+                layer: 3,
+                pressed: true,
+            }),
+            ListenerEvent::Layer(RawLayerEvent {
+                keyboard_id: 1,
+                layer: 3,
+                pressed: false,
+            }),
+            ListenerEvent::Layer(RawLayerEvent {
+                keyboard_id: 1,
+                layer: 2,
+                pressed: false,
+            }),
+        ];
+
+        assert_eq!(
+            transition_for_events(&mut held_keys, events),
+            Transition::Hide
+        );
+        assert!(held_keys.is_empty());
     }
 
     #[test]

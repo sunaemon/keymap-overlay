@@ -58,6 +58,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         held_keys: Vec::new(),
         images,
         image: None,
+        pending_transition: Transition::Ignore,
         error: None,
     };
     event_loop
@@ -87,6 +88,7 @@ struct OverlayApp {
     held_keys: Vec<(u8, u8)>,
     images: ImageCache,
     image: Option<Arc<RgbaImage>>,
+    pending_transition: Transition,
     error: Option<anyhow::Error>,
 }
 
@@ -103,6 +105,22 @@ struct X11Renderer {
 }
 
 impl OverlayApp {
+    fn queue_layer_event(&mut self, event: ListenerEvent) {
+        let transition = transition_for_event(&mut self.held_keys, event);
+        if transition != Transition::Ignore {
+            self.pending_transition = transition;
+        }
+    }
+
+    fn apply_pending_transition(&mut self) {
+        let transition = std::mem::replace(&mut self.pending_transition, Transition::Ignore);
+        match transition {
+            Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
+            Transition::Hide => self.hide(),
+            Transition::Ignore => {}
+        }
+    }
+
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
         let attributes = WindowAttributes::default()
             .with_title("Keymap Overlay")
@@ -325,12 +343,11 @@ impl ApplicationHandler<ListenerEvent> for OverlayApp {
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, event: ListenerEvent) {
-        let transition = transition_for_event(&mut self.held_keys, event);
-        match transition {
-            Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
-            Transition::Hide => self.hide(),
-            Transition::Ignore => {}
-        }
+        self.queue_layer_event(event);
+    }
+
+    fn about_to_wait(&mut self, _: &ActiveEventLoop) {
+        self.apply_pending_transition();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {

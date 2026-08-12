@@ -97,7 +97,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     handle
         .insert_source(receiver, |event, _, state: &mut OverlayState| {
             if let ChannelEvent::Msg(layer_event) = event {
-                state.handle_layer_event(layer_event);
+                state.queue_layer_event(layer_event);
             }
         })
         .map_err(|error| anyhow::anyhow!("Failed to watch for layer events: {error}"))?;
@@ -115,6 +115,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         held_keys: Vec::new(),
         images,
         image: None,
+        pending_transition: Transition::Ignore,
         mapped: false,
         closed: false,
     };
@@ -123,6 +124,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         event_loop
             .dispatch(None, &mut state)
             .context("The Wayland event loop failed")?;
+        state.apply_pending_transition();
     }
     // The compositor only closes the surface when it is going away, so let the
     // service manager start us again rather than sitting here without a window.
@@ -151,6 +153,7 @@ struct OverlayState {
     held_keys: Vec<(u8, u8)>,
     images: ImageCache,
     image: Option<Arc<RgbaImage>>,
+    pending_transition: Transition,
     /// Whether a buffer is attached. A layer surface only exists on screen
     /// while one is, and the two states accept different requests.
     mapped: bool,
@@ -158,8 +161,15 @@ struct OverlayState {
 }
 
 impl OverlayState {
-    fn handle_layer_event(&mut self, event: ListenerEvent) {
+    fn queue_layer_event(&mut self, event: ListenerEvent) {
         let transition = transition_for_event(&mut self.held_keys, event);
+        if transition != Transition::Ignore {
+            self.pending_transition = transition;
+        }
+    }
+
+    fn apply_pending_transition(&mut self) {
+        let transition = std::mem::replace(&mut self.pending_transition, Transition::Ignore);
         match transition {
             Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
             Transition::Hide => self.hide(),

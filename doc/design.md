@@ -270,6 +270,11 @@ build, and every installed layer PNG is decoded and cached at startup. Layer
 events therefore only select an in-memory image; they never leave the previous
 layer visible while disk I/O or PNG decoding completes.
 
+Events already waiting when a UI loop wakes are reduced to their final active
+layer before the window changes. Intermediate restores and switches are not
+drawn on the way to a newer layer or a hide, and the macOS window clears its
+last texture while hiding so a later map cannot expose a stale frame.
+
 ### Four Windows Rather Than One Toolkit
 
 eframe runs on Linux too, so the overlay could have had a single window
