@@ -136,9 +136,10 @@ make install-overlay    # Build and install the login service
 
 `make setup` and everything that installs or starts the overlay dispatch on
 `OS_FAMILY`, derived from `uname -s` at the top of the Makefile — `windows`
-covers the `MINGW*` and `MSYS*` that an MSYS2 or Git Bash shell reports. A
-target that differs between the systems gets an `_<action>_$(OS_FAMILY)` helper
-rather than a shell conditional inside one recipe.
+covers the `MINGW*` and `MSYS*` that MSYS2 UCRT64 and the Windows CI shell
+report. A target that differs between the systems gets an
+`_<action>_$(OS_FAMILY)` helper rather than a shell conditional inside one
+recipe.
 
 Windows adds one such helper the other two do not need: `_stop_service_windows`,
 because a running executable is locked there and has to go before the binary is
@@ -158,7 +159,7 @@ deploys to a volume something else already mounted; see `mount_uf2_volume.py`.
 It reads `BOOTLOADER` out of `keyboard.json` the same lazy way as `DEVICE_PID`,
 so targets that never flash do not pay for the lookup.
 
-The overlay build shell on Windows is MSYS2 or Git Bash, not QMK MSYS, so its
+The overlay build shell on Windows is MSYS2 UCRT64, not QMK MSYS, so its
 `make compile`, `make flash`, and `make flash-keymap` targets deliberately stop
 there. This does not prevent manual flashing of an already-built `.uf2`: put
 the keyboard in its bootloader and copy the file onto the mounted `RPI-RP2`
@@ -171,21 +172,24 @@ make format       # Format everything (ruff, cargo fmt, mbake, prettier, taplo, 
 make lint         # ruff check, ty, cargo clippy -D warnings
 make test         # pytest
 make test-rust    # cargo test --workspace
+make test-installer-sh # release installer integration tests with stubbed services
 make build-overlay # cargo build --release -p keymap-overlay
 make audit        # cargo-audit against the RustSec advisory database
+make licenses     # regenerate release third-party license notices
 ```
 
 Force a rebuild of generated artifacts with `make clean` before verifying
 anything that depends on `build/`.
 
-CI runs four jobs. On Linux it runs `lint`, `format`, `test`, `test-rust` and
-`build-overlay`, then fails if formatting produced a diff, so anything you add
-must survive `make format` unchanged. On macOS and on Windows it runs `test`,
-`test-rust` and `build-overlay`; the Windows job sets `shell: bash` so the
-Makefile runs under Git Bash. Each job builds only its own windows, so a change
-to `ui/eframe_window.rs` is compiled by the macOS job alone, `ui/windows.rs` by
-the Windows job alone, and `ui/wayland.rs` or `ui/x11.rs` by the Linux job. A
-fourth job runs `make audit`.
+CI runs four jobs. On Linux it runs `lint`, `format`, `test`,
+`test-installer-sh`, `test-rust` and `build-overlay`, regenerates the
+third-party notices, then fails if any of that produced a diff. On macOS it
+runs `test`, `test-installer-sh`, `test-rust` and `build-overlay`. On Windows it
+runs `test`, the `install.ps1` Pester suite, `test-rust` and `build-overlay`; the
+other Windows steps set `shell: bash` so the Makefile runs under Git Bash. Each
+job builds only its own windows, so a change to `ui/eframe_window.rs` is
+compiled by the macOS job alone, `ui/windows.rs` by the Windows job alone, and
+`ui/wayland.rs` or `ui/x11.rs` by the Linux job. A fourth job runs `make audit`.
 
 Only the Linux job lints, so Windows-only code is never seen by clippy in CI.
 Run `cargo clippy --target x86_64-pc-windows-msvc -p keymap-overlay -- -D warnings`
@@ -201,9 +205,10 @@ GitHub Actions weekly; the tool versions pinned in `mise.toml` and
 
 `make install-overlay` still cannot be exercised in CI, because `launchctl
 bootstrap` and `systemctl --user` need a real login session, and the layer-shell
-window needs a running compositor. Changes to the plist, the systemd unit, the
-Windows Run key, the udev rules, or the window itself have to be verified by
-hand.
+window needs a running compositor. The release-installer tests cover generated
+service files, upgrades, rollback, and uninstall with temporary homes and
+stubbed service commands, but changes to actual service registration, the udev
+rules, or the window itself still have to be verified by hand.
 
 On Windows the check that matters most is that the overlay never takes focus:
 type into a text editor, hold a layer key while continuing to type, and confirm
@@ -334,3 +339,7 @@ Use one-line triple-quoted docstrings for functions and classes, e.g.:
 - `mise.toml`: Pinned tool versions and the `format`/`lint` tasks.
 - `firmware/layer_notify.h`: Raw HID report construction and MO detection.
 - `pyproject.toml`: Python dependencies and tool configurations.
+- `install.sh`, `install.ps1`: verified release install, upgrade, rollback, and
+  uninstall paths.
+- `.github/workflows/release.yml`: cross-platform archives, checksums,
+  attestations, and publishing.

@@ -157,8 +157,10 @@ top, so that backend pins `pixels_per_point` to 1.
 
 ### Requirements on Windows
 
-- An MSYS2 or Git Bash shell, which is what `make` and the recipes here need,
-  with PowerShell reachable on `PATH` for writing the current user's Run key.
+- Normal release installation through `install.ps1` requires only PowerShell.
+  Make-based source development and builds additionally require an MSYS2
+  UCRT64 shell with MSYS2's Git and GNU Make installed, and PowerShell
+  reachable on `PATH` for writing the current user's Run key.
 - Nothing has to be granted to read the keyboard: a vendor-defined HID
   interface is open to any process, unlike macOS Input Monitoring or the
   `hidraw` node on Linux. hidapi is built on its own Windows backend, which
@@ -166,6 +168,22 @@ top, so that backend pins `pixels_per_point` to 1.
   compiler to build.
 
 ## Installation and Autostart
+
+The normal installation path separates generated assets from the native
+application. `make install-assets` builds keyboard-specific PNGs from the
+source checkout. The platform installer then downloads the latest versioned
+release archive, requires a matching entry in `SHA256SUMS`, and, when the
+optional GitHub CLI is present, verifies GitHub artifact attestations. Release
+archives carry the MIT license and generated third-party license notices beside
+the executable.
+
+The installers stop the running service before replacing its binary, preserve
+the previous binary, notices and service definition until the new service
+starts, and restore them if installation fails. Their uninstall modes remove
+the executable, notices and login entry while retaining generated PNGs and logs.
+
+Developers can instead use `make install-overlay`, which performs the following
+source-build workflow:
 
 `make install-overlay` performs the following steps:
 
@@ -222,9 +240,9 @@ The shared `firmware/layer_notify.h` helper is copied into the QMK keymap as
 part of the firmware build. It constructs the `KMO` reports described above.
 
 This workflow does not run from the overlay's Windows shell. QMK's toolchain
-there is QMK MSYS, separate from the MSYS2 or Git Bash shell that builds the
-overlay, so `compile`, `flash`, and `flash-keymap` stop with a message pointing
-at QMK MSYS, WSL, macOS, or Linux. This does not prevent manual flashing of an
+there is QMK MSYS, separate from the MSYS2 UCRT64 shell that builds the overlay,
+so `compile`, `flash`, and `flash-keymap` stop with a message pointing at QMK
+MSYS, WSL, macOS, or Linux. This does not prevent manual flashing of an
 already-built `.uf2`: Windows can mount the bootloader's `RPI-RP2` volume and
 copy the file onto it in Explorer. The images and the overlay itself are
 unaffected, so a Windows user builds firmware once elsewhere and does

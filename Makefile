@@ -6,10 +6,11 @@ SHELL := /bin/bash
 # service, the toolchain packages, and the firmware workflow are not. Every
 # target that differs between the systems dispatches on this.
 #
-# Windows means an MSYS2 or Git Bash shell driving a native Windows build:
-# `uname -s` there reports MINGW64_NT-10.0-… or MSYS_NT-…, which no `ifeq` can
-# match exactly, hence findstring. Compiling and flashing firmware is not
-# supported on it — see `_setup_toolchain_windows`.
+# Windows development uses MSYS2 UCRT64 to drive a native Windows build.
+# `uname -s` there reports MINGW64_NT-10.0-…, which no `ifeq` can match exactly,
+# hence findstring. The MSYS match also keeps the recipes usable in CI.
+# Compiling and flashing firmware is not supported on Windows — see
+# `_setup_toolchain_windows`.
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
 OS_FAMILY := macos
@@ -71,6 +72,7 @@ SUDO ?= sudo
 # bootloader labels its volume differently.
 UF2_VOLUME_LABEL ?= RPI-RP2
 CARGO_AUDIT ?= $(MISE_DEV) exec -- cargo-audit
+CARGO_ABOUT ?= $(MISE_DEV) exec -- cargo-about
 LEFTHOOK ?= $(MISE) exec -- lefthook
 QMK ?= $(QMK_ENV) $(MISE) exec -- qmk
 KEYMAP ?= $(MISE) exec -- keymap
@@ -249,7 +251,7 @@ ifeq ($(OS_FAMILY),windows)
 # delete from /.config/keymap-overlay.
 WINDOWS_USER_HOME := $(shell cygpath -u "$$USERPROFILE" 2>/dev/null)
 ifeq ($(strip $(WINDOWS_USER_HOME)),)
-$(error Could not resolve USERPROFILE with cygpath; run make from an MSYS2 or Git Bash shell)
+$(error Could not resolve USERPROFILE with cygpath; run make from an MSYS2 UCRT64 shell)
 endif
 KEYMAP_OVERLAY_DIR ?= $(WINDOWS_USER_HOME)/.config/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay
@@ -337,7 +339,7 @@ _setup_toolchain_windows:
 	done; \
 	if [ -n "$$missing" ]; then \
 		echo "ERROR: missing required command(s):$$missing"; \
-		echo "Run 'make setup' from an MSYS2 or Git Bash shell on Windows, with"; \
+		echo "Run 'make setup' from an MSYS2 UCRT64 shell on Windows, with"; \
 		echo "the Windows PowerShell directory on PATH."; \
 		exit 1; \
 	fi
@@ -436,9 +438,21 @@ endif
 audit:
 	$(CARGO_AUDIT) audit
 
+# This file ships beside every release binary. Regenerating it in CI keeps
+# additions and upgrades in Cargo.lock from silently dropping their notices.
+.PHONY: licenses
+licenses:
+	$(CARGO_ABOUT) generate doc/third-party-licenses.hbs --workspace --all-features --locked --fail --output-file THIRD-PARTY-LICENSES.html.tmp
+	sed 's/[[:space:]]*$$//' THIRD-PARTY-LICENSES.html.tmp > THIRD-PARTY-LICENSES.html
+	rm THIRD-PARTY-LICENSES.html.tmp
+
 .PHONY: test
 test:
 	$(UV) run pytest
+
+.PHONY: test-installer-sh
+test-installer-sh:
+	./tests/test_install_sh.sh
 
 .PHONY: test-rust
 test-rust:

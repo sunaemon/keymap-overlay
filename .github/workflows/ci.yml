@@ -47,8 +47,14 @@ jobs:
       - name: Run Format
         run: mise run format
 
+      - name: Regenerate third-party license notices
+        run: make licenses
+
       - name: Run Tests
         run: make test
+
+      - name: Test release installer
+        run: make test-installer-sh
 
       - name: Run Rust Tests
         run: make test-rust
@@ -84,6 +90,9 @@ jobs:
 
       - name: Run Tests
         run: make test
+
+      - name: Test release installer
+        run: make test-installer-sh
 
       - name: Run Rust Tests
         run: make test-rust
@@ -126,6 +135,12 @@ jobs:
 
       - name: Run Tests
         run: make test
+
+      - name: Test release installer
+        shell: powershell
+        run: |
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+          Invoke-Pester -Path tests/install.Tests.ps1 -CI
 
       - name: Run Rust Tests
         run: make test-rust
