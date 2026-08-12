@@ -1,6 +1,6 @@
 [project]
 name = "keymap-overlay"
-version = "0.1.0"
+version = "0.0.1"
 description = "Generates QMK keymap layer images for the keymap-overlay app"
 
 readme = "README.md"

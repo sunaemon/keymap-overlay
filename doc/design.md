@@ -168,6 +168,22 @@ top, so that backend pins `pixels_per_point` to 1.
 
 ## Installation and Autostart
 
+The normal installation path separates generated assets from the native
+application. `make install-assets` builds keyboard-specific PNGs from the
+source checkout. The platform installer then downloads the latest versioned
+release archive, requires a matching entry in `SHA256SUMS`, and, when the
+optional GitHub CLI is present, verifies GitHub artifact attestations. Release
+archives carry the MIT license and generated third-party license notices beside
+the executable.
+
+The installers stop the running service before replacing its binary, preserve
+the previous binary, notices and service definition until the new service
+starts, and restore them if installation fails. Their uninstall modes remove
+the executable, notices and login entry while retaining generated PNGs and logs.
+
+Developers can instead use `make install-overlay`, which performs the following
+source-build workflow:
+
 `make install-overlay` performs the following steps:
 
 1. On macOS and Linux, uses the `install-assets` target to generate and

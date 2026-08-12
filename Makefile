@@ -72,6 +72,7 @@ SUDO ?= sudo
 # bootloader labels its volume differently.
 UF2_VOLUME_LABEL ?= RPI-RP2
 CARGO_AUDIT ?= $(MISE_DEV) exec -- cargo-audit
+CARGO_ABOUT ?= $(MISE_DEV) exec -- cargo-about
 LEFTHOOK ?= $(MISE) exec -- lefthook
 QMK ?= $(QMK_ENV) $(MISE) exec -- qmk
 KEYMAP ?= $(MISE) exec -- keymap
@@ -437,9 +438,21 @@ endif
 audit:
 	$(CARGO_AUDIT) audit
 
+# This file ships beside every release binary. Regenerating it in CI keeps
+# additions and upgrades in Cargo.lock from silently dropping their notices.
+.PHONY: licenses
+licenses:
+	$(CARGO_ABOUT) generate doc/third-party-licenses.hbs --workspace --all-features --locked --fail --output-file THIRD-PARTY-LICENSES.html.tmp
+	sed 's/[[:space:]]*$$//' THIRD-PARTY-LICENSES.html.tmp > THIRD-PARTY-LICENSES.html
+	rm THIRD-PARTY-LICENSES.html.tmp
+
 .PHONY: test
 test:
 	$(UV) run pytest
+
+.PHONY: test-installer-sh
+test-installer-sh:
+	./tests/test_install_sh.sh
 
 .PHONY: test-rust
 test-rust:

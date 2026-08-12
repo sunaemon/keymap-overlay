@@ -4,6 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Example: GPL-2.0-or-later](https://img.shields.io/badge/Example-GPL--2.0--or--later-blue.svg)](example/LICENSE)
 [![Platform: macOS | Linux | Windows](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
+[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#project-status)
 
 This project builds QMK firmware that reports momentary layer changes over Raw
 HID, generates one PNG for each keymap layer, and displays the active layer in
@@ -13,6 +14,15 @@ a native overlay on macOS, Linux, and Windows.
 
 See [doc/design.md](doc/design.md) for the protocol, data flow, and windowing
 design.
+
+## Project Status
+
+keymap-overlay is **beta software, tested on the maintainer's systems**. The
+core workflow is usable, but compatibility and installation behavior may still
+change before 1.0. Please report problems through
+[GitHub Issues](https://github.com/sunaemon/keymap-overlay/issues); see
+[the compatibility policy](doc/compatibility.md) for the currently tested
+platforms and stability guarantees.
 
 ## How Installation Is Split
 
@@ -26,8 +36,9 @@ The normal workflow deliberately uses two distribution models:
   `install.ps` downloads the latest native binary and registers it to start at
   login. A normal installation does not compile the Rust overlay locally.
 
-The release archive contains only the overlay executable. It does not contain
-firmware or keyboard-specific PNGs.
+Each release archive contains the overlay executable, the MIT license, and
+third-party license notices. It does not contain firmware or keyboard-specific
+PNGs.
 
 This repository currently includes configurations for
 `salicylic_acid3/insixty_en` and `doio/kb16/rev2`. Each directory under
@@ -131,17 +142,46 @@ when prompted.
 ### 4. Install the latest overlay release
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/sunaemon/keymap-overlay/main/install.sh
-sh install.sh
+latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+  https://github.com/sunaemon/keymap-overlay/releases/latest)"
+tag=${latest_url##*/}
+printf '%s\n' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
+  echo "Invalid release tag: $tag" >&2
+  exit 1
+}
+base="https://github.com/sunaemon/keymap-overlay/releases/download/$tag"
+temporary_directory="$(mktemp -d)"
+installer="$temporary_directory/install.sh"
+checksums="$temporary_directory/SHA256SUMS"
+curl -fsSL "$base/install.sh" -o "$installer"
+curl -fsSL "$base/SHA256SUMS" -o "$checksums"
+expected="$(awk '$2 == "install.sh" || $2 == "*install.sh" { print $1 }' "$checksums")"
+case "$(uname -s)" in
+  Darwin) actual="$(shasum -a 256 "$installer" | awk '{ print $1 }')" ;;
+  Linux) actual="$(sha256sum "$installer" | awk '{ print $1 }')" ;;
+  *) echo 'Unsupported platform' >&2; exit 1 ;;
+esac
+[ "${#expected}" -eq 64 ] && [ "$actual" = "$expected" ] || {
+  echo 'install.sh checksum verification failed' >&2
+  exit 1
+}
+if command -v gh >/dev/null 2>&1; then
+  gh attestation verify "$installer" --repo sunaemon/keymap-overlay || exit 1
+  gh attestation verify "$checksums" --repo sunaemon/keymap-overlay || exit 1
+fi
+sh "$installer"
 ```
 
 The installer selects the release for the current OS and architecture,
-installs the executable, registers the launchd agent or systemd user unit, and
-starts it. It prints every installed path when complete. Logs are written to
-`~/.local/var/log/keymap-overlay/overlay.log` and rotate at 1 MiB, retaining
-the current file and three previous files.
+downloads it from an immutable versioned release URL, verifies the required
+SHA-256 checksum, installs the executable and license notices, registers the
+launchd agent or systemd user unit, and starts it. If GitHub CLI (`gh`) is
+available, it also verifies GitHub's artifact attestations; `gh` is optional.
+The installer prints every installed path when complete. Logs are written to
+`~/.local/var/log/keymap-overlay/overlay.log` and rotate at 1 MiB, retaining the
+current file and three previous files.
 
-Run `sh install.sh` again to upgrade to the latest release.
+Run `sh ~/.config/keymap-overlay/install.sh` to upgrade to the latest release.
 
 ## Install on Windows
 
@@ -237,17 +277,58 @@ Run this again after changing the keymap.
 Download and run `install.ps` from PowerShell:
 
 ```powershell
+$release = Invoke-RestMethod -Uri "https://api.github.com/repos/sunaemon/keymap-overlay/releases/latest"
+$tag = $release.tag_name
+if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "Invalid release tag: $tag" }
+$base = "https://github.com/sunaemon/keymap-overlay/releases/download/$tag"
 $installer = Join-Path $env:TEMP "keymap-overlay-install.ps"
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sunaemon/keymap-overlay/main/install.ps" -OutFile $installer
+$checksums = Join-Path $env:TEMP "keymap-overlay-SHA256SUMS"
+Invoke-WebRequest -Uri "$base/install.ps" -OutFile $installer
+Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile $checksums
+$line = Get-Content $checksums | Where-Object { $_ -match '^[0-9a-fA-F]{64}\s+\*?install\.ps$' } | Select-Object -First 1
+if (-not $line) { throw 'SHA256SUMS has no checksum for install.ps' }
+$expected = ($line -split '\s+')[0]
+$actual = (Get-FileHash $installer -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw 'install.ps checksum verification failed' }
+if (Get-Command gh -ErrorAction SilentlyContinue) {
+    gh attestation verify $installer --repo sunaemon/keymap-overlay
+    if ($LASTEXITCODE -ne 0) { throw 'install.ps attestation verification failed' }
+    gh attestation verify $checksums --repo sunaemon/keymap-overlay
+    if ($LASTEXITCODE -ne 0) { throw 'SHA256SUMS attestation verification failed' }
+}
 powershell.exe -ExecutionPolicy Bypass -File $installer
 ```
 
 The installer downloads the Windows x86_64 release, installs it under
 `%USERPROFILE%\.config\keymap-overlay`, registers the current user's
 `KeymapOverlay` Run value, starts the overlay, and prints every installed
-location. No administrator PowerShell is needed for this step.
+location. The SHA-256 checksum is always verified; when optional GitHub CLI is
+installed, the attestation is verified too. No administrator PowerShell is
+needed for this step.
 
-Run the same command again to upgrade to the latest release.
+To upgrade later, run the installer saved during installation:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File "$env:USERPROFILE\.config\keymap-overlay\install.ps"
+```
+
+## Uninstalling the Released Overlay
+
+On macOS or Linux:
+
+```bash
+sh ~/.config/keymap-overlay/install.sh --uninstall
+```
+
+On Windows:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File "$env:USERPROFILE\.config\keymap-overlay\install.ps" -Uninstall
+```
+
+Uninstalling stops and removes the overlay executable, installed license
+notices, and login entry. Generated layer PNGs and rotated logs are retained so
+they can be reused after reinstalling or inspected for troubleshooting.
 
 ## Updating a Keymap
 
@@ -447,7 +528,12 @@ make test
 make test-rust
 make build-overlay
 make audit
+make test-installer-sh
 ```
+
+Windows additionally tests `install.ps` with Pester in CI. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and
+[doc/releasing.md](doc/releasing.md) for the release checklist.
 
 On Windows, verify that the overlay never takes focus: type into an editor,
 hold a layer key while continuing to type, and confirm every keystroke remains
@@ -458,4 +544,5 @@ appear only after the second display.
 
 Keymap files in `example/` are licensed under GPL-2.0-or-later. The tools and
 scripts are licensed under the MIT License. See [LICENSE](LICENSE) and
-[example/LICENSE](example/LICENSE).
+[example/LICENSE](example/LICENSE). Binary releases include both the MIT
+license and generated [third-party license notices](THIRD-PARTY-LICENSES.html).

@@ -1,45 +1,239 @@
-$ErrorActionPreference = 'Stop'
+param(
+    [switch]$Uninstall
+)
 
+$ErrorActionPreference = 'Stop'
 $repository = 'sunaemon/keymap-overlay'
-$assetDirectory = Join-Path $env:USERPROFILE '.config\keymap-overlay'
-$binaryPath = Join-Path $assetDirectory 'keymap-overlay.exe'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $runValue = 'KeymapOverlay'
 
-if (-not (Get-ChildItem -LiteralPath $assetDirectory -Filter '*.png' -File -ErrorAction SilentlyContinue)) {
-    throw "No layer PNGs found in $assetDirectory. Generate assets from a source checkout before installing the binary."
+function Main {
+    param([switch]$Remove)
+
+    Initialize-Paths
+    if ($Remove) {
+        Uninstall-Release
+        return
+    }
+
+    Install-Release
 }
 
-if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
-    throw "No release binary is available for Windows $env:PROCESSOR_ARCHITECTURE."
+function Install-Release {
+    Assert-SupportedPlatform
+    Assert-LayerAssets
+
+    $temporaryDirectory = Join-Path $env:TEMP "keymap-overlay-$([guid]::NewGuid())"
+    New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
+
+    try {
+        $release = Stage-Release -TemporaryDirectory $temporaryDirectory
+        $backupDirectory = Join-Path $temporaryDirectory 'backup'
+        Backup-Installation -BackupDirectory $backupDirectory
+        Stop-Overlay
+
+        try {
+            Install-StagedFiles -TemporaryDirectory $temporaryDirectory
+            Install-Autostart
+        }
+        catch {
+            Stop-Overlay
+            Restore-Installation -BackupDirectory $backupDirectory
+            Restart-PreviousInstallation
+            throw "Installation failed and the previous installation was restored: $($_.Exception.Message)"
+        }
+
+        Write-InstalledFiles -ReleaseTag $release
+    }
+    finally {
+        Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
-$temporaryDirectory = Join-Path $env:TEMP "keymap-overlay-$([guid]::NewGuid())"
-New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
+function Uninstall-Release {
+    Stop-Overlay
+    Remove-ItemProperty -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $binaryPath, $licensePath, $thirdPartyLicensesPath, $installerPath -Force -ErrorAction SilentlyContinue
 
-try {
+    Write-Output 'Removed:'
+    Write-Output "  binary: $binaryPath"
+    Write-Output "  licenses: $licensePath, $thirdPartyLicensesPath"
+    Write-Output "  installer: $installerPath"
+    Write-Output "  autostart: $runKey\$runValue"
+    Write-Output "Kept layer PNGs: $assetDirectory"
+    Write-Output "Kept logs: $logDirectory"
+}
+
+function Initialize-Paths {
+    $script:assetDirectory = Join-Path $env:USERPROFILE '.config\keymap-overlay'
+    $script:binaryPath = Join-Path $assetDirectory 'keymap-overlay.exe'
+    $script:licensePath = Join-Path $assetDirectory 'LICENSE'
+    $script:thirdPartyLicensesPath = Join-Path $assetDirectory 'THIRD-PARTY-LICENSES.html'
+    $script:installerPath = Join-Path $assetDirectory 'install.ps'
+    $script:logDirectory = Join-Path $env:USERPROFILE '.local\var\log\keymap-overlay'
+}
+
+function Assert-SupportedPlatform {
+    if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
+        throw "No release binary is available for Windows $env:PROCESSOR_ARCHITECTURE."
+    }
+}
+
+function Assert-LayerAssets {
+    if (-not (Get-ChildItem -LiteralPath $assetDirectory -Filter '*.png' -File -ErrorAction SilentlyContinue)) {
+        throw "No layer PNGs found in $assetDirectory. Generate assets from a source checkout before installing the binary."
+    }
+}
+
+function Stage-Release {
+    param([string]$TemporaryDirectory)
+
+    $releaseMetadata = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases/latest"
+    $releaseTag = $releaseMetadata.tag_name
+    if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') {
+        throw "Latest release returned invalid tag '$releaseTag'."
+    }
+
     $assetName = 'keymap-overlay-windows-x86_64.zip'
-    $archivePath = Join-Path $temporaryDirectory $assetName
-    $downloadUrl = "https://github.com/$repository/releases/latest/download/$assetName"
+    $archivePath = Join-Path $TemporaryDirectory $assetName
+    $checksumsPath = Join-Path $TemporaryDirectory 'SHA256SUMS'
+    $stagedInstallerPath = Join-Path $TemporaryDirectory 'release-install.ps'
+    $releaseUrl = "https://github.com/$repository/releases/download/$releaseTag"
+    Invoke-WebRequest -Uri "$releaseUrl/$assetName" -OutFile $archivePath
+    Invoke-WebRequest -Uri "$releaseUrl/SHA256SUMS" -OutFile $checksumsPath
+    Invoke-WebRequest -Uri "$releaseUrl/install.ps" -OutFile $stagedInstallerPath
+    Confirm-Checksum -ArchivePath $archivePath -ChecksumsPath $checksumsPath -AssetName $assetName
+    Confirm-Checksum -ArchivePath $stagedInstallerPath -ChecksumsPath $checksumsPath -AssetName 'install.ps'
+    Confirm-AttestationsIfAvailable -Paths @($archivePath, $checksumsPath, $stagedInstallerPath)
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $TemporaryDirectory
 
-    Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $temporaryDirectory
+    foreach ($name in @('keymap-overlay.exe', 'LICENSE', 'THIRD-PARTY-LICENSES.html')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $TemporaryDirectory $name) -PathType Leaf)) {
+            throw "$assetName does not contain $name."
+        }
+    }
 
-    Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue | Stop-Process
+    return $releaseTag
+}
+
+function Confirm-Checksum {
+    param(
+        [string]$ArchivePath,
+        [string]$ChecksumsPath,
+        [string]$AssetName
+    )
+
+    $escapedName = [regex]::Escape($AssetName)
+    $line = Get-Content -LiteralPath $ChecksumsPath | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s+\*?$escapedName$" } | Select-Object -First 1
+    if (-not $line) {
+        throw "SHA256SUMS has no checksum for $AssetName."
+    }
+
+    $expected = ($line -split '\s+')[0]
+    $actual = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
+    if ($actual -ne $expected) {
+        throw "SHA-256 verification failed for $AssetName."
+    }
+}
+
+function Confirm-AttestationsIfAvailable {
+    param([string[]]$Paths)
+
+    if (Get-Command 'gh' -ErrorAction SilentlyContinue) {
+        foreach ($path in $Paths) {
+            & gh attestation verify $path --repo $repository | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "GitHub artifact attestation verification failed for $path with exit code $LASTEXITCODE."
+            }
+        }
+    }
+    else {
+        Write-Host 'NOTE: SHA-256 verified; install GitHub CLI to also verify artifact provenance.'
+    }
+}
+
+function Backup-Installation {
+    param([string]$BackupDirectory)
+
+    New-Item -ItemType Directory -Path $BackupDirectory | Out-Null
+    foreach ($path in @($binaryPath, $licensePath, $thirdPartyLicensesPath, $installerPath)) {
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            Copy-Item -LiteralPath $path -Destination $BackupDirectory
+        }
+    }
+
+    $runCommand = Get-ItemPropertyValue -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
+    if ($null -ne $runCommand) {
+        Set-Content -LiteralPath (Join-Path $BackupDirectory 'run-command.txt') -Value $runCommand
+    }
+}
+
+function Stop-Overlay {
+    Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue |
+        Stop-Process -PassThru |
+        Wait-Process -Timeout 10
+}
+
+function Install-StagedFiles {
+    param([string]$TemporaryDirectory)
+
     New-Item -ItemType Directory -Path $assetDirectory -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $temporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
+    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
+    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Destination $licensePath -Force
+    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Destination $thirdPartyLicensesPath -Force
+    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps') -Destination $installerPath -Force
+}
 
+function Install-Autostart {
     $quotedBinary = '"{0}"' -f $binaryPath
     $quotedAssets = '"{0}"' -f $assetDirectory
     Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary $quotedAssets"
     Start-Process -FilePath $binaryPath -ArgumentList $quotedAssets
+}
+
+function Restore-Installation {
+    param([string]$BackupDirectory)
+
+    foreach ($path in @($binaryPath, $licensePath, $thirdPartyLicensesPath, $installerPath)) {
+        $backup = Join-Path $BackupDirectory (Split-Path -Leaf $path)
+        if (Test-Path -LiteralPath $backup -PathType Leaf) {
+            Copy-Item -LiteralPath $backup -Destination $path -Force
+        }
+        else {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $runCommandPath = Join-Path $BackupDirectory 'run-command.txt'
+    if (Test-Path -LiteralPath $runCommandPath -PathType Leaf) {
+        Set-ItemProperty -Path $runKey -Name $runValue -Value (Get-Content -LiteralPath $runCommandPath -Raw).Trim()
+    }
+    else {
+        Remove-ItemProperty -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
+    }
+}
+
+function Restart-PreviousInstallation {
+    if (Test-Path -LiteralPath $binaryPath -PathType Leaf) {
+        $quotedAssets = '"{0}"' -f $assetDirectory
+        Start-Process -FilePath $binaryPath -ArgumentList $quotedAssets
+    }
+}
+
+function Write-InstalledFiles {
+    param([string]$ReleaseTag)
 
     Write-Output 'Installed:'
     Write-Output "  binary: $binaryPath"
+    Write-Output "  license: $licensePath"
+    Write-Output "  third-party licenses: $thirdPartyLicensesPath"
+    Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
     Write-Output "Using existing layer PNGs: $assetDirectory"
-    Write-Output "Logs: $(Join-Path $env:USERPROFILE '.local\var\log\keymap-overlay')"
+    Write-Output "Logs: $logDirectory"
+    Write-Output "Verified release: $ReleaseTag"
 }
-finally {
-    Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
+
+if ($MyInvocation.InvocationName -ne '.') {
+    Main -Remove:$Uninstall
 }

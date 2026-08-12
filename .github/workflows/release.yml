@@ -51,27 +51,40 @@ jobs:
       - name: Build release binary
         run: mise exec -- cargo build --release -p keymap-overlay
 
-      - name: Package binary
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          release_version="${RELEASE_TAG#v}"
+          cargo_version="$(mise exec -- cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "keymap-overlay") | .version')"
+          python_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml)"
+          if [ "$RELEASE_TAG" = "$release_version" ] || [ "$cargo_version" != "$release_version" ] || [ "$python_version" != "$release_version" ]; then
+            echo "ERROR: tag $RELEASE_TAG, Cargo $cargo_version and Python $python_version must use the same vMAJOR.MINOR.PATCH version." >&2
+            exit 1
+          fi
+
+      - name: Package binary and notices
         id: package
         run: |
-          mkdir -p dist
+          mkdir -p dist/package
           dist="$PWD/dist"
           arch="$(uname -m)"
           case "$RUNNER_OS" in
             Windows)
               asset="keymap-overlay-windows-${arch}.zip"
-              # 7z stores the path as given, so it runs from the directory
-              # holding the binary; the two tar branches use -C for the same
-              # reason. All three archives then hold one bare executable.
-              (cd target/release && 7z a "$dist/$asset" keymap-overlay.exe)
+              cp target/release/keymap-overlay.exe dist/package/
+              cp LICENSE THIRD-PARTY-LICENSES.html dist/package/
+              (cd dist/package && 7z a "$dist/$asset" keymap-overlay.exe LICENSE THIRD-PARTY-LICENSES.html)
               ;;
             macOS)
               asset="keymap-overlay-macos-${arch}.tar.gz"
-              tar -C target/release -czf "dist/$asset" keymap-overlay
+              cp target/release/keymap-overlay LICENSE THIRD-PARTY-LICENSES.html dist/package/
+              tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE THIRD-PARTY-LICENSES.html
               ;;
             Linux)
               asset="keymap-overlay-linux-${arch}.tar.gz"
-              tar -C target/release -czf "dist/$asset" keymap-overlay
+              cp target/release/keymap-overlay LICENSE THIRD-PARTY-LICENSES.html dist/package/
+              tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE THIRD-PARTY-LICENSES.html
               ;;
           esac
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
@@ -88,18 +101,34 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      attestations: write
+      id-token: write
+      artifact-metadata: write
       contents: write
 
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - name: Download release assets
         uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
 
-      # This job checks out nothing, so `gh` has no git remote to infer the
-      # repository from; GH_REPO tells it directly. Without it, every command
-      # below that does not name the repository in its URL fails outright.
+      - name: Add installers and SHA-256 checksums
+        run: |
+          cp install.sh install.ps release/
+          (cd release && sha256sum keymap-overlay-* install.sh install.ps > SHA256SUMS)
+
+      - name: Attest release files
+        uses: actions/attest@v4
+        with:
+          subject-path: release/*
+
+      # GH_REPO keeps gh independent of the checkout's remote configuration.
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
