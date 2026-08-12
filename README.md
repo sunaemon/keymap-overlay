@@ -63,39 +63,15 @@ git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 ```
 
-Install [mise](https://mise.jdx.dev/installing-mise.html) with the platform
-package manager.
-
-On macOS with Homebrew:
+Install mise with its official installer:
 
 ```bash
-brew install mise
+curl https://mise.run | sh
 ```
 
-On Arch Linux:
-
-```bash
-sudo pacman -S mise
-```
-
-On Ubuntu 26.04 or later:
-
-```bash
-sudo add-apt-repository -y ppa:jdxcode/mise
-sudo apt-get update
-sudo apt-get install --yes mise
-```
-
-On Ubuntu 22.04 through 25.10, enable the mise repository with `extrepo`
-instead:
-
-```bash
-sudo apt-get update
-sudo apt-get install --yes extrepo
-sudo extrepo enable mise
-sudo apt-get update
-sudo apt-get install --yes mise
-```
+See [Installing mise](https://mise.jdx.dev/installing-mise.html) for package
+manager and other installation methods. Start a new shell if `mise` is not yet
+available on `PATH`.
 
 Install the pinned tools and QMK toolchain:
 
