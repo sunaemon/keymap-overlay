@@ -1,0 +1,41 @@
+$ErrorActionPreference = 'Stop'
+
+$repository = 'sunaemon/keymap-overlay'
+$assetDirectory = Join-Path $env:USERPROFILE '.config\keymap-overlay'
+$binaryPath = Join-Path $assetDirectory 'keymap-overlay.exe'
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$runValue = 'KeymapOverlay'
+
+if (-not (Get-ChildItem -LiteralPath $assetDirectory -Filter '*.png' -File -ErrorAction SilentlyContinue)) {
+    throw "No layer PNGs found in $assetDirectory. Generate assets from a source checkout before installing the binary."
+}
+
+if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
+    throw "No release binary is available for Windows $env:PROCESSOR_ARCHITECTURE."
+}
+
+$temporaryDirectory = Join-Path $env:TEMP "keymap-overlay-$([guid]::NewGuid())"
+New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
+
+try {
+    $assetName = 'keymap-overlay-windows-x86_64.zip'
+    $archivePath = Join-Path $temporaryDirectory $assetName
+    $downloadUrl = "https://github.com/$repository/releases/latest/download/$assetName"
+
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $temporaryDirectory
+
+    Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue | Stop-Process
+    New-Item -ItemType Directory -Path $assetDirectory -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $temporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
+
+    $quotedBinary = '"{0}"' -f $binaryPath
+    $quotedAssets = '"{0}"' -f $assetDirectory
+    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary $quotedAssets"
+    Start-Process -FilePath $binaryPath -ArgumentList $quotedAssets
+
+    Write-Output "Installed the latest release to $binaryPath."
+}
+finally {
+    Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
+}

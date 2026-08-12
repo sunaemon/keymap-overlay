@@ -29,6 +29,20 @@ directory; the Windows workflow below uses
 `%USERPROFILE%/.config/keymap-overlay`. The source checkout is therefore only
 needed to generate or update those assets, not to build the overlay binary.
 
+After generating assets, install the latest release and register its login
+autostart entry without building from source:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/sunaemon/keymap-overlay/main/install.sh
+sh install.sh
+```
+
+On Windows, download [install.ps](install.ps) and run it from PowerShell:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\install.ps
+```
+
 This repo is set up for the `salicylic_acid3/insixty_en` and `doio/kb16/rev2` keyboards, but the workflow should work for any QMK-compatible keyboard with minor configuration changes. Keyboard configurations are stored in the `example/` directory (configurable via `KEYBOARDS_DIR` in the `Makefile`).
 
 Each keyboard lives in a directory named after its `KEYBOARD_ID`. That ID is compiled into the firmware and travels in one byte of the Raw HID report, so it must be an **integer between 0 and 255** — `example/1`, `example/2`, and so on.
