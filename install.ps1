@@ -37,10 +37,17 @@ function Install-Release {
             Install-Autostart
         }
         catch {
-            Stop-Overlay
-            Restore-Installation -BackupDirectory $backupDirectory
-            Restart-PreviousInstallation
-            throw "Installation failed and the previous installation was restored: $($_.Exception.Message)"
+            $installationError = $_.Exception.Message
+            $rollbackErrors = @()
+
+            try { Stop-Overlay } catch { $rollbackErrors += "stopping the overlay: $($_.Exception.Message)" }
+            try { Restore-Installation -BackupDirectory $backupDirectory } catch { $rollbackErrors += "restoring files: $($_.Exception.Message)" }
+            try { Restart-PreviousInstallation } catch { $rollbackErrors += "restarting the previous installation: $($_.Exception.Message)" }
+
+            if ($rollbackErrors.Count -gt 0) {
+                throw "Installation failed: $installationError. Rollback also failed while $($rollbackErrors -join '; ')."
+            }
+            throw "Installation failed and the previous installation was restored: $installationError"
         }
 
         Write-InstalledFiles -ReleaseTag $release
@@ -178,9 +185,18 @@ function Backup-Installation {
 }
 
 function Stop-Overlay {
-    Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue |
-        Stop-Process -PassThru |
-        Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+    $processes = @(Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue)
+    if ($processes.Count -eq 0) {
+        return
+    }
+
+    $processes | Stop-Process -Force
+    try {
+        $processes | Wait-Process -Timeout 10
+    }
+    catch {
+        throw 'The running keymap-overlay process did not stop within 10 seconds.'
+    }
 }
 
 function Install-StagedFiles {

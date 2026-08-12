@@ -11,6 +11,7 @@ from scripts.mount_uf2_volume import (
     elevate,
     is_deployable,
     target_mount_point,
+    unmount_uf2_volume,
     wait_for_device,
 )
 from scripts.mount_uf2_volume import (
@@ -132,6 +133,55 @@ def test_a_mount_that_did_not_take_is_reported(
 
     with pytest.raises(Uf2VolumeError, match="INFO_UF2.TXT"):
         mount_volume(label="RPI-RP2", timeout=0.0, sudo="sudo")
+
+
+def test_unmounts_a_volume_that_remains_after_flashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unmounts a UF2 volume that remains mounted after flashing."""
+    target = tmp_path / "RPI-RP2"
+    unmounted: list[tuple[Path, str]] = []
+    monkeypatch.setattr(mount_uf2_volume, "target_mount_point", lambda _label: target)
+    monkeypatch.setattr(
+        mount_uf2_volume, "source_of_mount_point", lambda _path: Path("/dev/sda1")
+    )
+    monkeypatch.setattr(
+        mount_uf2_volume,
+        "unmount",
+        lambda path, sudo: unmounted.append((path, sudo)),
+    )
+
+    unmount_uf2_volume(label="RPI-RP2", sudo="sudo")
+
+    assert unmounted == [(target, "sudo")]
+
+
+def test_an_already_disconnected_volume_needs_no_unmount(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Leaves an already disconnected UF2 volume alone."""
+    monkeypatch.setattr(mount_uf2_volume, "target_mount_point", lambda _label: tmp_path)
+    monkeypatch.setattr(mount_uf2_volume, "source_of_mount_point", lambda _path: None)
+    monkeypatch.setattr(
+        mount_uf2_volume,
+        "unmount",
+        lambda *_args: pytest.fail("an absent volume must not be unmounted"),
+    )
+
+    unmount_uf2_volume(label="RPI-RP2", sudo="sudo")
+
+
+def test_an_unmount_failure_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reports an unmount command that leaves the volume mounted."""
+    monkeypatch.setattr(mount_uf2_volume, "run", lambda _command: None)
+    monkeypatch.setattr(
+        mount_uf2_volume, "source_of_mount_point", lambda _path: Path("/dev/sda1")
+    )
+
+    with pytest.raises(Uf2VolumeError, match="Could not unmount"):
+        mount_uf2_volume.unmount(tmp_path, "sudo")
 
 
 def test_elevation_is_skipped_when_it_would_be_pointless(

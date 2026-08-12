@@ -98,6 +98,27 @@ Describe 'install.ps1' {
         $logDirectory | Should -Exist
     }
 
+    It 'forces the running overlay to stop and waits for it' {
+        $process = [pscustomobject]@{ Id = 1234 }
+        Mock Get-Process { @($process) } -ParameterFilter { $Name -eq 'keymap-overlay' }
+        Mock Stop-Process
+        Mock Wait-Process
+
+        Stop-Overlay
+
+        Should -Invoke Stop-Process -Times 1 -ParameterFilter { $Force }
+        Should -Invoke Wait-Process -Times 1 -ParameterFilter { $Timeout -eq 10 }
+    }
+
+    It 'fails before replacement when the overlay remains running' {
+        $process = [pscustomobject]@{ Id = 1234 }
+        Mock Get-Process { @($process) } -ParameterFilter { $Name -eq 'keymap-overlay' }
+        Mock Stop-Process
+        Mock Wait-Process { throw 'timeout' }
+
+        { Stop-Overlay } | Should -Throw '*did not stop within 10 seconds*'
+    }
+
     It 'restores an existing installation when autostart setup fails' {
         Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.png') -Value 'png'
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
@@ -126,6 +147,40 @@ Describe 'install.ps1' {
         Get-Content -LiteralPath $thirdPartyLicensesPath | Should -Be 'old notices'
         Get-Content -LiteralPath $installerPath | Should -Be 'old installer'
         $logDirectory | Should -Exist
+        Should -Invoke Restart-PreviousInstallation -Times 1
+    }
+
+    It 'continues rollback when stopping the failed installation times out' {
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.png') -Value 'png'
+        Set-Content -LiteralPath $binaryPath -Value 'old binary'
+        Set-Content -LiteralPath $licensePath -Value 'old license'
+        Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'old notices'
+        Set-Content -LiteralPath $installerPath -Value 'old installer'
+        $env:PROCESSOR_ARCHITECTURE = 'AMD64'
+        $script:stopCalls = 0
+
+        Mock Stage-Release {
+            param([string]$TemporaryDirectory)
+            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Value 'new binary'
+            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Value 'new license'
+            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Value 'new notices'
+            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Value 'new installer'
+            return 'v0.0.1'
+        }
+        Mock Get-ItemPropertyValue { $null }
+        Mock Stop-Overlay {
+            $script:stopCalls++
+            if ($script:stopCalls -eq 2) { throw 'stop timeout' }
+        }
+        Mock Install-Autostart { throw 'autostart failed' }
+        Mock Remove-ItemProperty
+        Mock Restart-PreviousInstallation
+
+        { Install-Release } | Should -Throw '*stopping the overlay: stop timeout*'
+        Get-Content -LiteralPath $binaryPath | Should -Be 'old binary'
+        Get-Content -LiteralPath $licensePath | Should -Be 'old license'
+        Get-Content -LiteralPath $thirdPartyLicensesPath | Should -Be 'old notices'
+        Get-Content -LiteralPath $installerPath | Should -Be 'old installer'
         Should -Invoke Restart-PreviousInstallation -Times 1
     }
 
