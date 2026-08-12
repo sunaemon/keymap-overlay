@@ -34,7 +34,11 @@ try {
     Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary $quotedAssets"
     Start-Process -FilePath $binaryPath -ArgumentList $quotedAssets
 
-    Write-Output "Installed the latest release to $binaryPath."
+    Write-Output 'Installed:'
+    Write-Output "  binary: $binaryPath"
+    Write-Output "  autostart: $runKey\$runValue"
+    Write-Output "Using existing layer PNGs: $assetDirectory"
+    Write-Output "Logs: $(Join-Path $env:USERPROFILE '.local\var\log\keymap-overlay')"
 }
 finally {
     Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue

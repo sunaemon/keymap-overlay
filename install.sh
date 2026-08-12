@@ -55,6 +55,7 @@ EOF
   mv "${plist}.tmp" "$plist"
   launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$plist"
+  service_path="$plist"
 }
 
 install_linux_service() {
@@ -84,6 +85,15 @@ EOF
   systemctl --user daemon-reload
   systemctl --user enable keymap-overlay.service
   systemctl --user restart keymap-overlay.service
+  service_path="$unit"
+}
+
+print_installed_files() {
+  echo 'Installed:'
+  echo "  binary: ${BINARY_PATH}"
+  echo "  autostart: ${service_path}"
+  echo "Using existing layer PNGs: ${ASSET_DIRECTORY}"
+  echo "Logs: ${LOG_DIRECTORY}"
 }
 
 require_command curl
@@ -116,4 +126,4 @@ trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
 mkdir -p "$ASSET_DIRECTORY" "$LOG_DIRECTORY"
 install_binary
 "$service_installer"
-echo "Installed the latest release to ${BINARY_PATH}."
+print_installed_files
