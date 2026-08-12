@@ -2,14 +2,14 @@
 
 use anyhow::Result;
 use eframe::egui::{self, ColorImage, TextureHandle, Vec2, ViewportCommand};
-use keymap_core::RawLayerEvent;
 use log::warn;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 
 use crate::{
-    LayerEventSink, Transition, image_path, load_image, spawn_raw_hid_listener, transition_for,
+    LayerEventSink, ListenerEvent, Transition, image_path, load_image, spawn_raw_hid_listener,
+    transition_for, transition_for_disconnect,
 };
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
@@ -50,12 +50,12 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
 
 #[derive(Clone)]
 struct RepaintSink {
-    sender: Sender<RawLayerEvent>,
+    sender: Sender<ListenerEvent>,
     context: egui::Context,
 }
 
 impl LayerEventSink for RepaintSink {
-    fn send(&self, event: RawLayerEvent) -> bool {
+    fn send(&self, event: ListenerEvent) -> bool {
         if self.sender.send(event).is_err() {
             return false;
         }
@@ -66,14 +66,14 @@ impl LayerEventSink for RepaintSink {
 
 struct OverlayApp {
     assets_dir: PathBuf,
-    receiver: Receiver<RawLayerEvent>,
+    receiver: Receiver<ListenerEvent>,
     held_keys: Vec<(u8, u8)>,
     texture: Option<TextureHandle>,
     viewport_initialized: bool,
 }
 
 impl OverlayApp {
-    fn new(assets_dir: PathBuf, receiver: Receiver<RawLayerEvent>) -> Self {
+    fn new(assets_dir: PathBuf, receiver: Receiver<ListenerEvent>) -> Self {
         Self {
             assets_dir,
             receiver,
@@ -85,7 +85,13 @@ impl OverlayApp {
 
     fn process_events(&mut self, context: &egui::Context) {
         while let Ok(event) = self.receiver.try_recv() {
-            match transition_for(&mut self.held_keys, event) {
+            let transition = match event {
+                ListenerEvent::Layer(event) => transition_for(&mut self.held_keys, event),
+                ListenerEvent::Disconnected { keyboard_id } => {
+                    transition_for_disconnect(&mut self.held_keys, keyboard_id)
+                }
+            };
+            match transition {
                 Transition::Show { keyboard_id, layer } => {
                     self.show_layer(context, keyboard_id, layer);
                 }

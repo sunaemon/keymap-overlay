@@ -60,7 +60,14 @@ fn run() -> Result<()> {
 pub(crate) trait LayerEventSink: Clone + Send {
     /// Returns whether the receiving end is still there; a reader stops once
     /// it is not.
-    fn send(&self, event: RawLayerEvent) -> bool;
+    fn send(&self, event: ListenerEvent) -> bool;
+}
+
+/// An event from the HID listener, including loss of the device itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ListenerEvent {
+    Layer(RawLayerEvent),
+    Disconnected { keyboard_id: Option<u8> },
 }
 
 pub(crate) fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
@@ -114,6 +121,30 @@ pub(crate) fn transition_for(held_keys: &mut Vec<(u8, u8)>, event: RawLayerEvent
         } else {
             Transition::Hide
         }
+    }
+}
+
+/// Removes layers belonging to a disconnected keyboard.
+pub(crate) fn transition_for_disconnect(
+    held_keys: &mut Vec<(u8, u8)>,
+    keyboard_id: Option<u8>,
+) -> Transition {
+    let Some(keyboard_id) = keyboard_id else {
+        return Transition::Ignore;
+    };
+    let was_visible = held_keys
+        .last()
+        .is_some_and(|(held_keyboard_id, _)| *held_keyboard_id == keyboard_id);
+    held_keys.retain(|(held_keyboard_id, _)| *held_keyboard_id != keyboard_id);
+    if !was_visible {
+        Transition::Ignore
+    } else if let Some((keyboard_id, layer)) = held_keys.last() {
+        Transition::Show {
+            keyboard_id: *keyboard_id,
+            layer: *layer,
+        }
+    } else {
+        Transition::Hide
     }
 }
 
@@ -247,11 +278,16 @@ fn run_raw_hid_session(
 
 fn receive_from_device(device: &HidDevice, sink: &impl LayerEventSink, cancelled: &AtomicBool) {
     let mut report = [0_u8; 33];
+    let mut keyboard_id = None;
     while !cancelled.load(Ordering::Relaxed) {
         let length = match device.read_timeout(&mut report, READ_TIMEOUT) {
             Ok(length) => length,
             Err(error) => {
                 warn!("Failed to read Raw HID report: {error}");
+                // A bootloader transition can remove the keyboard before it
+                // sends the matching layer release. Clear the UI state rather
+                // than leaving the last layer visible until reconnect.
+                sink.send(ListenerEvent::Disconnected { keyboard_id });
                 return;
             }
         };
@@ -269,7 +305,8 @@ fn receive_from_device(device: &HidDevice, sink: &impl LayerEventSink, cancelled
             "Layer event: keyboard={} layer={} pressed={}",
             event.keyboard_id, event.layer, event.pressed
         );
-        if !sink.send(event) {
+        keyboard_id = Some(event.keyboard_id);
+        if !sink.send(ListenerEvent::Layer(event)) {
             return;
         }
     }
@@ -405,6 +442,42 @@ mod tests {
             transition_for(&mut vec![(1, 2)], event(1, 2, false)),
             Transition::Hide
         );
+    }
+
+    #[test]
+    fn disconnecting_the_visible_keyboard_hides_its_layer() {
+        let mut held_keys = vec![(1, 2)];
+
+        assert_eq!(
+            transition_for_disconnect(&mut held_keys, Some(1)),
+            Transition::Hide
+        );
+        assert!(held_keys.is_empty());
+    }
+
+    #[test]
+    fn disconnecting_the_visible_keyboard_restores_another_keyboard() {
+        let mut held_keys = vec![(2, 3), (1, 2)];
+
+        assert_eq!(
+            transition_for_disconnect(&mut held_keys, Some(1)),
+            Transition::Show {
+                keyboard_id: 2,
+                layer: 3
+            }
+        );
+        assert_eq!(held_keys, vec![(2, 3)]);
+    }
+
+    #[test]
+    fn disconnecting_an_unknown_keyboard_changes_nothing() {
+        let mut held_keys = vec![(1, 2)];
+
+        assert_eq!(
+            transition_for_disconnect(&mut held_keys, None),
+            Transition::Ignore
+        );
+        assert_eq!(held_keys, vec![(1, 2)]);
     }
 
     #[test]
