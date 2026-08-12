@@ -233,6 +233,27 @@ live in `scripts/check_commit_message.py` and are tested like any other script.
 
 Set `LEFTHOOK=0` to skip hooks for a single command, e.g. `LEFTHOOK=0 git commit`.
 
+### Worktrees
+
+Every worktree belongs under `.claude/worktrees/<name>`, and nowhere else:
+
+```bash
+git worktree add .claude/worktrees/<name> -b <branch>
+```
+
+`.claude/worktrees/` is gitignored, so worktrees kept there never surface as
+untracked files, and they stay next to the checkout they came from instead of
+in some sibling directory.
+
+A new worktree starts with its submodules empty: run
+`git submodule update --init --recursive` inside it before building or
+flashing, otherwise `qmk_firmware/` is missing. `build/`, `target/` and
+`.venv/` are not shared between worktrees either, so the first build in one is
+a cold build.
+
+Remove a worktree with `git worktree remove .claude/worktrees/<name>` rather
+than deleting the directory, so its administrative files go too.
+
 ### Keymap Flashing (VIAL/Vitaly)
 
 ```bash
