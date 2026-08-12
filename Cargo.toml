@@ -3,7 +3,7 @@ members = ["crates/keymap-core", "crates/keymap-overlay"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 license = "MIT"
 repository = "https://github.com/sunaemon/keymap-overlay"
 
