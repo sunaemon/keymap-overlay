@@ -166,6 +166,8 @@ def test_kle_key_props_reports_whether_anything_is_set() -> None:
 
 
 class _Named(BaseModel):
+    """A minimal model for exercising print_json's output stream."""
+
     name: str
 
 
