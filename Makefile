@@ -717,8 +717,10 @@ _flash_macos:
 # (qmk_firmware/util/uf2conv.py). Nothing on a Linux box mounts it on its own:
 # Plasma does not auto-mount by default, and udisks refuses a remote session
 # or mounts under /run/media/root, so qmk waits forever. Mount it first, with
-# sudo, and qmk's wait loop finds it immediately. Other bootloaders reach the
-# board over USB with no filesystem in the way, so they skip this.
+# sudo, and qmk's wait loop finds it immediately. WSL keeps the USB mass-storage
+# device attached after the copy, so unmount it once qmk finishes. Other
+# bootloaders reach the board over USB with no filesystem in the way, so they
+# skip both steps.
 .PHONY: _flash_linux
 _flash_linux:
 	@bootloader="$$( $(UV) run python -m scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" bootloader)" || exit 1; \
@@ -726,11 +728,19 @@ _flash_linux:
 		rp2040) $(MAKE) _mount_uf2_volume || exit 1 ;; \
 	esac
 	$(QMK) flash -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
+	@bootloader="$$( $(UV) run python -m scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" bootloader)" || exit 1; \
+	case "$$bootloader" in \
+		rp2040) $(MAKE) _unmount_uf2_volume || exit 1 ;; \
+	esac
 
 .PHONY: _mount_uf2_volume
 _mount_uf2_volume:
 	@echo "Waiting for the $(UF2_VOLUME_LABEL) volume; put the board into its bootloader now..."
 	$(UV) run python -m scripts.mount_uf2_volume --label "$(UF2_VOLUME_LABEL)" --sudo "$(SUDO)"
+
+.PHONY: _unmount_uf2_volume
+_unmount_uf2_volume:
+	$(UV) run python -m scripts.mount_uf2_volume --label "$(UF2_VOLUME_LABEL)" --sudo "$(SUDO)" --unmount
 
 .PHONY: flash-keymap
 flash-keymap:

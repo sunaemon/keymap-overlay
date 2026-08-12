@@ -178,9 +178,18 @@ function Backup-Installation {
 }
 
 function Stop-Overlay {
-    Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue |
-        Stop-Process -PassThru |
-        Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+    $processes = @(Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue)
+    if ($processes.Count -eq 0) {
+        return
+    }
+
+    $processes | Stop-Process -Force
+    try {
+        $processes | Wait-Process -Timeout 10
+    }
+    catch {
+        throw 'The running keymap-overlay process did not stop within 10 seconds.'
+    }
 }
 
 function Install-StagedFiles {

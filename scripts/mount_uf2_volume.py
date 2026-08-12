@@ -39,11 +39,18 @@ def main(
     sudo: Annotated[
         str, typer.Option(help="Command used to elevate, empty to never elevate")
     ] = "sudo",
+    unmount_after: Annotated[
+        bool,
+        typer.Option("--unmount", help="Unmount the volume instead of mounting it"),
+    ] = False,
 ) -> None:
-    """Wait for a UF2 bootloader volume and mount it where qmk looks for it."""
+    """Mount or unmount a UF2 bootloader volume where qmk looks for it."""
     initialize_logging()
     try:
-        print(mount_uf2_volume(label=label, timeout=timeout, sudo=sudo))
+        if unmount_after:
+            unmount_uf2_volume(label=label, sudo=sudo)
+        else:
+            print(mount_uf2_volume(label=label, timeout=timeout, sudo=sudo))
     except Exception:
         logger.exception("Failed to mount the %s volume", label)
         raise typer.Exit(code=1) from None
@@ -75,6 +82,16 @@ def mount_uf2_volume(label: str, timeout: float, sudo: str) -> Path:
 
     logger.info("Mounted %s at %s", device, target)
     return target
+
+
+def unmount_uf2_volume(label: str, sudo: str) -> None:
+    """Unmount the labelled UF2 volume when it remains mounted after flashing."""
+    target = target_mount_point(label)
+    if source_of_mount_point(target) is None:
+        logger.info("Bootloader volume %s is already unmounted", label)
+        return
+    unmount(target, sudo)
+    logger.info("Unmounted bootloader volume %s from %s", label, target)
 
 
 def wait_for_device(label: str, timeout: float) -> Path:

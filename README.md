@@ -62,6 +62,24 @@ uses an override-redirect X11 window through XWayland or X11. Set
 `KEYMAP_OVERLAY_BACKEND` to `auto`, `layer-shell`, or `x11` to override the
 selection.
 
+## Enter the Keyboard Bootloader
+
+Both example keymaps include `QK_BOOT`:
+
+| Keyboard             | `QK_BOOT` binding                              |
+| -------------------- | ---------------------------------------------- |
+| `1` (insixty_en)     | hold the `L1` key (right of `RSFT`), press `Q` |
+| `2` (doio/kb16/rev2) | hold the `MO(3)` key (bottom left), press `1`  |
+
+If the installed firmware cannot enter the bootloader:
+
+- **insixty_en:** hold the top-left key while connecting USB. Copy the built
+  `.uf2` to the mounted `RPI-RP2` volume, flashing each half separately. See
+  the [build guide](https://salicylic-acid3.hatenablog.com/entry/in60en-build-guide#Tips%E3%83%95%E3%82%A1%E3%83%BC%E3%83%A0%E3%82%A6%E3%82%A7%E3%82%A2%E3%82%92%E6%9B%B8%E3%81%8D%E6%8F%9B%E3%81%88%E3%82%8B).
+- **doio/kb16/rev2:** hold the `1!` key while connecting USB, or press the
+  reset button on the back. See the
+  [QMK keyboard README](https://github.com/qmk/qmk_firmware/tree/master/keyboards/doio/kb16/rev2#bootloader).
+
 ## Install on macOS or Linux
 
 These steps build and flash the keyboard firmware from source, generate the
@@ -90,6 +108,8 @@ Install the pinned tools and QMK toolchain:
 make setup
 ```
 
+The setup target runs `mise trust` before installing the pinned tools.
+
 On Linux, `make setup` supports `pacman`, `apt-get`, and `dnf` and may ask for
 the sudo password while installing system packages.
 
@@ -100,21 +120,8 @@ make flash KEYBOARD_ID=1
 ```
 
 `make flash` compiles the firmware and waits for the keyboard to enter its
-bootloader. Both example keymaps include `QK_BOOT`:
-
-| Keyboard             | `QK_BOOT` binding                              |
-| -------------------- | ---------------------------------------------- |
-| `1` (insixty_en)     | hold the `L1` key (right of `RSFT`), press `Q` |
-| `2` (doio/kb16/rev2) | hold the `MO(3)` key (bottom left), press `1`  |
-
-If the installed firmware cannot enter the bootloader:
-
-- **insixty_en:** hold the top-left key while connecting USB. Copy the built
-  `.uf2` to the mounted `RPI-RP2` volume, flashing each half separately. See
-  the [build guide](https://salicylic-acid3.hatenablog.com/entry/in60en-build-guide#Tips%E3%83%95%E3%82%A1%E3%83%BC%E3%83%A0%E3%82%A6%E3%82%A7%E3%82%A2%E3%82%92%E6%9B%B8%E3%81%8D%E6%8F%9B%E3%81%88%E3%82%8B).
-- **doio/kb16/rev2:** hold the `1!` key while connecting USB, or press the
-  reset button on the back. See the
-  [QMK keyboard README](https://github.com/qmk/qmk_firmware/tree/master/keyboards/doio/kb16/rev2#bootloader).
+bootloader. Use the applicable method under
+[Enter the Keyboard Bootloader](#enter-the-keyboard-bootloader).
 
 On Linux, the Makefile mounts an rp2040 `RPI-RP2` volume at
 `/run/media/$USER/RPI-RP2` before QMK deploys the `.uf2`. Set `SUDO=` if the
@@ -142,14 +149,11 @@ when prompted.
 ### 4. Install the latest overlay release
 
 ```bash
-temporary_directory="$(mktemp -d)"
-trap 'rm -rf "$temporary_directory"' EXIT
-installer="$temporary_directory/install.sh"
 curl -fsSL \
   https://github.com/sunaemon/keymap-overlay/releases/latest/download/install.sh \
-  -o "$installer"
-less "$installer"
-sh "$installer"
+  -o install.sh
+less install.sh
+sh install.sh
 ```
 
 Review the downloaded script before leaving `less` with `q`. The installer then
@@ -169,8 +173,8 @@ Run `sh ~/.config/keymap-overlay/install.sh` to upgrade to the latest release.
 
 The normal Windows workflow uses two environments:
 
-- **WSL Ubuntu** holds the source checkout, builds and flashes QMK firmware,
-  and generates PNGs.
+- **WSL `keymap-firmware`** holds the source checkout, builds and flashes QMK
+  firmware, and generates PNGs.
 - **PowerShell** installs and runs the released native Windows overlay.
 
 MSYS2 and Visual Studio Build Tools are not required unless developing the
@@ -182,9 +186,9 @@ Windows overlay itself; that setup is documented under
 Open an administrator PowerShell:
 
 ```powershell
-wsl --install -d Ubuntu
 winget install --interactive --exact dorssel.usbipd-win
 wsl --update
+wsl --install -d Ubuntu --name keymap-firmware
 ```
 
 Restart Windows if requested, open Ubuntu, create its Linux user, and install
@@ -204,28 +208,41 @@ generation tools:
 git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 make setup
+sed 's/TAG+="uaccess"/MODE="0666"/' qmk_firmware/util/udev/50-qmk.rules |
+  sudo tee /etc/udev/rules.d/50-qmk-wsl.rules >/dev/null
+sudo udevadm control --reload
 ```
 
 Keeping this checkout under the WSL home directory avoids Windows filesystem
 performance and Python virtual-environment compatibility problems.
 
+The WSL rule derives from QMK's supported bootloader list but uses explicit
+device permissions because WSL has no desktop login seat for QMK's usual
+`uaccess` tags. This grants the Linux user access to devices such as the
+STM32duino `1eaf:0003` bootloader. Install and reload it before attaching the
+bootloader to WSL. If reloading reports that no udev control socket exists, run
+`sudo service udev restart` instead.
+
 ### 2. Build and flash the firmware from WSL
 
-Keep the keyboard attached to Windows during normal use. Put it into its
-bootloader, then identify the newly enumerated bootloader in an administrator
-PowerShell:
+Keep the keyboard attached to Windows during normal use, then follow this order:
+
+1. Use the applicable method under
+   [Enter the Keyboard Bootloader](#enter-the-keyboard-bootloader). The
+   bootloader enumerates as a new USB device distinct from the normal keyboard.
+2. In an administrator PowerShell, run `usbipd list` and find the new entry
+   that appeared after entering the bootloader. Use that entry's BUSID for
+   both `bind` and `attach`:
 
 ```powershell
 usbipd list
 usbipd bind --busid <BUSID>
-```
-
-Sharing persists for that bootloader device. With an Ubuntu terminal already
-open, attach it from a normal PowerShell:
-
-```powershell
 usbipd attach --wsl --busid <BUSID>
 ```
+
+Do not bind the normal keyboard entry. Sharing persists for the bootloader
+device, while attaching must be repeated whenever the bootloader disconnects
+or resets. Keep a WSL terminal open while attaching.
 
 Then flash from the WSL checkout:
 
@@ -234,8 +251,22 @@ lsusb
 make flash KEYBOARD_ID=1
 ```
 
-The bootloader detaches when the keyboard resets or is unplugged. To detach it
-manually, run `usbipd detach --busid <BUSID>` in PowerShell.
+Finish the WSL-side connection according to the bootloader:
+
+- **STM32duino:** detach the bootloader from an administrator PowerShell so
+  Windows can use the keyboard again:
+
+  ```powershell
+  usbipd detach --busid <BUSID>
+  ```
+
+- **rp2040 (`RPI-RP2`):** `make flash` automatically unmounts the volume after
+  copying the `.uf2`. Then detach the USB device from an administrator
+  PowerShell:
+
+  ```powershell
+  usbipd detach --busid <BUSID>
+  ```
 
 If USBPcap is installed, `usbipd` may require
 `usbipd bind --force --busid <BUSID>`. Apply that only to the bootloader entry,
@@ -247,10 +278,14 @@ the resulting `.uf2` to `RPI-RP2` in Explorer is also a simple fallback.
 From the WSL checkout:
 
 ```bash
-WINDOWS_HOME="$(wslpath "$(cmd.exe /C echo %USERPROFILE% | tr -d '\r')")"
+WINDOWS_PROFILE="$(cd /mnt/c && cmd.exe /C echo %USERPROFILE% | tr -d '\r')"
+WINDOWS_HOME="$(wslpath "$WINDOWS_PROFILE")"
 make install-assets \
   KEYMAP_OVERLAY_DIR="$WINDOWS_HOME/.config/keymap-overlay"
 ```
+
+Running `cmd.exe` from `/mnt/c` avoids its warning that the WSL checkout's UNC
+path cannot be used as a CMD working directory.
 
 Run this again after changing the keymap.
 
@@ -259,25 +294,16 @@ Run this again after changing the keymap.
 Download and inspect `install.ps1` from PowerShell:
 
 ```powershell
-$temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "keymap-overlay-$([guid]::NewGuid())"
-New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
-try {
-    $installer = Join-Path $temporaryDirectory 'install.ps1'
-    Invoke-WebRequest `
-      -Uri 'https://github.com/sunaemon/keymap-overlay/releases/latest/download/install.ps1' `
-      -OutFile $installer `
-      -ErrorAction Stop
-    Get-Content -LiteralPath $installer
-    Read-Host 'Review the script above, then press Enter to run it'
-    powershell.exe -ExecutionPolicy Bypass -File $installer
-    if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed with exit code $LASTEXITCODE" }
-}
-finally {
-    Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
-}
+Invoke-WebRequest `
+  -Uri 'https://github.com/sunaemon/keymap-overlay/releases/latest/download/install.ps1' `
+  -OutFile install.ps1 `
+  -ErrorAction Stop
+Get-Content -LiteralPath install.ps1
+powershell.exe -ExecutionPolicy Bypass -File install.ps1
 ```
 
-The installer downloads the Windows x86_64 release, installs it under
+Review the downloaded script before running the final command. The installer
+downloads the Windows x86_64 release, installs it under
 `%USERPROFILE%\.config\keymap-overlay`, registers the current user's
 `KeymapOverlay` Run value, starts the overlay, and prints every installed
 location. The SHA-256 checksum is always verified; when optional GitHub CLI is

@@ -98,6 +98,27 @@ Describe 'install.ps1' {
         $logDirectory | Should -Exist
     }
 
+    It 'forces the running overlay to stop and waits for it' {
+        $process = [pscustomobject]@{ Id = 1234 }
+        Mock Get-Process { @($process) } -ParameterFilter { $Name -eq 'keymap-overlay' }
+        Mock Stop-Process
+        Mock Wait-Process
+
+        Stop-Overlay
+
+        Should -Invoke Stop-Process -Times 1 -ParameterFilter { $Force }
+        Should -Invoke Wait-Process -Times 1 -ParameterFilter { $Timeout -eq 10 }
+    }
+
+    It 'fails before replacement when the overlay remains running' {
+        $process = [pscustomobject]@{ Id = 1234 }
+        Mock Get-Process { @($process) } -ParameterFilter { $Name -eq 'keymap-overlay' }
+        Mock Stop-Process
+        Mock Wait-Process { throw 'timeout' }
+
+        { Stop-Overlay } | Should -Throw '*did not stop within 10 seconds*'
+    }
+
     It 'restores an existing installation when autostart setup fails' {
         Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.png') -Value 'png'
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
