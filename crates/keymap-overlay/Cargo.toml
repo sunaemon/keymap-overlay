@@ -28,6 +28,12 @@ winit = { version = "0.30.13", default-features = false }
 # macOS opens the same device from several processes; VIAL tools and the
 # overlay share the keyboard's Raw HID interface.
 hidapi = { version = "2.6.6", features = ["macos-shared-device"] }
+# Event-driven Raw HID arrival notifications. hidapi reports removals through
+# reads, but does not expose IOHIDManager's device-matching callback.
+iohidmanager = { version = "0.10.4", default-features = false, features = [
+  "async",
+] }
+pollster = "1.0.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 eframe = "0.36.1"

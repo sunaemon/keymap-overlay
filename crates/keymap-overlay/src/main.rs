@@ -25,8 +25,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-const RAW_USAGE_PAGE: u16 = 0xFF60;
-const RAW_USAGE_ID: u16 = 0x61;
+pub(crate) const RAW_USAGE_PAGE: u16 = 0xFF60;
+pub(crate) const RAW_USAGE_ID: u16 = 0x61;
 const LOG_DIRECTORY_ENV: &str = "KEYMAP_OVERLAY_LOG_DIR";
 const MAX_LOG_BYTES: u64 = 1_048_576;
 const MAX_LOG_FILES: u8 = 3;

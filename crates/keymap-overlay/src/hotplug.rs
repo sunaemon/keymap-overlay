@@ -64,6 +64,64 @@ impl RunningSession {
 #[cfg(target_os = "linux")]
 pub(crate) use linux::spawn_watcher;
 
+#[cfg(target_os = "macos")]
+pub(crate) use macos::spawn_watcher;
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::RunningSession;
+    use crate::{RAW_USAGE_ID, RAW_USAGE_PAGE};
+    use anyhow::{Context, Result};
+    use iohidmanager::async_api::ManagerDeviceMatchingStream;
+    use iohidmanager::{HidManager, HidUsage};
+    use log::{info, warn};
+    use std::thread;
+
+    const ARRIVAL_BUFFER_SIZE: usize = 16;
+
+    pub(crate) fn spawn_watcher(session: RunningSession) {
+        thread::spawn(move || {
+            if let Err(error) = watch_for_arrivals(&session) {
+                // Not fatal: removals still end their reader sessions. Only a
+                // later arrival alongside another healthy keyboard is missed.
+                warn!("Stopped watching for keyboards: {error:#}");
+            }
+        });
+    }
+
+    /// Blocks on IOHIDManager callbacks, so an idle overlay costs nothing.
+    fn watch_for_arrivals(session: &RunningSession) -> Result<()> {
+        let manager = HidManager::new().context("Failed to create an IOHIDManager")?;
+        manager
+            .set_device_matching(Some(HidUsage::Custom(
+                u32::from(RAW_USAGE_PAGE),
+                u32::from(RAW_USAGE_ID),
+            )))
+            .context("Failed to match the Raw HID usage")?;
+
+        // Registering the callback reports every device already present. Those
+        // devices are part of the listener's initial enumeration, not arrivals.
+        // Match identities instead of waiting for a callback count: a device
+        // can disappear while the watcher starts, and that must not stall it.
+        let mut existing_devices = manager.devices();
+        let arrivals = ManagerDeviceMatchingStream::subscribe(&manager, ARRIVAL_BUFFER_SIZE);
+        while let Some(arrival) = pollster::block_on(arrivals.next()) {
+            let info = arrival.device.info();
+            if let Some(index) = existing_devices
+                .iter()
+                .position(|existing| *existing == info)
+            {
+                existing_devices.swap_remove(index);
+                continue;
+            }
+            if session.end() {
+                info!("A Raw HID device appeared; enumerating again");
+            }
+        }
+        anyhow::bail!("The IOHIDManager arrival stream ended")
+    }
+}
+
 #[cfg(target_os = "linux")]
 mod linux {
     use super::RunningSession;
@@ -115,10 +173,7 @@ mod linux {
     }
 }
 
-/// macOS has no equivalent yet: hidapi exposes no hot-plug callback and the
-/// IOKit notification would be a second event source next to the run loop, so
-/// there a keyboard is still picked up only once a session ends.
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
 pub(crate) fn spawn_watcher(_session: RunningSession) {}
 
 #[cfg(test)]
