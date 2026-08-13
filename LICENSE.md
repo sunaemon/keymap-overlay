@@ -1,15 +1,22 @@
-This project is licensed under multiple licenses.
+# Licenses
 
-## QMK Keymap Files
+This repository is licensed under multiple licenses. The applicable license
+depends on the file:
 
-All files located in `example/salicylic_acid3` originate from @salicylic_acid3's fork of QMK firmware.
-All files located in `example/doio` originate from the original QMK firmware.
-These files are licensed under the GNU General Public License v2.0 or later.
-Full text of the GPL v2.0 can be found at `example/LICENSE`.
+## Firmware and QMK keymap files: GPL-2.0-or-later
 
-## Other Files
+The shared firmware code in [`firmware/`](firmware/) and the keyboard and
+keymap files in [`example/`](example/) are licensed under the GNU General
+Public License v2.0 or later (`GPL-2.0-or-later`). Individual files retain
+their original copyright notices.
 
-All other files in this project are licensed under the MIT License:
+The full text of the GPL v2.0 is available in
+[`example/LICENSE`](example/LICENSE).
+
+## Tools and application: MIT
+
+All other original files in this repository, including the Python tools and
+Rust overlay application, are licensed under the MIT License:
 
 MIT License
 
