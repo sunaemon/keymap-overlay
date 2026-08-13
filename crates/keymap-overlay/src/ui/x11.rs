@@ -22,6 +22,7 @@ use log::warn;
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::WindowEvent;
@@ -36,8 +37,8 @@ use x11rb::protocol::xproto::{ConnectionExt as _, CreateGCAux};
 use x11rb::rust_connection::RustConnection;
 
 use crate::{
-    LayerEventSink, ListenerEvent, Transition, image_path, load_image, premultiply,
-    spawn_raw_hid_listener, transition_for_event,
+    ImageCache, LayerEventSink, ListenerEvent, Transition, image_path, load_image_cache,
+    premultiply, spawn_raw_hid_listener, transition_for_event,
 };
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
@@ -50,11 +51,14 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         proxy: event_loop.create_proxy(),
     });
 
+    let images = load_image_cache(&assets_dir)?;
     let mut app = OverlayApp {
         assets_dir,
         window: None,
         held_keys: Vec::new(),
+        images,
         image: None,
+        pending_transition: Transition::Ignore,
         error: None,
     };
     event_loop
@@ -82,7 +86,9 @@ struct OverlayApp {
     assets_dir: PathBuf,
     window: Option<OverlayWindow>,
     held_keys: Vec<(u8, u8)>,
-    image: Option<RgbaImage>,
+    images: ImageCache,
+    image: Option<Arc<RgbaImage>>,
+    pending_transition: Transition,
     error: Option<anyhow::Error>,
 }
 
@@ -99,6 +105,22 @@ struct X11Renderer {
 }
 
 impl OverlayApp {
+    fn queue_layer_event(&mut self, event: ListenerEvent) {
+        let transition = transition_for_event(&mut self.held_keys, event);
+        if transition != Transition::Ignore {
+            self.pending_transition = transition;
+        }
+    }
+
+    fn apply_pending_transition(&mut self) {
+        let transition = std::mem::replace(&mut self.pending_transition, Transition::Ignore);
+        match transition {
+            Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
+            Transition::Hide => self.hide(),
+            Transition::Ignore => {}
+        }
+    }
+
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
         let attributes = WindowAttributes::default()
             .with_title("Keymap Overlay")
@@ -125,10 +147,10 @@ impl OverlayApp {
 
     fn show_layer(&mut self, keyboard_id: u8, layer: u8) {
         let path = image_path(&self.assets_dir, keyboard_id, layer);
-        let image = match load_image(&path) {
-            Ok(image) => image,
-            Err(error) => {
-                warn!("Failed to load overlay image {}: {error:#}", path.display());
+        let image = match self.images.get(&(keyboard_id, layer)) {
+            Some(image) => Arc::clone(image),
+            None => {
+                warn!("Overlay image is unavailable: {}", path.display());
                 // Stay hidden rather than leaving the previous layer on screen
                 // and its key recorded as active.
                 self.hide();
@@ -138,6 +160,18 @@ impl OverlayApp {
         let Some(state) = &self.window else {
             return;
         };
+
+        if self
+            .image
+            .as_ref()
+            .is_some_and(|current| current.dimensions() == image.dimensions())
+        {
+            if let Err(error) = present(state, &image) {
+                warn!("Failed to present the overlay: {error:#}");
+            }
+            self.image = Some(image);
+            return;
+        }
 
         let size = PhysicalSize::new(image.width(), image.height());
         // An unmanaged window is placed by nobody else, and the size has to be
@@ -309,12 +343,11 @@ impl ApplicationHandler<ListenerEvent> for OverlayApp {
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, event: ListenerEvent) {
-        let transition = transition_for_event(&mut self.held_keys, event);
-        match transition {
-            Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
-            Transition::Hide => self.hide(),
-            Transition::Ignore => {}
-        }
+        self.queue_layer_event(event);
+    }
+
+    fn about_to_wait(&mut self, _: &ActiveEventLoop) {
+        self.apply_pending_transition();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {

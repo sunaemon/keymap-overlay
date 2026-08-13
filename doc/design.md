@@ -140,9 +140,11 @@ requires; softbuffer's public pixel format has no alpha channel.
 Hiding is unmapping: the overlay attaches a null buffer, which per the protocol
 returns the layer surface to the state it had when it was created. Showing a
 layer therefore re-sends the layer state, commits without a buffer, and attaches
-the image when the configure that follows arrives. The surface is unmapped
-between key holds, so a hidden overlay is not a window at all. That holds on
-macOS and Linux; Windows is the exception described above.
+the image when the configure that follows arrives. Switching between visible
+layers of the same size instead replaces the buffer in one commit, avoiding an
+unmap/configure round trip and a stale frame. The surface is unmapped between
+key holds, so a hidden overlay is not a window at all. That holds on macOS and
+Linux; Windows is the exception described above.
 
 The image is presented at its own pixel size on all three systems rather than
 being scaled to the display; `DPI` in the Makefile is where an image is sized
@@ -264,7 +266,14 @@ path reads the keymap source compiled into the firmware.
 ### PNG at Runtime
 
 The runtime loads PNG files rather than SVGs. Rendering happens during the
-build, leaving the overlay with a small and predictable image-loading path.
+build, and every installed layer PNG is decoded and cached at startup. Layer
+events therefore only select an in-memory image; they never leave the previous
+layer visible while disk I/O or PNG decoding completes.
+
+Events already waiting when a UI loop wakes are reduced to their final active
+layer before the window changes. Intermediate restores and switches are not
+drawn on the way to a newer layer or a hide, and the macOS window clears its
+last texture while hiding so a later map cannot expose a stale frame.
 
 ### Four Windows Rather Than One Toolkit
 
