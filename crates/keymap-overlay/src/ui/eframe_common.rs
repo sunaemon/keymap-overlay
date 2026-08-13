@@ -1,9 +1,9 @@
 //! Everything the two eframe/egui windows share.
 //!
-//! macOS and Windows run the same toolkit and differ in only three places, all
-//! of them held in [`PlatformHooks`]: the `NativeOptions` each asks for, what
-//! has to happen before a logic pass, and what hiding means beyond dropping the
-//! texture. `eframe_window.rs` and `windows.rs` supply those and nothing else.
+//! macOS and Windows run the same toolkit and differ in only two places, both
+//! held in [`PlatformHooks`]: the `NativeOptions` each asks for, and what has to
+//! happen before a logic pass. `eframe_window.rs` and `windows.rs` supply those
+//! and nothing else.
 //!
 //! The differences deliberately do not travel as `cfg` attributes inside these
 //! methods: each system's divergence stays in one visible place in its own
@@ -27,7 +27,6 @@ pub(crate) const IDLE_SIZE: f32 = 1.0;
 
 /// The two things the eframe windows do not agree on.
 pub(crate) struct PlatformHooks {
-    /// The window this system asks eframe for.
     pub(crate) native_options: fn() -> eframe::NativeOptions,
     /// Runs at the top of every logic pass, before events are drained.
     pub(crate) before_logic: fn(&egui::Context),

@@ -143,7 +143,6 @@ export QMK_HOME := $(QMK_HOME)
 
 QMK_KEYMAP ?= keymap
 
-# Directory containing keyboard configurations
 KEYBOARDS_DIR ?= example
 
 # Every configured keyboard, by KEYBOARD_ID. A directory counts once it has a
@@ -173,7 +172,6 @@ ifneq ($(shell printf '%s' "$(KEYBOARD_ID)" | grep -Eq '^([0-9]|[1-9][0-9]|1[0-9
 endif
 
 # QMK keyboard name (e.g., salicylic_acid3/insixty_en).
-# Read from $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json.
 QMK_KEYBOARD ?= $(shell awk -F'"' '/qmk_keyboard/ {print $$4}' $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json)
 ifeq ($(QMK_KEYBOARD),)
     $(error KEYBOARD_ID=$(KEYBOARD_ID) is not valid or $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json is missing or malformed)
@@ -182,7 +180,6 @@ QMK_FLAGS += -e KEYBOARD_ID=$(KEYBOARD_ID)
 
 KEYMAP_PREFIX := $(KEYBOARD_ID)_
 
-# [QMK Keyboard JSON]
 # QMK keyboard definition (matrix/layouts/metadata).
 # Type: src/types.py:KeyboardJson
 KEYBOARD_JSON := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json
@@ -202,46 +199,39 @@ ABS_BUILD_DIR := $(abspath $(BUILD_DIR))
 
 QMK_FLAGS += -e BUILD_DIR=$(ABS_BUILD_DIR)/qmk_build
 
-# [QMK Keymap JSON]
 # Contains the full keymap definition (layers, keycodes) in QMK format.
 # Type: src/types.py:QmkKeymapJson
 # Generated from: 'qmk c2json' (source) or 'generate_qmk_keymap_from_vitaly.py' (VIAL).
 # Used by: 'keymap-drawer' (visuals), 'generate_vitaly_layout.py' (flashing).
 QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
 
-# [Raw QMK Keymap JSON]
 # Unprocessed QMK JSON used as input for postprocessing.
 QMK_KEYMAP_JSON_RAW := $(BUILD_DIR)/qmk-keymap.raw.json
 
-# [Keymap Drawer YAML]
 # Intermediate representation for keymap-drawer.
 # Type: keymap-drawer schema (not in src/types.py)
 # Generated from: 'keymap parse' using $(QMK_KEYMAP_JSON).
 # Used by: 'keymap draw' to generate SVG images.
 KEYMAP_DRAWER_YAML := $(BUILD_DIR)/keymap-drawer.yaml
 
-# [Keycodes JSON]
 # Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_keycodes.py' scanning QMK firmware.
 # Used by: 'postprocess_qmk_keymap.py' for name resolution.
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
-# [Custom Keycodes JSON]
 # Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from keymap.c.
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c'.
 # Used by: 'postprocess_qmk_keymap.py', 'generate_vitaly_layout.py' to preserve custom codes.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 
-# [Vial JSON]
 # VIAL-compatible keyboard definition (matrix, layout, VID/PID).
 # Type: src/types.py:VialJson
 # Generated from: 'generate_vial.py' using keyboard.json.
 # Used by: 'qmk compile' (embedded in firmware) for VIAL support.
 VIAL_JSON := $(BUILD_DIR)/vial.json
 
-# [Vitaly JSON]
 # Temporary dump of the keyboard's current VIAL configuration.
 # Type: src/types.py:VitalyJson
 # Generated from: 'vitaly save' (downloaded from device).

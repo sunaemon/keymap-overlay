@@ -4,9 +4,10 @@
 //! this overlay has to, so it wins whenever the compositor offers one. Where it
 //! does not — GNOME above all, which has no `zwlr_layer_shell_v1` — the X11
 //! window is the fallback, reached through XWayland in a Wayland session and
-//! directly in an X11 one. It is a fallback rather than an equal: X11 grants
-//! always-on-top and click-through by asking the window manager, so how well it
-//! holds depends on the window manager honouring `_NET_WM_STATE_ABOVE`.
+//! directly in an X11 one. It is a fallback rather than an equal: it is
+//! override-redirect, so nothing places it or keeps it stacked for it, and in a
+//! Wayland session it needs XWayland to be running at all. `x11.rs` has the
+//! reasoning for going unmanaged rather than asking for `_NET_WM_STATE_ABOVE`.
 //!
 //! `KEYMAP_OVERLAY_BACKEND` overrides the choice, which is also the only way to
 //! exercise the fallback on a machine whose compositor does support layer-shell.
