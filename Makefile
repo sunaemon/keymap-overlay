@@ -386,7 +386,7 @@ ifdef KEYBOARD_ID
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
 else
-	@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
+	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
 endif
 endif
 
@@ -401,7 +401,7 @@ ifdef KEYBOARD_ID
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_draw_layers
 else
-	@$(call FOR_EACH_KEYBOARD,drawing layers for,Drawing layers for,draw-layers)
+	+@$(call FOR_EACH_KEYBOARD,drawing layers for,Drawing layers for,draw-layers)
 endif
 
 .PHONY: lint
@@ -696,7 +696,7 @@ ifdef KEYBOARD_ID
 	@$(MAKE) _copy_firmware
 	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
 else
-	@$(call FOR_EACH_KEYBOARD,compiling,Compiling,compile)
+	+@$(call FOR_EACH_KEYBOARD,compiling,Compiling,compile)
 endif
 
 .PHONY: flash
@@ -764,7 +764,7 @@ ifdef KEYBOARD_ID
 	@echo "Loading new configuration to device..."
 	$(VITALY) -i $(DEVICE_PID) load -f $(BUILD_DIR)/vitaly_ready.json
 else
-	@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
+	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
 endif
 
 .PHONY: patch-load
@@ -776,7 +776,7 @@ ifdef KEYBOARD_ID
 	cp -r "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/." "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/"
 	@echo "✔ Keyboard configuration loaded"
 else
-	@$(call FOR_EACH_KEYBOARD,patching,Patching,patch-load)
+	+@$(call FOR_EACH_KEYBOARD,patching,Patching,patch-load)
 endif
 
 .PHONY: print-vars
