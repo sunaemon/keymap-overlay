@@ -8,7 +8,8 @@
 //! drawing no texture into a fully transparent, click-through window.
 //!
 //! Everything that is not specific to macOS lives in `eframe_common.rs`, which
-//! this file hands its one platform difference: the activation policy.
+//! this file hands its one platform difference: the activation policy. Hiding,
+//! including the shrink back to a single pixel, is shared with Windows.
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -21,10 +22,9 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         assets_dir,
         PlatformHooks {
             native_options,
-            // Nothing to do before a logic pass, and hiding is exactly dropping
-            // the texture; both of those are the shared behaviour.
+            // Nothing has to happen before a logic pass here; Windows pins its
+            // scale factor at this point and macOS has nothing to pin.
             before_logic: |_| {},
-            after_hide: |_| {},
         },
     )
 }

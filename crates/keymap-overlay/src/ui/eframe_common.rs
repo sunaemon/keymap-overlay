@@ -21,18 +21,16 @@ use crate::{
     spawn_raw_hid_listener,
 };
 
-/// Keeps an always-mapped window effectively absent before its first image.
+/// The size of a hidden overlay: one transparent pixel. Neither window can be
+/// unmapped, so this is as absent as a mapped window gets.
 pub(crate) const IDLE_SIZE: f32 = 1.0;
 
-/// The three things the two eframe windows do not agree on.
+/// The two things the eframe windows do not agree on.
 pub(crate) struct PlatformHooks {
     /// The window this system asks eframe for.
     pub(crate) native_options: fn() -> eframe::NativeOptions,
     /// Runs at the top of every logic pass, before events are drained.
     pub(crate) before_logic: fn(&egui::Context),
-    /// Runs when the overlay hides, after the texture is dropped and before the
-    /// repaint that acts on it.
-    pub(crate) after_hide: fn(&egui::Context),
 }
 
 /// The viewport properties an overlay needs on either system.
@@ -166,9 +164,20 @@ impl OverlayApp {
         }
     }
 
+    /// Drops the image and shrinks the window back to [`IDLE_SIZE`].
+    ///
+    /// Neither system can unmap this window, so hiding is drawing nothing. The
+    /// shrink is what keeps that from leaving a full-size invisible window on
+    /// top of everything: mouse passthrough is the only thing stopping such a
+    /// window from taking clicks across its whole rectangle, and a single pixel
+    /// is a much smaller thing to be wrong about.
+    ///
+    /// It costs nothing on the next show. `show_layer` derives `size_changed`
+    /// from `texture`, which is cleared here, so the show after a hide re-sends
+    /// the size and re-centres either way.
     fn hide(&mut self, context: &egui::Context) {
         self.texture = None;
-        (self.hooks.after_hide)(context);
+        context.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(IDLE_SIZE, IDLE_SIZE)));
         context.request_repaint();
     }
 }

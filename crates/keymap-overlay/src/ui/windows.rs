@@ -12,24 +12,24 @@
 //! layer key was held for — the failure `doc/design.md` describes for X11.
 //!
 //! So "hidden" here means *drawing nothing*: the window keeps its place in the
-//! stack, transparent and click-through, and `after_hide` shrinks it back to a
-//! single pixel. Two things follow, and both are load-bearing:
+//! stack, transparent and click-through, and shrinks back to a single pixel.
+//! Two things follow, and both are load-bearing:
 //!
 //! - `clear_color` must be fully transparent. eframe's default is a translucent
 //!   dark grey, which no other backend ever shows because they all unmap; here
-//!   it would be a permanent grey rectangle over the screen. That is shared
-//!   behaviour in `eframe_common.rs`, because macOS stays mapped too.
+//!   it would be a permanent grey rectangle over the screen.
 //! - resizing must not activate either, which holds: winit's resize path passes
 //!   `SWP_NOACTIVATE`.
 //!
-//! Everything not specific to Windows lives in `eframe_common.rs`; the three
-//! differences are the hooks below.
+//! Both of those are shared with macOS in `eframe_common.rs`, which stays
+//! mapped for its own reasons and hides the same way. What is left here, and
+//! specific to Windows, is the taskbar exclusion and the scale factor.
 
 use anyhow::Result;
-use eframe::egui::{self, Vec2, ViewportCommand};
+use eframe::egui;
 use std::path::PathBuf;
 
-use crate::ui::eframe_common::{self, IDLE_SIZE, PlatformHooks, base_viewport};
+use crate::ui::eframe_common::{self, PlatformHooks, base_viewport};
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     eframe_common::run(
@@ -37,7 +37,6 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         PlatformHooks {
             native_options,
             before_logic: pin_pixels_per_point,
-            after_hide: shrink_to_idle,
         },
     )
 }
@@ -65,11 +64,4 @@ fn native_options() -> eframe::NativeOptions {
 /// repeating it is free.
 fn pin_pixels_per_point(context: &egui::Context) {
     context.set_pixels_per_point(1.0);
-}
-
-/// The window cannot be unmapped, so a hidden overlay is shrunk instead: it has
-/// to stay mapped, and it may as well cover as little as possible until the next
-/// layer image gives it a size.
-fn shrink_to_idle(context: &egui::Context) {
-    context.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(IDLE_SIZE, IDLE_SIZE)));
 }
