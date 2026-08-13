@@ -34,8 +34,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::{
-    ImageCache, LayerEventSink, ListenerEvent, Transition, image_path, load_image_cache,
-    premultiply, spawn_raw_hid_listener, transition_for_event,
+    ImageCache, LayerEventSink, ListenerEvent, PendingTransition, Transition, image_path,
+    load_image_cache, premultiply, spawn_raw_hid_listener,
 };
 
 /// The pool grows on demand; this only avoids a resize for the first image.
@@ -97,7 +97,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     handle
         .insert_source(receiver, |event, _, state: &mut OverlayState| {
             if let ChannelEvent::Msg(layer_event) = event {
-                state.queue_layer_event(layer_event);
+                state.pending.push(layer_event);
             }
         })
         .map_err(|error| anyhow::anyhow!("Failed to watch for layer events: {error}"))?;
@@ -112,10 +112,9 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         pool,
         layer,
         input_region,
-        held_keys: Vec::new(),
         images,
         image: None,
-        pending_transition: Transition::Ignore,
+        pending: PendingTransition::default(),
         mapped: false,
         closed: false,
     };
@@ -150,10 +149,9 @@ struct OverlayState {
     pool: SlotPool,
     layer: LayerSurface,
     input_region: Region,
-    held_keys: Vec<(u8, u8)>,
     images: ImageCache,
     image: Option<Arc<RgbaImage>>,
-    pending_transition: Transition,
+    pending: PendingTransition,
     /// Whether a buffer is attached. A layer surface only exists on screen
     /// while one is, and the two states accept different requests.
     mapped: bool,
@@ -161,16 +159,8 @@ struct OverlayState {
 }
 
 impl OverlayState {
-    fn queue_layer_event(&mut self, event: ListenerEvent) {
-        let transition = transition_for_event(&mut self.held_keys, event);
-        if transition != Transition::Ignore {
-            self.pending_transition = transition;
-        }
-    }
-
     fn apply_pending_transition(&mut self) {
-        let transition = std::mem::replace(&mut self.pending_transition, Transition::Ignore);
-        match transition {
+        match self.pending.take() {
             Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
             Transition::Hide => self.hide(),
             Transition::Ignore => {}

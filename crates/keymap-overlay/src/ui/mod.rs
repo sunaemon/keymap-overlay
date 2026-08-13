@@ -6,7 +6,11 @@
 //! images, the log — lives in `main.rs`.
 //!
 //! macOS and Windows have one window each; Linux has two, and `linux.rs`
-//! chooses between them.
+//! chooses between them. The two eframe windows keep only what is specific to
+//! their system, over the shared `eframe_common.rs`.
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod eframe_common;
 
 #[cfg(target_os = "macos")]
 mod eframe_window;
