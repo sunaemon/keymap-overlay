@@ -27,7 +27,6 @@ pub(crate) const IDLE_SIZE: f32 = 1.0;
 
 /// The two things the eframe windows do not agree on.
 pub(crate) struct PlatformHooks {
-    /// The window this system asks eframe for.
     pub(crate) native_options: fn() -> eframe::NativeOptions,
     /// Runs at the top of every logic pass, before events are drained.
     pub(crate) before_logic: fn(&egui::Context),
