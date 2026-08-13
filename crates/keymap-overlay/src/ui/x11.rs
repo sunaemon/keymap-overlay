@@ -37,8 +37,8 @@ use x11rb::protocol::xproto::{ConnectionExt as _, CreateGCAux};
 use x11rb::rust_connection::RustConnection;
 
 use crate::{
-    ImageCache, LayerEventSink, ListenerEvent, Transition, image_path, load_image_cache,
-    premultiply, spawn_raw_hid_listener, transition_for_event,
+    ImageCache, LayerEventSink, ListenerEvent, PendingTransition, Transition, image_path,
+    load_image_cache, premultiply, spawn_raw_hid_listener,
 };
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
@@ -55,10 +55,9 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     let mut app = OverlayApp {
         assets_dir,
         window: None,
-        held_keys: Vec::new(),
         images,
         image: None,
-        pending_transition: Transition::Ignore,
+        pending: PendingTransition::default(),
         error: None,
     };
     event_loop
@@ -85,10 +84,9 @@ impl LayerEventSink for ProxySink {
 struct OverlayApp {
     assets_dir: PathBuf,
     window: Option<OverlayWindow>,
-    held_keys: Vec<(u8, u8)>,
     images: ImageCache,
     image: Option<Arc<RgbaImage>>,
-    pending_transition: Transition,
+    pending: PendingTransition,
     error: Option<anyhow::Error>,
 }
 
@@ -105,16 +103,8 @@ struct X11Renderer {
 }
 
 impl OverlayApp {
-    fn queue_layer_event(&mut self, event: ListenerEvent) {
-        let transition = transition_for_event(&mut self.held_keys, event);
-        if transition != Transition::Ignore {
-            self.pending_transition = transition;
-        }
-    }
-
     fn apply_pending_transition(&mut self) {
-        let transition = std::mem::replace(&mut self.pending_transition, Transition::Ignore);
-        match transition {
+        match self.pending.take() {
             Transition::Show { keyboard_id, layer } => self.show_layer(keyboard_id, layer),
             Transition::Hide => self.hide(),
             Transition::Ignore => {}
@@ -343,7 +333,7 @@ impl ApplicationHandler<ListenerEvent> for OverlayApp {
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, event: ListenerEvent) {
-        self.queue_layer_event(event);
+        self.pending.push(event);
     }
 
     fn about_to_wait(&mut self, _: &ActiveEventLoop) {

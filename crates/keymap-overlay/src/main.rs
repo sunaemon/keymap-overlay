@@ -90,11 +90,47 @@ pub(crate) fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
 }
 
 /// What a report should do to the overlay, given the held momentary layers.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum Transition {
-    Show { keyboard_id: u8, layer: u8 },
+    Show {
+        keyboard_id: u8,
+        layer: u8,
+    },
     Hide,
+    #[default]
     Ignore,
+}
+
+/// The held layers, and the one window update the events seen so far call for.
+///
+/// Every backend needs the same reduction: several events can pile up before a
+/// UI loop gets to act on them, and only their final state should ever reach the
+/// screen. Intermediate restores and switches are not drawn on the way to a
+/// newer layer or a hide.
+///
+/// It accumulates rather than folding an iterator because that is the shape both
+/// kinds of backend can use. The eframe windows drain an mpsc channel when their
+/// callback runs; the Wayland and X11 windows are handed one event at a time by
+/// calloop and by the winit event-loop proxy, with nothing to drain.
+#[derive(Default)]
+pub(crate) struct PendingTransition {
+    held_keys: Vec<(u8, u8)>,
+    transition: Transition,
+}
+
+impl PendingTransition {
+    /// Folds one event in, keeping the latest transition that changes anything.
+    pub(crate) fn push(&mut self, event: ListenerEvent) {
+        let transition = transition_for_event(&mut self.held_keys, event);
+        if transition != Transition::Ignore {
+            self.transition = transition;
+        }
+    }
+
+    /// Takes what the window should do now, leaving nothing pending behind.
+    pub(crate) fn take(&mut self) -> Transition {
+        std::mem::take(&mut self.transition)
+    }
 }
 
 pub(crate) fn transition_for_event(
@@ -114,22 +150,6 @@ pub(crate) fn transition_for_event(
         }
         ActiveLayerChange::Changed(None) => Transition::Hide,
     }
-}
-
-/// Reduces queued listener events to the one window update their final state needs.
-#[cfg(any(not(target_os = "linux"), test))]
-pub(crate) fn transition_for_events(
-    held_keys: &mut Vec<(u8, u8)>,
-    events: impl IntoIterator<Item = ListenerEvent>,
-) -> Transition {
-    events
-        .into_iter()
-        .filter_map(|event| match transition_for_event(held_keys, event) {
-            Transition::Ignore => None,
-            transition => Some(transition),
-        })
-        .last()
-        .unwrap_or(Transition::Ignore)
 }
 
 pub(crate) fn image_path(assets_dir: &Path, keyboard_id: u8, layer: u8) -> PathBuf {
@@ -480,7 +500,10 @@ mod tests {
 
     #[test]
     fn queued_events_only_expose_their_final_state_to_the_ui() {
-        let mut held_keys = vec![(1, 2)];
+        let mut pending = PendingTransition {
+            held_keys: vec![(1, 2)],
+            transition: Transition::Ignore,
+        };
         let events = [
             ListenerEvent::Layer(RawLayerEvent {
                 keyboard_id: 1,
@@ -498,12 +521,55 @@ mod tests {
                 pressed: false,
             }),
         ];
+        for event in events {
+            pending.push(event);
+        }
+
+        assert_eq!(pending.take(), Transition::Hide);
+        assert!(pending.held_keys.is_empty());
+    }
+
+    /// Taking the transition must not hand the same update out a second time.
+    #[test]
+    fn nothing_is_pending_once_it_has_been_taken() {
+        let mut pending = PendingTransition::default();
+        pending.push(ListenerEvent::Layer(RawLayerEvent {
+            keyboard_id: 1,
+            layer: 2,
+            pressed: true,
+        }));
 
         assert_eq!(
-            transition_for_events(&mut held_keys, events),
-            Transition::Hide
+            pending.take(),
+            Transition::Show {
+                keyboard_id: 1,
+                layer: 2,
+            }
         );
-        assert!(held_keys.is_empty());
+        assert_eq!(pending.take(), Transition::Ignore);
+    }
+
+    /// An event that changes nothing must not clear a transition still waiting
+    /// to be drawn.
+    #[test]
+    fn an_ignored_event_leaves_an_earlier_transition_pending() {
+        let mut pending = PendingTransition::default();
+        pending.push(ListenerEvent::Layer(RawLayerEvent {
+            keyboard_id: 1,
+            layer: 2,
+            pressed: true,
+        }));
+        pending.push(ListenerEvent::Disconnected {
+            keyboard_id: Some(9),
+        });
+
+        assert_eq!(
+            pending.take(),
+            Transition::Show {
+                keyboard_id: 1,
+                layer: 2,
+            }
+        );
     }
 
     #[test]

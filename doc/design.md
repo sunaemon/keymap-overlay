@@ -85,7 +85,10 @@ that is undecorated, transparent, always-on-top and click-through. It stays
 mapped as a fully transparent window and hiding drops its image instead of
 unmapping it. This avoids both the native window-show animation and a flash of
 eframe's backing clear colour on every key hold. It is resized to the PNG
-dimensions immediately before the image is drawn.
+dimensions immediately before the image is drawn, and back to a single pixel
+when it hides: mouse passthrough is all that stops a full-size invisible window
+from taking clicks across its whole rectangle, so a hidden overlay is kept as
+small as a mapped window can be.
 
 The application replaces the former Hammerspoon and Lua integration entirely.
 No synthetic function-key events or Hammerspoon configuration are required.
@@ -106,7 +109,8 @@ the same failure described for X11 below. Nothing in winit 0.30 exposes
 so the style cannot be set by hand either.
 
 So on Windows "hidden" means _drawing nothing_: the window keeps its place in
-the stack, transparent and click-through, and hiding drops the texture. Two
+the stack, transparent and click-through, and hiding drops the texture and
+shrinks the window, exactly as on macOS. Two
 consequences are load-bearing. The clear colour must be fully transparent —
 eframe's default is a translucent grey that no other backend ever shows,
 because they all unmap, but here it would be a permanent rectangle across the

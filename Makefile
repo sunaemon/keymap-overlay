@@ -146,6 +146,23 @@ QMK_KEYMAP ?= keymap
 # Directory containing keyboard configurations
 KEYBOARDS_DIR ?= example
 
+# Every configured keyboard, by KEYBOARD_ID. A directory counts once it has a
+# config.json, which is the file the ID and QMK_KEYBOARD are read from.
+ALL_KEYBOARD_IDS = $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json))
+
+# Re-enter make once per keyboard, for the targets that work on one at a time
+# and were given no KEYBOARD_ID. $(1) is the verb for the banner, $(2) the verb
+# for each keyboard, $(3) the target; the two verbs are separate because
+# "flashing all keyboards" goes with "Flashing keymap for 1".
+define FOR_EACH_KEYBOARD
+echo "KEYBOARD_ID not set, $(1) all keyboards..."; \
+for kb in $(ALL_KEYBOARD_IDS); do \
+echo "----------------------------------------------------------------"; \
+echo "$(2) $$kb"; \
+$(MAKE) $(3) KEYBOARD_ID=$$kb || exit 1; \
+done
+endef
+
 ifdef KEYBOARD_ID
 
 # KEYBOARD_ID names a directory in $(KEYBOARDS_DIR), is compiled into the
@@ -369,12 +386,7 @@ ifdef KEYBOARD_ID
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
 else
-	@echo "KEYBOARD_ID not set, installing all keyboards..."
-	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
-		echo "----------------------------------------------------------------"; \
-		echo "Installing $$kb"; \
-		$(MAKE) install-assets KEYBOARD_ID=$$kb || exit 1; \
-	done
+	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
 endif
 endif
 
@@ -389,12 +401,7 @@ ifdef KEYBOARD_ID
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_draw_layers
 else
-	@echo "KEYBOARD_ID not set, drawing layers for all keyboards..."
-	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
-		echo "----------------------------------------------------------------"; \
-		echo "Drawing layers for $$kb"; \
-		$(MAKE) draw-layers KEYBOARD_ID=$$kb || exit 1; \
-	done
+	+@$(call FOR_EACH_KEYBOARD,drawing layers for,Drawing layers for,draw-layers)
 endif
 
 .PHONY: lint
@@ -638,7 +645,7 @@ endif
 		'#' \
 		'# uaccess hands the Raw HID node to whoever is logged in at the seat,' \
 		'# which is what lets the overlay read layer reports without root.'; \
-		for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
+		for kb in $(ALL_KEYBOARD_IDS); do \
 			$(MAKE) --no-print-directory print-udev-rule KEYBOARD_ID=$$kb || exit 1; \
 		done; \
 		} > build/keymap-overlay.rules.tmp && mv build/keymap-overlay.rules.tmp build/keymap-overlay.rules
@@ -689,12 +696,7 @@ ifdef KEYBOARD_ID
 	@$(MAKE) _copy_firmware
 	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
 else
-	@echo "KEYBOARD_ID not set, compiling all keyboards..."
-	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
-		echo "----------------------------------------------------------------"; \
-		echo "Compiling $$kb"; \
-		$(MAKE) compile KEYBOARD_ID=$$kb || exit 1; \
-	done
+	+@$(call FOR_EACH_KEYBOARD,compiling,Compiling,compile)
 endif
 
 .PHONY: flash
@@ -762,12 +764,7 @@ ifdef KEYBOARD_ID
 	@echo "Loading new configuration to device..."
 	$(VITALY) -i $(DEVICE_PID) load -f $(BUILD_DIR)/vitaly_ready.json
 else
-	@echo "KEYBOARD_ID not set, flashing all keyboards..."
-	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
-		echo "----------------------------------------------------------------"; \
-		echo "Flashing keymap for $$kb"; \
-		$(MAKE) flash-keymap KEYBOARD_ID=$$kb || exit 1; \
-	done
+	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
 endif
 
 .PHONY: patch-load
@@ -779,12 +776,7 @@ ifdef KEYBOARD_ID
 	cp -r "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/." "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/"
 	@echo "✔ Keyboard configuration loaded"
 else
-	@echo "KEYBOARD_ID not set, patching all keyboards..."
-	@for kb in $(patsubst $(KEYBOARDS_DIR)/%/config.json,%,$(wildcard $(KEYBOARDS_DIR)/*/config.json)); do \
-		echo "----------------------------------------------------------------"; \
-		echo "Patching $$kb"; \
-		$(MAKE) patch-load KEYBOARD_ID=$$kb || exit 1; \
-	done
+	+@$(call FOR_EACH_KEYBOARD,patching,Patching,patch-load)
 endif
 
 .PHONY: print-vars

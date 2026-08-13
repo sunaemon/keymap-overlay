@@ -12,226 +12,56 @@
 //! layer key was held for — the failure `doc/design.md` describes for X11.
 //!
 //! So "hidden" here means *drawing nothing*: the window keeps its place in the
-//! stack, transparent and click-through, and `hide` drops the texture. Two
-//! things follow, and both are load-bearing:
+//! stack, transparent and click-through, and shrinks back to a single pixel.
+//! Two things follow, and both are load-bearing:
 //!
 //! - `clear_color` must be fully transparent. eframe's default is a translucent
 //!   dark grey, which no other backend ever shows because they all unmap; here
 //!   it would be a permanent grey rectangle over the screen.
 //! - resizing must not activate either, which holds: winit's resize path passes
 //!   `SWP_NOACTIVATE`.
+//!
+//! Both of those are shared with macOS in `eframe_common.rs`, which stays
+//! mapped for its own reasons and hides the same way. What is left here, and
+//! specific to Windows, is the taskbar exclusion and the scale factor.
 
 use anyhow::Result;
-use eframe::egui::{self, ColorImage, Pos2, TextureHandle, Vec2, ViewportCommand};
-use log::warn;
-use std::collections::HashMap;
+use eframe::egui;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
 
-use crate::{
-    LayerEventSink, ListenerEvent, Transition, image_path, load_image_cache,
-    spawn_raw_hid_listener, transition_for_events,
-};
-
-/// The idle window is one transparent pixel: it has to stay mapped, so it may
-/// as well cover as little as possible until a layer image gives it a size.
-const IDLE_SIZE: f32 = 1.0;
+use crate::ui::eframe_common::{self, PlatformHooks, base_viewport};
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
-    let (sender, receiver) = mpsc::channel();
+    eframe_common::run(
+        assets_dir,
+        PlatformHooks {
+            native_options,
+            before_logic: pin_pixels_per_point,
+        },
+    )
+}
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_decorations(false)
-            .with_transparent(true)
-            .with_always_on_top()
-            .with_mouse_passthrough(true)
+fn native_options() -> eframe::NativeOptions {
+    eframe::NativeOptions {
+        viewport: base_viewport()
             // An overlay is not an application you switch to, so it belongs in
             // neither the taskbar nor the alt-tab list.
-            .with_taskbar(false)
-            // The one show this window ever gets must not take focus; see the
-            // module comment for why this is a one-shot on Windows.
-            .with_active(false)
-            .with_inner_size([IDLE_SIZE, IDLE_SIZE]),
+            .with_taskbar(false),
         ..Default::default()
-    };
-    eframe::run_native(
-        "Keymap Overlay",
-        options,
-        Box::new(move |creation| {
-            // The listener needs the egui context so it can wake the UI thread
-            // on a layer event; without it the app would have to poll.
-            spawn_raw_hid_listener(RepaintSink {
-                sender,
-                context: creation.egui_ctx.clone(),
-            });
-            Ok(Box::new(OverlayApp::new(
-                creation.egui_ctx.clone(),
-                assets_dir,
-                receiver,
-            )?))
-        }),
-    )
-    .map_err(|error| anyhow::anyhow!("Failed to start the keymap overlay: {error}"))
-}
-
-#[derive(Clone)]
-struct RepaintSink {
-    sender: Sender<ListenerEvent>,
-    context: egui::Context,
-}
-
-impl LayerEventSink for RepaintSink {
-    fn send(&self, event: ListenerEvent) -> bool {
-        if self.sender.send(event).is_err() {
-            return false;
-        }
-        self.context.request_repaint();
-        true
     }
 }
 
-struct OverlayApp {
-    assets_dir: PathBuf,
-    receiver: Receiver<ListenerEvent>,
-    held_keys: Vec<(u8, u8)>,
-    textures: HashMap<(u8, u8), TextureHandle>,
-    texture: Option<(u8, u8)>,
-}
-
-impl OverlayApp {
-    fn new(
-        context: egui::Context,
-        assets_dir: PathBuf,
-        receiver: Receiver<ListenerEvent>,
-    ) -> Result<Self> {
-        let textures = load_image_cache(&assets_dir)?
-            .into_iter()
-            .map(|(key, image)| {
-                let size = [image.width() as usize, image.height() as usize];
-                let image = ColorImage::from_rgba_unmultiplied(size, image.as_raw());
-                let texture = context.load_texture(
-                    format!("{}_L{}", key.0, key.1),
-                    image,
-                    Default::default(),
-                );
-                (key, texture)
-            })
-            .collect();
-        Ok(Self {
-            assets_dir,
-            receiver,
-            held_keys: Vec::new(),
-            textures,
-            texture: None,
-        })
-    }
-
-    fn process_events(&mut self, context: &egui::Context) {
-        match transition_for_events(&mut self.held_keys, self.receiver.try_iter()) {
-            Transition::Show { keyboard_id, layer } => {
-                self.show_layer(context, keyboard_id, layer);
-            }
-            Transition::Hide => self.hide(context),
-            Transition::Ignore => {}
-        }
-    }
-
-    fn show_layer(&mut self, context: &egui::Context, keyboard_id: u8, layer: u8) {
-        let path = image_path(&self.assets_dir, keyboard_id, layer);
-        match self.textures.get(&(keyboard_id, layer)) {
-            Some(texture) => {
-                let size = texture.size();
-                let size_changed = self
-                    .texture
-                    .and_then(|key| self.textures.get(&key))
-                    .is_none_or(|current| current.size() != size);
-                self.texture = Some((keyboard_id, layer));
-                let size = Vec2::new(size[0] as f32, size[1] as f32);
-                if size_changed {
-                    context.send_viewport_cmd(ViewportCommand::InnerSize(size));
-                    center_on_monitor(context, size);
-                }
-                context.request_repaint();
-            }
-            None => {
-                warn!("Overlay image is unavailable: {}", path.display());
-                // Stay hidden rather than leaving the previous layer on screen.
-                self.hide(context);
-            }
-        }
-    }
-
-    /// Drops the image rather than hiding the window; see the module comment.
-    fn hide(&mut self, context: &egui::Context) {
-        self.texture = None;
-        context.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(IDLE_SIZE, IDLE_SIZE)));
-        context.request_repaint();
-    }
-}
-
-/// Places the window in the middle of the primary monitor.
+/// Layer images are presented at their own pixel size, as on the other systems
+/// — `DPI` in the Makefile is where an image is sized for a screen. Windows
+/// reports a scale factor for the display, which egui would otherwise apply to
+/// both the image and the viewport sizes the shared code sends, so it is pinned
+/// to 1:1 here instead.
 ///
-/// `ViewportCommand::center_on_screen` would be the obvious call, but it
-/// centres on the window's *current* `outer_rect`, which at this point is still
-/// the previous layer's size — the resize above has not been applied yet. The
-/// size is known here, so the position is computed from it directly.
-///
-/// Unlike `x11.rs::centered_position`, which adds `MonitorHandle::position()`,
-/// this cannot centre on the monitor the window happens to be on:
-/// `ViewportInfo` carries `monitor_size` but no monitor origin, while
-/// `OuterPosition` is in virtual-desktop coordinates. On a multi-monitor
-/// desktop the overlay therefore lands on the primary monitor. Fixing it needs
-/// the current monitor's rect from outside egui.
-fn center_on_monitor(context: &egui::Context, size: Vec2) {
-    let Some(monitor) = context.input(|input| input.viewport().monitor_size) else {
-        // Nothing to centre against; the window stays where it was, which is
-        // better than moving it to a corner.
-        return;
-    };
-    let position = Pos2::new(
-        ((monitor.x - size.x) / 2.0).max(0.0),
-        ((monitor.y - size.y) / 2.0).max(0.0),
-    );
-    context.send_viewport_cmd(ViewportCommand::OuterPosition(position));
-}
-
-impl eframe::App for OverlayApp {
-    /// Fully transparent, unlike eframe's translucent-grey default, because
-    /// this window is always mapped: anything opaque here would sit on screen
-    /// for the whole session.
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
-    }
-
-    /// Events are drained here to stay in step with `eframe_window.rs`, where
-    /// draining from `ui` would not work at all. This window is never hidden,
-    /// so an egui pass does run either way, but there is nothing to gain from
-    /// the two backends disagreeing about where the events are handled.
-    fn logic(&mut self, context: &egui::Context, _: &mut eframe::Frame) {
-        // Layer images are presented at their own pixel size, as on the other
-        // systems — `DPI` in the Makefile is where an image is sized for a
-        // screen. Windows reports a scale factor for the display, which egui
-        // would otherwise apply to both the image and the sizes sent above, so
-        // it is pinned to 1:1 here instead.
-        //
-        // Every frame, not once: this sets a *zoom factor* of
-        // 1/scale_factor, which egui multiplies by the live scale factor on
-        // each pass. Pinning once would come undone the moment the overlay met
-        // a monitor scaled differently from the one it started on. The call
-        // returns early when the value is already 1:1, so repeating it is free.
-        context.set_pixels_per_point(1.0);
-        self.process_events(context);
-    }
-
-    /// The `Ui` eframe hands over already has no margin and no background,
-    /// which is all the central panel with a transparent `Frame::NONE` was
-    /// there for, so the image is drawn straight into it.
-    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
-        if let Some(texture) = self.texture.and_then(|key| self.textures.get(&key)) {
-            ui.image(texture);
-        }
-        // No periodic repaint: the Raw HID listener wakes the UI thread when a
-        // layer event arrives, so an idle overlay costs nothing.
-    }
+/// Every frame, not once: this sets a *zoom factor* of 1/scale_factor, which
+/// egui multiplies by the live scale factor on each pass. Pinning once would
+/// come undone the moment the overlay met a monitor scaled differently from the
+/// one it started on. The call returns early when the value is already 1:1, so
+/// repeating it is free.
+fn pin_pixels_per_point(context: &egui::Context) {
+    context.set_pixels_per_point(1.0);
 }
