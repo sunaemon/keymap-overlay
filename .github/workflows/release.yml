@@ -72,7 +72,8 @@ jobs:
       - name: Package binary and notices
         id: package
         run: |
-          mkdir -p dist/package
+          mkdir -p dist/package/example
+          cp example/LICENSE dist/package/example/LICENSE
           dist="$PWD/dist"
           arch="$(uname -m)"
           case "$RUNNER_OS" in
@@ -81,19 +82,19 @@ jobs:
               cp target/release/keymap-overlay.exe dist/package/
               cp LICENSE.md dist/package/LICENSE
               cp THIRD-PARTY-LICENSES.html dist/package/
-              (cd dist/package && 7z a "$dist/$asset" keymap-overlay.exe LICENSE THIRD-PARTY-LICENSES.html)
+              (cd dist/package && 7z a "$dist/$asset" keymap-overlay.exe LICENSE example/LICENSE THIRD-PARTY-LICENSES.html)
               ;;
             macOS)
               asset="keymap-overlay-macos-${arch}.tar.gz"
               cp target/release/keymap-overlay THIRD-PARTY-LICENSES.html dist/package/
               cp LICENSE.md dist/package/LICENSE
-              tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE THIRD-PARTY-LICENSES.html
+              tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE example/LICENSE THIRD-PARTY-LICENSES.html
               ;;
             Linux)
               asset="keymap-overlay-linux-${arch}.tar.gz"
               cp target/release/keymap-overlay THIRD-PARTY-LICENSES.html dist/package/
               cp LICENSE.md dist/package/LICENSE
-              tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE THIRD-PARTY-LICENSES.html
+              tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE example/LICENSE THIRD-PARTY-LICENSES.html
               ;;
           esac
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
