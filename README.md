@@ -1,8 +1,8 @@
 # QMK Keymap Overlay
 
 [![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml?query=branch%3Amain)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Example: GPL-2.0-or-later](https://img.shields.io/badge/Example-GPL--2.0--or--later-blue.svg)](example/LICENSE)
+[![Tools: MIT](https://img.shields.io/badge/Tools-MIT-green.svg)](LICENSE.md#tools-and-application-mit)
+[![Firmware: GPL-2.0-or-later](https://img.shields.io/badge/Firmware-GPL--2.0--or--later-blue.svg)](LICENSE.md#firmware-and-qmk-keymap-files-gpl-20-or-later)
 [![Platform: macOS | Linux | Windows](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#project-status)
 
@@ -551,7 +551,8 @@ appear only after the second display.
 
 ## License
 
-Keymap files in `example/` are licensed under GPL-2.0-or-later. The tools and
-scripts are licensed under the MIT License. See [LICENSE](LICENSE) and
+Firmware code in `firmware/` and keyboard/keymap files in `example/` are
+licensed under GPL-2.0-or-later. The tools and application are licensed under
+the MIT License. See [LICENSE.md](LICENSE.md) and
 [example/LICENSE](example/LICENSE). Binary releases include both the MIT
 license and generated [third-party license notices](THIRD-PARTY-LICENSES.html).

@@ -79,17 +79,20 @@ jobs:
             Windows)
               asset="keymap-overlay-windows-${arch}.zip"
               cp target/release/keymap-overlay.exe dist/package/
-              cp LICENSE THIRD-PARTY-LICENSES.html dist/package/
+              cp LICENSE.md dist/package/LICENSE
+              cp THIRD-PARTY-LICENSES.html dist/package/
               (cd dist/package && 7z a "$dist/$asset" keymap-overlay.exe LICENSE THIRD-PARTY-LICENSES.html)
               ;;
             macOS)
               asset="keymap-overlay-macos-${arch}.tar.gz"
-              cp target/release/keymap-overlay LICENSE THIRD-PARTY-LICENSES.html dist/package/
+              cp target/release/keymap-overlay THIRD-PARTY-LICENSES.html dist/package/
+              cp LICENSE.md dist/package/LICENSE
               tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE THIRD-PARTY-LICENSES.html
               ;;
             Linux)
               asset="keymap-overlay-linux-${arch}.tar.gz"
-              cp target/release/keymap-overlay LICENSE THIRD-PARTY-LICENSES.html dist/package/
+              cp target/release/keymap-overlay THIRD-PARTY-LICENSES.html dist/package/
+              cp LICENSE.md dist/package/LICENSE
               tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE THIRD-PARTY-LICENSES.html
               ;;
           esac
