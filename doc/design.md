@@ -81,9 +81,11 @@ keyboard, deciding what a report means, loading the image, and writing the log
 are shared; only the window differs, behind `src/ui/`.
 
 On **macOS** (`src/ui/eframe_window.rs`) the window is an eframe/egui window
-that is undecorated, transparent, always-on-top and click-through. It is
-explicitly hidden on its first frame to avoid a macOS visibility quirk, and
-resized to the PNG dimensions immediately before it is shown.
+that is undecorated, transparent, always-on-top and click-through. It stays
+mapped as a fully transparent window and hiding drops its image instead of
+unmapping it. This avoids both the native window-show animation and a flash of
+eframe's backing clear colour on every key hold. It is resized to the PNG
+dimensions immediately before the image is drawn.
 
 The application replaces the former Hammerspoon and Lua integration entirely.
 No synthetic function-key events or Hammerspoon configuration are required.
@@ -137,14 +139,15 @@ blitting one decoded image per key hold does not need a GPU context. The direct
 upload also provides the defined 32-bit ARGB format the transparent visual
 requires; softbuffer's public pixel format has no alpha channel.
 
-Hiding is unmapping: the overlay attaches a null buffer, which per the protocol
-returns the layer surface to the state it had when it was created. Showing a
-layer therefore re-sends the layer state, commits without a buffer, and attaches
-the image when the configure that follows arrives. Switching between visible
-layers of the same size instead replaces the buffer in one commit, avoiding an
-unmap/configure round trip and a stale frame. The surface is unmapped between
-key holds, so a hidden overlay is not a window at all. That holds on macOS and
-Linux; Windows is the exception described above.
+On Linux, hiding is unmapping: the overlay attaches a null buffer, which per the
+protocol returns the layer surface to the state it had when it was created.
+Showing a layer therefore re-sends the layer state, commits without a buffer,
+and attaches the image when the configure that follows arrives. Switching
+between visible layers of the same size instead replaces the buffer in one
+commit, avoiding an unmap/configure round trip and a stale frame. The surface
+is unmapped between key holds, so a hidden Linux overlay is not a window at all.
+macOS and Windows instead keep a transparent, click-through window mapped to
+avoid platform show behaviour that is inappropriate for the overlay.
 
 The image is presented at its own pixel size on all three systems rather than
 being scaled to the display; `DPI` in the Makefile is where an image is sized

@@ -1,7 +1,13 @@
 //! Linux builds its own windows instead; see `wayland.rs` and `x11.rs`.
+//!
+//! The macOS window stays mapped for the lifetime of the process. Mapping a
+//! transparent native window can briefly show its backing clear colour and
+//! macOS applies the normal window-show animation, neither of which belongs in
+//! an overlay that appears on every layer press. "Hidden" therefore means
+//! drawing no texture into a fully transparent, click-through window.
 
 use anyhow::Result;
-use eframe::egui::{self, ColorImage, TextureHandle, Vec2, ViewportCommand};
+use eframe::egui::{self, ColorImage, Pos2, TextureHandle, Vec2, ViewportCommand};
 use log::warn;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -13,6 +19,9 @@ use crate::{
     spawn_raw_hid_listener, transition_for_events,
 };
 
+/// Keep the always-mapped window effectively absent before its first image.
+const IDLE_SIZE: f32 = 1.0;
+
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     let (sender, receiver) = mpsc::channel();
 
@@ -22,7 +31,8 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
             .with_transparent(true)
             .with_always_on_top()
             .with_mouse_passthrough(true)
-            .with_visible(false),
+            .with_active(false)
+            .with_inner_size([IDLE_SIZE, IDLE_SIZE]),
         // An overlay is not an application you switch to: it belongs beside
         // the keyboard, not in the Dock or the menu bar. macOS gives an
         // unbundled binary the regular policy, which parks an icon in the Dock
@@ -75,7 +85,6 @@ struct OverlayApp {
     held_keys: Vec<(u8, u8)>,
     textures: HashMap<(u8, u8), TextureHandle>,
     texture: Option<(u8, u8)>,
-    viewport_initialized: bool,
 }
 
 impl OverlayApp {
@@ -103,7 +112,6 @@ impl OverlayApp {
             held_keys: Vec::new(),
             textures,
             texture: None,
-            viewport_initialized: false,
         })
     }
 
@@ -128,12 +136,10 @@ impl OverlayApp {
                     .is_none_or(|current| current.size() != size);
                 self.texture = Some((keyboard_id, layer));
                 if size_changed {
-                    context.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(
-                        size[0] as f32,
-                        size[1] as f32,
-                    )));
+                    let size = Vec2::new(size[0] as f32, size[1] as f32);
+                    context.send_viewport_cmd(ViewportCommand::InnerSize(size));
+                    center_on_monitor(context, size);
                 }
-                context.send_viewport_cmd(ViewportCommand::Visible(true));
                 context.request_repaint();
             }
             None => {
@@ -145,28 +151,32 @@ impl OverlayApp {
     }
 
     fn hide(&mut self, context: &egui::Context) {
-        // The compositor may retain a hidden window's last frame and expose it
-        // briefly when the window is mapped again. Paint an empty frame while
-        // hiding so the next show cannot flash the previous layer.
         self.texture = None;
-        context.send_viewport_cmd(ViewportCommand::Visible(false));
         context.request_repaint();
     }
 }
 
+/// Places a newly sized overlay in the middle of the primary monitor.
+fn center_on_monitor(context: &egui::Context, size: Vec2) {
+    let Some(monitor) = context.input(|input| input.viewport().monitor_size) else {
+        return;
+    };
+    let position = Pos2::new(
+        ((monitor.x - size.x) / 2.0).max(0.0),
+        ((monitor.y - size.y) / 2.0).max(0.0),
+    );
+    context.send_viewport_cmd(ViewportCommand::OuterPosition(position));
+}
+
 impl eframe::App for OverlayApp {
-    /// The events are drained here rather than in `ui` because eframe runs no
-    /// egui pass at all while the viewport is hidden: it calls `logic` and
-    /// stops. The overlay is hidden for all but the moment a layer key is
-    /// held, so the press that has to bring it back arrives exactly then, and
-    /// handling it from `ui` would leave the window hidden for good.
+    /// Fully transparent because the native window remains mapped while idle.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
+    }
+
+    /// Events are drained in the logic pass so listener wakeups remain
+    /// independent of painting.
     fn logic(&mut self, context: &egui::Context, _: &mut eframe::Frame) {
-        if !self.viewport_initialized {
-            // macOS can show the native window even when its initial visibility is false.
-            // Hide it explicitly on the first pass, before any layer notification arrives.
-            context.send_viewport_cmd(ViewportCommand::Visible(false));
-            self.viewport_initialized = true;
-        }
         self.process_events(context);
     }
 
