@@ -117,6 +117,7 @@ pub(crate) fn transition_for_event(
 }
 
 /// Reduces queued listener events to the one window update their final state needs.
+#[cfg(any(not(target_os = "linux"), test))]
 pub(crate) fn transition_for_events(
     held_keys: &mut Vec<(u8, u8)>,
     events: impl IntoIterator<Item = ListenerEvent>,
