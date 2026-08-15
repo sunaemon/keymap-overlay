@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 Font = ImageFont.ImageFont | ImageFont.FreeTypeFont
+OverlayPlatform = Literal["macos", "linux", "windows"]
 
 BACKGROUND = (0, 0, 0, 0)
 KEY_FILL = (220, 224, 231, 246)
@@ -134,6 +135,9 @@ def main(
     output_format: Annotated[
         Literal["png", "json"], typer.Option(help="Installed asset format")
     ] = "png",
+    platform: Annotated[
+        OverlayPlatform, typer.Option(help="Target overlay platform")
+    ] = "macos",
 ) -> None:
     """Build one platform-neutral keymap display model."""
     initialize_logging()
@@ -148,6 +152,7 @@ def main(
             pixels_per_unit,
             keymap_c=keymap_c,
             vitaly_json=vitaly_json,
+            platform=platform,
         )
         if output_format == "json":
             _write_stdout(
@@ -177,6 +182,7 @@ def render_png(
     *,
     keymap_c: Path | None = None,
     vitaly_json: Path | None = None,
+    platform: OverlayPlatform = "macos",
 ) -> Image.Image:
     """Render one keymap layer as an RGBA image."""
     return _draw_model(
@@ -190,6 +196,7 @@ def render_png(
             pixels_per_unit,
             keymap_c=keymap_c,
             vitaly_json=vitaly_json,
+            platform=platform,
         )
     )
 
@@ -205,6 +212,7 @@ def build_overlay_model(
     *,
     keymap_c: Path | None = None,
     vitaly_json: Path | None = None,
+    platform: OverlayPlatform = "macos",
 ) -> OverlayModel:
     """Build one JSON-serializable display model from QMK sources."""
     if keymap_c is None and vitaly_json is None:
@@ -214,7 +222,7 @@ def build_overlay_model(
     keyboard = parse_json(KeyboardJson, keyboard_json)
     config = parse_json(KeyboardConfig, keyboard_config)
     custom_keycodes = parse_json(KeycodesJson, custom_keycodes_json)
-    display_labels = _parse_display_labels(keymap_c) if keymap_c else {}
+    display_labels = _parse_display_labels(keymap_c, platform) if keymap_c else {}
     layout = keyboard.layout_keys(layout_name)
     _validate_layer(keymap, layout, layer_index)
 
@@ -626,7 +634,10 @@ def _format_keycode(keycode: str, display_labels: dict[str, str]) -> str:
     return keycode.replace("_", " ")
 
 
-def _parse_display_labels(keymap_c: Path) -> dict[str, str]:
+def _parse_display_labels(
+    keymap_c: Path,
+    platform: OverlayPlatform = "macos",
+) -> dict[str, str]:
     content = keymap_c.read_text(encoding="utf-8")
     labels: dict[str, str] = {}
 
@@ -644,11 +655,30 @@ def _parse_display_labels(keymap_c: Path) -> dict[str, str]:
             if match and len(match.group(2)) == 1:
                 labels[match.group(1)] = match.group(2)
 
+    labels.update(
+        _parse_display_label_blocks(content, "keymap-overlay-labels", keymap_c)
+    )
+    labels.update(
+        _parse_display_label_blocks(
+            content,
+            f"keymap-overlay-labels-{platform}",
+            keymap_c,
+        )
+    )
+    return labels
+
+
+def _parse_display_label_blocks(
+    content: str,
+    block_name: str,
+    keymap_c: Path,
+) -> dict[str, str]:
     blocks = re.findall(
-        r"/\*\s*keymap-overlay-labels\b(.*?)\*/",
+        rf"/\*\s*{re.escape(block_name)}(?![-\w])\s*(.*?)\*/",
         content,
         re.DOTALL,
     )
+    labels: dict[str, str] = {}
     for block in blocks:
         for raw_line in block.splitlines():
             line = re.sub(r"^\s*\*\s?", "", raw_line).strip()
@@ -661,7 +691,7 @@ def _parse_display_labels(keymap_c: Path) -> dict[str, str]:
                 )
             keycode, label = match.groups()
             if keycode in labels:
-                raise ValueError(f"Duplicate keymap-overlay label for {keycode}")
+                raise ValueError(f"Duplicate {block_name} label for {keycode}")
             labels[keycode] = label
     return labels
 

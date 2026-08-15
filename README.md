@@ -289,6 +289,7 @@ From the WSL checkout:
 WINDOWS_PROFILE="$(cd /mnt/c && cmd.exe /C echo %USERPROFILE% | tr -d '\r')"
 WINDOWS_HOME="$(wslpath "$WINDOWS_PROFILE")"
 make install-assets \
+  OVERLAY_PLATFORM=windows \
   KEYMAP_OVERLAY_DIR="$WINDOWS_HOME/.config/keymap-overlay"
 ```
 
@@ -440,17 +441,39 @@ enum custom_keycodes {
 };
 ```
 
-Map standard or multi-character keycodes in a dedicated comment block anywhere
-in `keymap.c`:
+Map standard or multi-character keycodes in a common comment block anywhere in
+`keymap.c`:
 
 ```c
 /* keymap-overlay-labels
-KC_LGUI = ⌘
-KC_LALT = ⌥
-KC_LCTL = ⌃
-KC_LSFT = ⇧
+KC_APP = ☰
+KC_LEFT = ←
 */
 ```
+
+Add `-macos`, `-linux`, or `-windows` to override labels for one target:
+
+```c
+/* keymap-overlay-labels-macos
+KC_LGUI = ⌘
+KC_LALT = ⌥
+*/
+
+/* keymap-overlay-labels-linux
+KC_LGUI = Super
+KC_LALT = Alt
+*/
+
+/* keymap-overlay-labels-windows
+KC_LGUI = ⊞
+KC_LALT = Alt
+*/
+```
+
+Asset generation targets the current host by default. Set
+`OVERLAY_PLATFORM=windows` when WSL is producing assets for the native Windows
+overlay; this selects the Windows label block as well as the platform asset
+format.
 
 These annotations are consumed only by `make install-assets`; the C compiler
 sees ordinary comments.

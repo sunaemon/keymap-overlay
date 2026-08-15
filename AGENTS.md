@@ -37,7 +37,7 @@ There are three parts:
   JSON or a transparent PNG,
   including encoder rotation and push actions. It resolves custom keycode names
   and `KC_TRNS` in memory for display only, and reads Unicode label annotations
-  from `keymap.c`.
+  from common and platform-specific blocks in `keymap.c`.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.

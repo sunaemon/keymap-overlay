@@ -24,6 +24,13 @@ else
 $(error keymap-overlay supports macOS, Linux and Windows, not '$(UNAME_S)')
 endif
 
+# Asset generation normally targets the current host. WSL must override this
+# to `windows` because it generates files for the native Windows overlay.
+OVERLAY_PLATFORM ?= $(OS_FAMILY)
+ifeq (,$(filter $(OVERLAY_PLATFORM),macos linux windows))
+$(error OVERLAY_PLATFORM must be macos, linux or windows, got '$(OVERLAY_PLATFORM)')
+endif
+
 # Cargo names the binary after the target, and the login service needs the name
 # that exists on disk.
 ifeq ($(OS_FAMILY),windows)
@@ -232,7 +239,7 @@ VITALY_JSON := $(BUILD_DIR)/vitaly.json
 # $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
 # first pass and then re-enter make to expand $(ASSETS).
 LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
-ifeq ($(OS_FAMILY),macos)
+ifeq ($(OVERLAY_PLATFORM),macos)
 ASSET_EXTENSION := json
 ASSET_FORMAT := json
 STALE_ASSET_EXTENSION := png
@@ -241,7 +248,8 @@ ASSET_EXTENSION := png
 ASSET_FORMAT := png
 STALE_ASSET_EXTENSION := json
 endif
-ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.$(ASSET_EXTENSION)" 0 $$(( $(LAYERS) - 1 )); fi))$(ASSETS)
+ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)
+ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%g.$(ASSET_EXTENSION)" 0 $$(( $(LAYERS) - 1 )); fi))$(ASSETS)
 
 endif
 
@@ -367,7 +375,7 @@ ifeq ($(OS_FAMILY),windows)
 install-assets:
 	@echo "ERROR: install-assets must run in WSL, not MSYS2."; \
 		echo "Run it from the shared checkout with:"; \
-		echo "  make install-assets KEYMAP_OVERLAY_DIR=\"\$$WINDOWS_HOME/.config/keymap-overlay\""; \
+		echo "  make install-assets OVERLAY_PLATFORM=windows KEYMAP_OVERLAY_DIR=\"\$$WINDOWS_HOME/.config/keymap-overlay\""; \
 		exit 1
 else
 install-assets:
@@ -790,6 +798,7 @@ print-vars:
 	@echo "PIXELS_PER_UNIT=$(PIXELS_PER_UNIT)"
 	@echo ""
 	@echo "BUILD_DIR=$(BUILD_DIR)"
+	@echo "ASSET_BUILD_DIR=$(ASSET_BUILD_DIR)"
 	@echo "QMK_KEYMAP_JSON=$(QMK_KEYMAP_JSON)"
 	@echo "KEYCODES_JSON=$(KEYCODES_JSON)"
 	@echo "CUSTOM_KEYCODES_JSON=$(CUSTOM_KEYCODES_JSON)"
@@ -797,6 +806,7 @@ print-vars:
 	@echo "VITALY_JSON=$(VITALY_JSON)"
 	@echo "LAYERS=$(LAYERS)"
 	@echo "ASSETS=$(ASSETS)"
+	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
 	@echo ""
 	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
 	@echo "KEYBOARDS_DIR=$(KEYBOARDS_DIR)"
@@ -811,7 +821,7 @@ _internal_install: $(ASSETS)
 	fi
 	@echo "Installing keymap overlay assets..."
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)"
-	@cp $(BUILD_DIR)/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION) "$(KEYMAP_OVERLAY_DIR)/"
+	@cp $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION) "$(KEYMAP_OVERLAY_DIR)/"
 	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(STALE_ASSET_EXTENSION)
 	@echo "✔ Overlay assets installed; run 'make run-overlay' to start the native app"
 
@@ -823,6 +833,9 @@ _internal_draw_layers: $(ASSETS)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
+$(ASSET_BUILD_DIR):
+	mkdir -p $(ASSET_BUILD_DIR)
+
 RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) scripts/generate_overlay_asset.py src/types.py src/util.py
 ifeq ($(VIAL),true)
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)" --vitaly-json "$(VITALY_JSON)"
@@ -830,8 +843,8 @@ else
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
 endif
 
-$(BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --output-format "$(ASSET_FORMAT)" $(RENDER_ENCODER_INPUT))
+$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(ASSET_BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --output-format "$(ASSET_FORMAT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
 
 .PHONY: _force_build
 _force_build:

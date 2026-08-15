@@ -12,8 +12,9 @@ build/<keyboard>/qmk-keymap.json
   + keyboard.json + config.json + encoder map
   ↓ first-party display-model generator
 platform-neutral geometry, labels, and state (one model per layer)
-  ├─ macOS: <keyboard>_L<n>.json
-  └─ Linux/Windows: Pillow → <keyboard>_L<n>.png
+  ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
+  ├─ Linux: Pillow → build/<keyboard>/assets/linux/<keyboard>_L<n>.png
+  └─ Windows: Pillow → build/<keyboard>/assets/windows/<keyboard>_L<n>.png
   ↓ make install-assets
 platform configuration directory/<keyboard>_L<n>.<json|png>
 ```
@@ -281,7 +282,9 @@ edges. Keys use quiet, nearly opaque fills and a low-contrast hairline so they
 stay distinct over bright and dark backgrounds; the held layer key alone
 receives its pale tint. Display-only Unicode labels come from single-character
 comments on `custom_keycodes` entries or an explicit `keymap-overlay-labels`
-comment block in `keymap.c`. Encoder placement is the only project-specific geometry:
+comment block in `keymap.c`. Platform blocks suffixed with `-macos`, `-linux`,
+or `-windows` override common labels; `OVERLAY_PLATFORM` selects the target and
+defaults to the current host. Encoder placement is the only project-specific geometry:
 QMK knows the encoder count and pins but not where knobs sit, so `config.json`
 maps each encoder to its push-switch matrix position or to explicit `x`/`y`
 layout coordinates. Matrix placement replaces the normal key drawing with one

@@ -143,6 +143,35 @@ def test_uses_single_character_custom_keycode_comments_as_labels(
     }
 
 
+def test_platform_labels_override_common_labels(tmp_path: Path) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        """
+        /* keymap-overlay-labels
+        KC_APP = ☰
+        KC_LGUI = GUI
+        */
+        /* keymap-overlay-labels-macos
+        KC_LGUI = ⌘
+        */
+        /* keymap-overlay-labels-linux
+        KC_LGUI = Super
+        */
+        /* keymap-overlay-labels-windows
+        KC_LGUI = ⊞
+        */
+        """,
+        encoding="utf-8",
+    )
+
+    assert _parse_display_labels(keymap_c, "macos") == {
+        "KC_APP": "☰",
+        "KC_LGUI": "⌘",
+    }
+    assert _parse_display_labels(keymap_c, "linux")["KC_LGUI"] == "Super"
+    assert _parse_display_labels(keymap_c, "windows")["KC_LGUI"] == "⊞"
+
+
 def test_rejects_malformed_display_label(tmp_path: Path) -> None:
     keymap_c = tmp_path / "keymap.c"
     keymap_c.write_text(
