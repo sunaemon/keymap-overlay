@@ -37,6 +37,7 @@ KNOB_FILL = (241, 241, 236, 255)
 PADDING = 20
 HEADER_HEIGHT = 28
 KEY_INSET = 3
+SUPERSAMPLE_SCALE = 4
 ENCODER_PAIR_NAME = "ENCODER_CCW_CW"
 TRANSPARENT_KEYS = {"KC_TRNS", "KC_TRANSPARENT", "_______"}
 
@@ -70,7 +71,7 @@ KEYCODE_LABELS = {
 
 @app.command()
 def main(
-    qmk_keymap_json: Annotated[Path, typer.Option(help="Processed QMK keymap JSON")],
+    qmk_keymap_json: Annotated[Path, typer.Option(help="Raw QMK keymap JSON")],
     keyboard_json: Annotated[Path, typer.Option(help="QMK keyboard.json")],
     keyboard_config: Annotated[Path, typer.Option(help="Project keyboard config.json")],
     custom_keycodes_json: Annotated[
@@ -292,13 +293,25 @@ def _draw_layer(
     min_y = min(y for _, y, _, _ in bounds)
     max_x = max(x + width for x, _, width, _ in bounds)
     max_y = max(y + height for _, y, _, height in bounds)
-    width = round((max_x - min_x) * pixels_per_unit) + 2 * PADDING
-    height = round((max_y - min_y) * pixels_per_unit) + 2 * PADDING + HEADER_HEIGHT
+    output_size = _canvas_size(min_x, min_y, max_x, max_y, pixels_per_unit, 1)
+    render_scale = SUPERSAMPLE_SCALE
+    render_pixels_per_unit = pixels_per_unit * render_scale
+    width, height = _canvas_size(
+        min_x,
+        min_y,
+        max_x,
+        max_y,
+        render_pixels_per_unit,
+        render_scale,
+    )
     image = Image.new("RGBA", (width, height), BACKGROUND)
     draw = ImageDraw.Draw(image)
-    fonts = _fonts(pixels_per_unit)
+    fonts = _fonts(render_pixels_per_unit)
     draw.text(
-        (PADDING, PADDING), f"L{layer_index}", fill=KEY_TEXT, font=fonts["header"]
+        (PADDING * render_scale, PADDING * render_scale),
+        f"L{layer_index}",
+        fill=KEY_TEXT,
+        font=fonts["header"],
     )
 
     encoder_key_indices = {
@@ -307,12 +320,30 @@ def _draw_layer(
     for key_index, key in enumerate(layout):
         if key_index in encoder_key_indices:
             continue
-        box = _pixel_box(key.x, key.y, key.w, key.h, min_x, min_y, pixels_per_unit)
-        _draw_key(draw, box, layer[key_index], layer_index, fonts)
+        box = _pixel_box(
+            key.x,
+            key.y,
+            key.w,
+            key.h,
+            min_x,
+            min_y,
+            render_pixels_per_unit,
+            render_scale,
+        )
+        _draw_key(draw, box, layer[key_index], layer_index, fonts, render_scale)
 
     for encoder_index, placement in enumerate(placements):
         key_index, x, y, key_width, key_height = placement
-        box = _pixel_box(x, y, key_width, key_height, min_x, min_y, pixels_per_unit)
+        box = _pixel_box(
+            x,
+            y,
+            key_width,
+            key_height,
+            min_x,
+            min_y,
+            render_pixels_per_unit,
+            render_scale,
+        )
         press = layer[key_index] if key_index is not None else "KC_NO"
         _draw_encoder(
             draw,
@@ -321,8 +352,25 @@ def _draw_layer(
             encoder_pairs[encoder_index],
             layer_index,
             fonts,
+            render_scale,
         )
-    return image
+    return image.resize(output_size, Image.Resampling.LANCZOS)
+
+
+def _canvas_size(
+    min_x: float,
+    min_y: float,
+    max_x: float,
+    max_y: float,
+    pixels_per_unit: int,
+    render_scale: int,
+) -> tuple[int, int]:
+    width = round((max_x - min_x) * pixels_per_unit) + 2 * PADDING * render_scale
+    height = (
+        round((max_y - min_y) * pixels_per_unit)
+        + (2 * PADDING + HEADER_HEIGHT) * render_scale
+    )
+    return width, height
 
 
 def _pixel_box(
@@ -333,9 +381,12 @@ def _pixel_box(
     min_x: float,
     min_y: float,
     pixels_per_unit: int,
+    render_scale: int,
 ) -> tuple[int, int, int, int]:
-    left = round((x - min_x) * pixels_per_unit) + PADDING
-    top = round((y - min_y) * pixels_per_unit) + PADDING + HEADER_HEIGHT
+    left = round((x - min_x) * pixels_per_unit) + PADDING * render_scale
+    top = (
+        round((y - min_y) * pixels_per_unit) + (PADDING + HEADER_HEIGHT) * render_scale
+    )
     return (
         left,
         top,
@@ -350,15 +401,16 @@ def _draw_key(
     keycode: str,
     layer_index: int,
     fonts: dict[str, Font],
+    render_scale: int,
 ) -> None:
     held = _momentary_layer(keycode) == layer_index
-    inset = _inset_box(box, KEY_INSET)
+    inset = _inset_box(box, KEY_INSET * render_scale)
     draw.rounded_rectangle(
         inset,
-        radius=7,
+        radius=7 * render_scale,
         fill=HELD_FILL if held else KEY_FILL,
         outline=KEY_OUTLINE,
-        width=2,
+        width=2 * render_scale,
     )
     _draw_centered_lines(
         draw, _format_keycode(keycode), _center(inset), fonts["key"], 3
@@ -372,26 +424,39 @@ def _draw_encoder(
     directions: list[str],
     layer_index: int,
     fonts: dict[str, Font],
+    render_scale: int,
 ) -> None:
     left, top, right, bottom = _square_box(box)
     held = _momentary_layer(press_keycode) == layer_index
-    circle = _inset_box((left, top, right, bottom), 2)
+    circle = _inset_box((left, top, right, bottom), 2 * render_scale)
     draw.ellipse(
         circle,
         fill=HELD_FILL if held else KNOB_FILL,
         outline=KEY_OUTLINE,
-        width=2,
+        width=2 * render_scale,
     )
     center_x, center_y = _center(circle)
     direction_labels = [_format_keycode(keycode) for keycode in directions]
     if direction_labels[0]:
-        _draw_turn_marker(draw, center_x - 14, center_y - 19, clockwise=False)
+        _draw_turn_marker(
+            draw,
+            center_x - 14 * render_scale,
+            center_y - 19 * render_scale,
+            render_scale,
+            clockwise=False,
+        )
     if direction_labels[1]:
-        _draw_turn_marker(draw, center_x + 14, center_y - 19, clockwise=True)
+        _draw_turn_marker(
+            draw,
+            center_x + 14 * render_scale,
+            center_y - 19 * render_scale,
+            render_scale,
+            clockwise=True,
+        )
     _draw_centered_lines(
         draw,
         direction_labels[0],
-        (center_x - 14, center_y - 3),
+        (center_x - 14 * render_scale, center_y - 3 * render_scale),
         fonts["tiny"],
         2,
         max_chars=5,
@@ -399,7 +464,7 @@ def _draw_encoder(
     _draw_centered_lines(
         draw,
         direction_labels[1],
-        (center_x + 14, center_y - 3),
+        (center_x + 14 * render_scale, center_y - 3 * render_scale),
         fonts["tiny"],
         2,
         max_chars=5,
@@ -407,7 +472,7 @@ def _draw_encoder(
     press_label = _format_keycode(press_keycode)
     if press_label:
         draw.text(
-            (center_x, center_y + 18),
+            (center_x, center_y + 18 * render_scale),
             f"P {press_label}",
             fill=KEY_TEXT,
             font=fonts["tiny"],
@@ -419,18 +484,25 @@ def _draw_turn_marker(
     draw: ImageDraw.ImageDraw,
     center_x: int,
     center_y: int,
+    render_scale: int,
     *,
     clockwise: bool,
 ) -> None:
     direction = 1 if clockwise else -1
     draw.line(
         [
-            (center_x - 4 * direction, center_y - 3),
+            (
+                center_x - 4 * direction * render_scale,
+                center_y - 3 * render_scale,
+            ),
             (center_x, center_y),
-            (center_x - 4 * direction, center_y + 3),
+            (
+                center_x - 4 * direction * render_scale,
+                center_y + 3 * render_scale,
+            ),
         ],
         fill=KEY_TEXT,
-        width=1,
+        width=render_scale,
     )
 
 

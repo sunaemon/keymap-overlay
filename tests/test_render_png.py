@@ -70,6 +70,8 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
     assert image.mode == "RGBA"
     assert image.size == (168, 132)
     assert image.getbbox() is not None
+    alpha_histogram = image.getchannel("A").histogram()
+    assert sum(alpha_histogram[1:255]) > 0
 
 
 def test_encoder_parser_preserves_nested_keycode_arguments(tmp_path: Path) -> None:
