@@ -28,7 +28,7 @@ jobs:
       # libudev backs hidapi's hidraw enumeration. Qt Quick draws the Linux
       # model, and LayerShellQt gives its window KDE's Wayland overlay role.
       - name: Install Rust system dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libudev-dev qt6-base-dev qt6-declarative-dev qml6-module-org-kde-layershell
+        run: sudo apt-get update && sudo apt-get install --yes libudev-dev qt6-base-dev qt6-declarative-dev
 
       - name: Install mise
         uses: jdx/mise-action@v4

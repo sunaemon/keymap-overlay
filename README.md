@@ -113,7 +113,12 @@ make setup
 The setup target runs `mise trust` before installing the pinned tools.
 
 On Linux, `make setup` supports `pacman`, `apt-get`, and `dnf` and may ask for
-the sudo password while installing system packages.
+the sudo password while installing system packages. On Debian-based systems,
+the Qt 6 LayerShellQt QML module is installed automatically when the
+distribution provides `qml6-module-org-kde-layershell`; Ubuntu 24.04 does not
+ship that package, so KDE Plasma users on that release must install a Qt 6
+LayerShellQt package from a newer distribution or backport before running the
+overlay.
 
 ### 2. Build and flash the firmware
 
