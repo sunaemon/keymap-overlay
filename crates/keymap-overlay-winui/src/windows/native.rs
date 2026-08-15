@@ -65,6 +65,7 @@ thread_local! {
     static REQUESTED_SIZE: Cell<WindowSize> = const {
         Cell::new(WindowSize { width: 1.0, height: 1.0 })
     };
+    static WINDOW_VISIBLE: Cell<bool> = const { Cell::new(false) };
 }
 
 pub(super) fn run(component: OverlayComponent) -> windows_core::Result<()> {
@@ -205,16 +206,21 @@ fn map_windows_error(error: windows::core::Error) -> windows_core::Error {
 fn present_window(window: HWND, site_bridge: &island_bindings::DesktopChildSiteBridge) {
     let size = REQUESTED_SIZE.get();
     if size.width <= 1.0 || size.height <= 1.0 {
-        unsafe {
-            let _ = ShowWindow(window, SW_HIDE);
+        if WINDOW_VISIBLE.replace(false) {
+            unsafe {
+                let _ = ShowWindow(window, SW_HIDE);
+            }
         }
         return;
     }
 
+    let first_show = !WINDOW_VISIBLE.replace(true);
     let (x, y, width, height) = visible_window_bounds(size);
     let hidden_flags = SET_WINDOW_POS_FLAGS(SWP_NOACTIVATE.0 | SWP_FRAMECHANGED.0);
     unsafe {
-        let _ = SetLayeredWindowAttributes(window, COLORREF(0), 0, LWA_COLORKEY | LWA_ALPHA);
+        if first_show {
+            let _ = SetLayeredWindowAttributes(window, COLORREF(0), 0, LWA_COLORKEY | LWA_ALPHA);
+        }
         let _ = SetWindowPos(
             window,
             Some(HWND_TOPMOST),
@@ -233,8 +239,10 @@ fn present_window(window: HWND, site_bridge: &island_bindings::DesktopChildSiteB
             log::error!("Failed to resize the XAML Island: {error}");
         }
         let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
-        let _ = DwmFlush();
-        let _ = SetLayeredWindowAttributes(window, COLORREF(0), 255, LWA_COLORKEY | LWA_ALPHA);
+        if first_show {
+            let _ = DwmFlush();
+            let _ = SetLayeredWindowAttributes(window, COLORREF(0), 255, LWA_COLORKEY | LWA_ALPHA);
+        }
     }
 }
 

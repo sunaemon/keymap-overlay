@@ -10,7 +10,7 @@ use keymap_overlay::{
 };
 use std::sync::{Arc, Mutex};
 use windows_reactor::{
-    AsyncSetState, BackgroundExt, Canvas, CanvasChildExt, Color, Component, Element,
+    AsyncSetState, BackgroundExt, BrushBinding, Canvas, CanvasChildExt, Color, Component, Element,
     HorizontalAlignment, KeyExt, LayoutExt, RenderCx, Shape, TextStyleExt, Thickness,
     VerticalAlignment, WindowSize, border, text_block, tokens,
 };
@@ -27,7 +27,7 @@ const ENCODER_FILL: Color = Color {
     g: 0xE0,
     b: 0xE7,
 };
-const HELD_ENCODER_FILL: Color = Color {
+const HELD_FILL: Color = Color {
     a: 0xFF,
     r: 0xFF,
     g: 0xDD,
@@ -143,9 +143,9 @@ fn model_canvas(model: OverlayModel) -> Element {
                 .width(f64::from(key.width))
                 .height(f64::from(key.height))
                 .background(if key.held {
-                    tokens::SystemCritical
+                    BrushBinding::Direct(HELD_FILL)
                 } else {
-                    tokens::CardBackground
+                    BrushBinding::Theme(tokens::CardBackground)
                 })
                 .border_brush(tokens::CardStroke)
                 .border_thickness(Thickness::uniform(1.0))
@@ -165,7 +165,7 @@ fn model_canvas(model: OverlayModel) -> Element {
                 .width(size)
                 .height(size)
                 .fill(if encoder.held {
-                    HELD_ENCODER_FILL
+                    HELD_FILL
                 } else {
                     ENCODER_FILL
                 })
@@ -212,11 +212,19 @@ fn model_canvas(model: OverlayModel) -> Element {
             );
         }
     }
-    Canvas::new(children)
-        .width(f64::from(model.width))
-        .height(f64::from(model.height))
-        .background(TRANSPARENT)
-        .into()
+    border(
+        Canvas::new(children)
+            .width(f64::from(model.width))
+            .height(f64::from(model.height))
+            .background(TRANSPARENT),
+    )
+    .width(f64::from(model.width))
+    .height(f64::from(model.height))
+    .background(tokens::LayerFill)
+    .border_brush(tokens::SurfaceStroke)
+    .border_thickness(Thickness::uniform(1.0))
+    .corner_radius(16.0)
+    .into()
 }
 
 fn label(text: impl Into<String>, font_size: f64) -> windows_reactor::TextBlock {
