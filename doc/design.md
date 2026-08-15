@@ -273,7 +273,9 @@ The Python renderer draws transparent RGBA PNGs directly from QMK's keymap and
 keyboard JSON. There is no drawing-schema conversion, YAML, SVG, or separate
 rasterization step. It draws at four times the requested dimensions and downsamples
 with a high-quality filter, keeping the configured output size while smoothing
-key, knob, and text edges. Encoder placement is the only project-specific geometry:
+key, knob, and text edges. Keys use translucent fills, a soft shadow, and a
+top-edge highlight instead of a dark outline; the held layer key alone receives
+a pale tint. Encoder placement is the only project-specific geometry:
 QMK knows the encoder count and pins but not where knobs sit, so `config.json`
 maps each encoder to its push-switch matrix position or to explicit `x`/`y`
 layout coordinates. Matrix placement replaces the normal key drawing with one

@@ -9,7 +9,7 @@ from textwrap import wrap
 from typing import Annotated
 
 import typer
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from src.types import (
     EncoderPlacement,
@@ -29,14 +29,18 @@ app = typer.Typer()
 Font = ImageFont.ImageFont | ImageFont.FreeTypeFont
 
 BACKGROUND = (0, 0, 0, 0)
-KEY_FILL = (248, 248, 242, 255)
-KEY_OUTLINE = (68, 71, 90, 255)
-KEY_TEXT = (40, 42, 54, 255)
-HELD_FILL = (255, 221, 221, 255)
-KNOB_FILL = (241, 241, 236, 255)
+KEY_FILL = (248, 250, 255, 200)
+KEY_EDGE = (255, 255, 255, 55)
+KEY_HIGHLIGHT = (255, 255, 255, 235)
+KEY_TEXT = (32, 36, 44, 235)
+HELD_FILL = (255, 221, 221, 230)
+KNOB_FILL = (246, 249, 255, 200)
+SHADOW_RGB = (8, 12, 20)
+SHADOW_ALPHA = 24
 PADDING = 20
 HEADER_HEIGHT = 28
 KEY_INSET = 3
+KEY_RADIUS = 11
 SUPERSAMPLE_SCALE = 4
 ENCODER_PAIR_NAME = "ENCODER_CCW_CW"
 TRANSPARENT_KEYS = {"KC_TRNS", "KC_TRANSPARENT", "_______"}
@@ -306,13 +310,10 @@ def _draw_layer(
     )
     image = Image.new("RGBA", (width, height), BACKGROUND)
     draw = ImageDraw.Draw(image)
+    shadow_mask = Image.new("L", (width, height), 0)
+    shadow_draw = ImageDraw.Draw(shadow_mask)
     fonts = _fonts(render_pixels_per_unit)
-    draw.text(
-        (PADDING * render_scale, PADDING * render_scale),
-        f"L{layer_index}",
-        fill=KEY_TEXT,
-        font=fonts["header"],
-    )
+    _draw_layer_badge(draw, shadow_draw, layer_index, fonts, render_scale)
 
     encoder_key_indices = {
         key_index for key_index, *_ in placements if key_index is not None
@@ -330,7 +331,15 @@ def _draw_layer(
             render_pixels_per_unit,
             render_scale,
         )
-        _draw_key(draw, box, layer[key_index], layer_index, fonts, render_scale)
+        _draw_key(
+            draw,
+            shadow_draw,
+            box,
+            layer[key_index],
+            layer_index,
+            fonts,
+            render_scale,
+        )
 
     for encoder_index, placement in enumerate(placements):
         key_index, x, y, key_width, key_height = placement
@@ -347,6 +356,7 @@ def _draw_layer(
         press = layer[key_index] if key_index is not None else "KC_NO"
         _draw_encoder(
             draw,
+            shadow_draw,
             box,
             press,
             encoder_pairs[encoder_index],
@@ -354,7 +364,55 @@ def _draw_layer(
             fonts,
             render_scale,
         )
+    shadow_alpha = shadow_mask.filter(ImageFilter.GaussianBlur(radius=5 * render_scale))
+    shadow = Image.new("RGBA", image.size, (*SHADOW_RGB, 0))
+    shadow.putalpha(shadow_alpha)
+    image = Image.alpha_composite(shadow, image)
     return image.resize(output_size, Image.Resampling.LANCZOS)
+
+
+def _draw_layer_badge(
+    draw: ImageDraw.ImageDraw,
+    shadow_draw: ImageDraw.ImageDraw,
+    layer_index: int,
+    fonts: dict[str, Font],
+    render_scale: int,
+) -> None:
+    badge = (
+        PADDING * render_scale,
+        (PADDING - 4) * render_scale,
+        (PADDING + 40) * render_scale,
+        (PADDING + 22) * render_scale,
+    )
+    radius = 13 * render_scale
+    shadow_draw.rounded_rectangle(
+        _offset_box(badge, 0, 2 * render_scale),
+        radius=radius,
+        fill=SHADOW_ALPHA,
+    )
+    draw.rounded_rectangle(
+        badge,
+        radius=radius,
+        fill=KEY_FILL,
+        outline=KEY_EDGE,
+        width=render_scale,
+    )
+    left, top, right, _ = badge
+    draw.line(
+        [
+            (left + radius, top + render_scale),
+            (right - radius, top + render_scale),
+        ],
+        fill=KEY_HIGHLIGHT,
+        width=2 * render_scale,
+    )
+    draw.text(
+        _center(badge),
+        f"L{layer_index}",
+        fill=KEY_TEXT,
+        font=fonts["header"],
+        anchor="mm",
+    )
 
 
 def _canvas_size(
@@ -397,6 +455,7 @@ def _pixel_box(
 
 def _draw_key(
     draw: ImageDraw.ImageDraw,
+    shadow_draw: ImageDraw.ImageDraw,
     box: tuple[int, int, int, int],
     keycode: str,
     layer_index: int,
@@ -405,11 +464,25 @@ def _draw_key(
 ) -> None:
     held = _momentary_layer(keycode) == layer_index
     inset = _inset_box(box, KEY_INSET * render_scale)
+    shadow_draw.rounded_rectangle(
+        _offset_box(inset, 0, 2 * render_scale),
+        radius=KEY_RADIUS * render_scale,
+        fill=SHADOW_ALPHA,
+    )
     draw.rounded_rectangle(
         inset,
-        radius=7 * render_scale,
+        radius=KEY_RADIUS * render_scale,
         fill=HELD_FILL if held else KEY_FILL,
-        outline=KEY_OUTLINE,
+        outline=KEY_EDGE,
+        width=render_scale,
+    )
+    left, top, right, _ = inset
+    draw.line(
+        [
+            (left + 9 * render_scale, top + render_scale),
+            (right - 9 * render_scale, top + render_scale),
+        ],
+        fill=KEY_HIGHLIGHT,
         width=2 * render_scale,
     )
     _draw_centered_lines(
@@ -419,6 +492,7 @@ def _draw_key(
 
 def _draw_encoder(
     draw: ImageDraw.ImageDraw,
+    shadow_draw: ImageDraw.ImageDraw,
     box: tuple[int, int, int, int],
     press_keycode: str,
     directions: list[str],
@@ -429,10 +503,21 @@ def _draw_encoder(
     left, top, right, bottom = _square_box(box)
     held = _momentary_layer(press_keycode) == layer_index
     circle = _inset_box((left, top, right, bottom), 2 * render_scale)
+    shadow_draw.ellipse(
+        _offset_box(circle, 0, 2 * render_scale),
+        fill=SHADOW_ALPHA,
+    )
     draw.ellipse(
         circle,
         fill=HELD_FILL if held else KNOB_FILL,
-        outline=KEY_OUTLINE,
+        outline=KEY_EDGE,
+        width=render_scale,
+    )
+    draw.arc(
+        _inset_box(circle, render_scale),
+        start=205,
+        end=335,
+        fill=KEY_HIGHLIGHT,
         width=2 * render_scale,
     )
     center_x, center_y = _center(circle)
@@ -577,6 +662,15 @@ def _inset_box(
 ) -> tuple[int, int, int, int]:
     left, top, right, bottom = box
     return left + inset, top + inset, right - inset, bottom - inset
+
+
+def _offset_box(
+    box: tuple[int, int, int, int],
+    offset_x: int,
+    offset_y: int,
+) -> tuple[int, int, int, int]:
+    left, top, right, bottom = box
+    return left + offset_x, top + offset_y, right + offset_x, bottom + offset_y
 
 
 def _square_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
