@@ -67,7 +67,6 @@ KC_TAB = ⇥
 KC_BSPC = ⌫
 KC_DEL = ⌦
 KC_ENT = ↩
-KC_STOP = ⏹
 KC_MINS = -
 KC_EQL = =
 KC_BSLS = \
