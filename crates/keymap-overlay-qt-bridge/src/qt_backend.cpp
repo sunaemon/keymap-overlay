@@ -220,6 +220,12 @@ Models load_models(const QString &assets_dir) {
           "Overlay model layer does not match its filename: " +
           file.fileName().toStdString());
     }
+    const auto width = model.value(QStringLiteral("width")).toInt();
+    const auto height = model.value(QStringLiteral("height")).toInt();
+    if (width <= 0 || height <= 0) {
+      throw std::runtime_error("Overlay model has invalid dimensions: " +
+                               file.fileName().toStdString());
+    }
     models.emplace(ModelKey{static_cast<std::uint8_t>(keyboard_id),
                             static_cast<std::uint8_t>(layer)},
                    model);

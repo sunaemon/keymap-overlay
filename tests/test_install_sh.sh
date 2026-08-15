@@ -177,6 +177,7 @@ test_macos_stops_service_before_replacing_binary() {
 
   run_installer "$home" Darwin arm64 keymap-overlay-macos-arm64.tar.gz
 
+  test -d "$home/.local/var/log/keymap-overlay"
   stop_line=$(grep -n 'launchctl bootout' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   install_line=$(grep -n 'install .*keymap-overlay' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   test "$stop_line" -lt "$install_line"

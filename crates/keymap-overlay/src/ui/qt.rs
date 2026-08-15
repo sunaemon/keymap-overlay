@@ -16,6 +16,22 @@ use crate::{LayerEventSink, ListenerEvent, PendingTransition, Transition, spawn_
 const SHOW: u8 = 1;
 const HIDE: u8 = 2;
 
+pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
+    let (reader, writer) = UnixDatagram::pair().context("Failed to create the Qt event socket")?;
+    spawn_raw_hid_listener(SocketSink {
+        state: Arc::new(Mutex::new(SocketState {
+            socket: writer,
+            pending: PendingTransition::default(),
+        })),
+    });
+
+    let assets_dir = assets_dir
+        .to_str()
+        .context("The Qt asset directory is not valid UTF-8")?;
+    keymap_overlay_qt_bridge::run_qt_overlay(assets_dir, reader.into_raw_fd())
+        .context("The Qt overlay event loop failed")
+}
+
 #[derive(Clone)]
 struct SocketSink {
     state: Arc<Mutex<SocketState>>,
@@ -39,22 +55,6 @@ impl LayerEventSink for SocketSink {
         };
         state.socket.send(&packet).is_ok()
     }
-}
-
-pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
-    let (reader, writer) = UnixDatagram::pair().context("Failed to create the Qt event socket")?;
-    spawn_raw_hid_listener(SocketSink {
-        state: Arc::new(Mutex::new(SocketState {
-            socket: writer,
-            pending: PendingTransition::default(),
-        })),
-    });
-
-    let assets_dir = assets_dir
-        .to_str()
-        .context("The Qt asset directory is not valid UTF-8")?;
-    keymap_overlay_qt_bridge::run_qt_overlay(assets_dir, reader.into_raw_fd())
-        .context("The Qt overlay event loop failed")
 }
 
 #[cfg(test)]

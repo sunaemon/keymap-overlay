@@ -90,9 +90,9 @@ QMK_TOOLCHAIN_PACKAGES := osx-cross/arm/arm-none-eabi-gcc@8 osx-cross/avr/avr-gc
 # The same set per distribution, plus libudev for Raw HID and the Qt 6 /
 # LayerShellQt stack used by the native KDE Plasma overlay.
 LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs qt6-base qt6-declarative layer-shell-qt ttf-liberation
-LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev qt6-base-dev qt6-declarative-dev fonts-liberation
+LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev qt6-base-dev qt6-declarative-dev qt6-wayland fonts-liberation
 LINUX_LAYERSHELL_QML_APT := qml6-module-org-kde-layershell
-LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel qt6-qtbase-devel qt6-qtdeclarative-devel layer-shell-qt liberation-mono-fonts
+LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtwayland layer-shell-qt liberation-mono-fonts
 
 # Escape XML character data so that a HOME containing & or < still produces a
 # valid plist. Ampersands must be substituted first.
