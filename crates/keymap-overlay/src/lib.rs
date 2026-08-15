@@ -11,7 +11,9 @@ use keymap_core::{
 #[cfg(not(target_os = "windows"))]
 use log::error;
 use log::{info, warn};
+#[cfg(any(not(target_os = "windows"), test))]
 use serde::{Deserialize, Serialize};
+#[cfg(any(not(target_os = "windows"), test))]
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -66,6 +68,7 @@ pub enum ListenerEvent {
     Disconnected { keyboard_id: Option<u8> },
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct OverlayModel {
     pub(crate) version: u8,
@@ -79,6 +82,7 @@ pub(crate) struct OverlayModel {
     pub(crate) encoders: Vec<DisplayEncoder>,
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct DisplayKey {
     pub(crate) x: u32,
@@ -93,6 +97,7 @@ pub(crate) struct DisplayKey {
     pub(crate) momentary_layer: Option<u8>,
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct DisplayEncoder {
     pub(crate) x: u32,
@@ -112,6 +117,7 @@ pub(crate) struct DisplayEncoder {
     pub(crate) momentary_layer: Option<u8>,
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 pub(crate) type ModelCache = HashMap<(u8, u8), OverlayModel>;
 
 pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
@@ -192,6 +198,7 @@ pub fn transition_for_event(held_keys: &mut Vec<(u8, u8)>, event: ListenerEvent)
 }
 
 /// Loads every installed semantic layer model before the listener can show one.
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
     let mut models = HashMap::new();
     for entry in fs::read_dir(assets_dir)
@@ -222,6 +229,7 @@ pub(crate) fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
     Ok(models)
 }
 
+#[cfg(not(target_os = "windows"))]
 fn model_key(path: &Path) -> Option<(u8, u8)> {
     if !path
         .extension()
@@ -233,6 +241,7 @@ fn model_key(path: &Path) -> Option<(u8, u8)> {
     Some((keyboard_id.parse().ok()?, layer.parse().ok()?))
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 pub(crate) fn compose_model(
     models: &ModelCache,
     keyboard_id: u8,
@@ -258,6 +267,7 @@ pub(crate) fn compose_model(
     Some(model)
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 fn apply_overlay(model: &mut OverlayModel, overlay: &OverlayModel) -> Option<()> {
     if overlay.keys.len() != model.keys.len() || overlay.encoders.len() != model.encoders.len() {
         return None;
