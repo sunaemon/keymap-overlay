@@ -1,13 +1,4 @@
-//! Everything the two eframe/egui windows share.
-//!
-//! macOS and Windows run the same toolkit and differ in only two places, both
-//! held in [`PlatformHooks`]: the `NativeOptions` each asks for, and what has to
-//! happen before a logic pass. `eframe_window.rs` and `windows.rs` supply those
-//! and nothing else.
-//!
-//! The differences deliberately do not travel as `cfg` attributes inside these
-//! methods: each system's divergence stays in one visible place in its own
-//! file, which is the property `doc/design.md` asks for.
+//! The shared eframe implementation used by the Windows backend.
 
 use anyhow::Result;
 use eframe::egui::{self, ColorImage, Pos2, TextureHandle, Vec2, ViewportCommand};
@@ -25,7 +16,6 @@ use crate::{
 /// unmapped, so this is as absent as a mapped window gets.
 pub(crate) const IDLE_SIZE: f32 = 1.0;
 
-/// The two things the eframe windows do not agree on.
 pub(crate) struct PlatformHooks {
     pub(crate) native_options: fn() -> eframe::NativeOptions,
     /// Runs at the top of every logic pass, before events are drained.

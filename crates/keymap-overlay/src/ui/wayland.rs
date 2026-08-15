@@ -293,15 +293,14 @@ impl LayerShellHandler for OverlayState {
     ) {
         // The configure that follows the bufferless commit in show_layer is
         // what the image is waiting for. The requested size is not read back:
-        // the overlay is drawn at the image's own size, the way it is on macOS.
+        // the overlay is drawn at the image's own size.
         self.draw();
     }
 }
 
 impl CompositorHandler for OverlayState {
-    /// The image is presented at its pixel size on every display, which is what
-    /// the macOS window does too; `PIXELS_PER_UNIT` in the Makefile is how images are
-    /// sized for a screen.
+    /// The image is presented at its pixel size on every display;
+    /// `PIXELS_PER_UNIT` in the Makefile is how images are sized for a screen.
     fn scale_factor_changed(
         &mut self,
         _: &Connection,

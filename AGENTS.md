@@ -33,7 +33,8 @@ There are three parts:
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
 - `generate_custom_keycodes.py`: Extracts the `custom_keycodes` enum from
   `keymap.c` and assigns each entry its numeric value.
-- `render_png.py`: Draws one transparent layer PNG directly from QMK JSON,
+- `generate_overlay_asset.py`: Builds the shared display model and emits macOS
+  JSON or a transparent PNG,
   including encoder rotation and push actions. It resolves custom keycode names
   and `KC_TRNS` in memory for display only.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`.
@@ -52,19 +53,22 @@ raw QMK JSON; only the renderer resolves transparency, in memory.
 
 ### 2. Visualization
 
-The first-party Pillow renderer writes transparent RGBA PNGs directly. Keys are
-placed from QMK `keyboard.json`; encoder positions come from each keyboard's
-project `config.json`, because QMK describes encoder pins but not their physical
-layout. An encoder placed at a matrix position replaces that push key with one
-circular control showing counter-clockwise, clockwise, and push actions.
+The first-party generator produces a platform-neutral model from QMK
+`keyboard.json`; encoder positions come from each keyboard's project
+`config.json`, because QMK describes encoder pins but not their physical layout.
+macOS installs JSON and draws the model with AppKit. Linux and Windows use the
+Pillow renderer to produce a transparent RGBA PNG from the same model. An
+encoder placed at a matrix position replaces that push key with one circular
+control showing counter-clockwise, clockwise, and push actions.
 
 ### 3. Rust Crates (`crates/`)
 
 - `keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and its
   tests. Pure logic, no I/O, so it stays unit-testable.
 - `keymap-overlay`: the overlay binary. Listens for Raw HID reports on a
-  background thread and shows `<keyboard_id>_L<layer>.png` in a transparent,
-  always-on-top, click-through window.
+  background thread and shows `<keyboard_id>_L<layer>.json` on macOS or the
+  corresponding PNG elsewhere in a transparent, always-on-top, click-through
+  window.
 
 `main.rs` holds everything the systems share — the listener, the transitions,
 image loading, the rotating log — and `src/ui/` holds the one thing they cannot
@@ -114,14 +118,15 @@ would leave it on screen indefinitely.
 
 `KEYBOARD_ID` identifies a keyboard end to end — it is a directory name under
 `$(KEYBOARDS_DIR)`, a `-DKEYBOARD_ID` macro in the firmware, one byte in the
-Raw HID report, and the prefix of the installed PNGs. It must be an integer
+Raw HID report, and the prefix of the installed layer assets. It must be an integer
 between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 
 ## Tech Stack
 
 - **Python**: keymap data extraction and processing.
   - `uv`: package manager. `pydantic` for validation, `typer` for CLIs.
-- **Rust**: the overlay (`eframe`/`egui`, `hidapi`).
+- **Rust**: the overlay (AppKit on macOS, `eframe`/`egui` on Windows, native
+  Wayland/X11 on Linux, and `hidapi`).
 - **Makefile**: orchestrates build, installation, and flashing.
 - **mise**: pins every tool version, including formatters and linters.
 - **lefthook**: manages the git hooks declared in `lefthook.yml`.
@@ -134,7 +139,7 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 ```bash
 make setup              # Install system dependencies and toolchains
 make install-udev-rules # Linux only: grant Raw HID access to the login user
-make install-assets     # Generate and copy layer PNG assets
+make install-assets     # Generate and copy platform layer assets
 make install-overlay    # Build and install the login service
 ```
 

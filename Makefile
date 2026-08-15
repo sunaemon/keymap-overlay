@@ -201,19 +201,19 @@ QMK_FLAGS += -e BUILD_DIR=$(ABS_BUILD_DIR)/qmk_build
 # Contains the full, unmodified keymap definition (layers, keycodes) in QMK format.
 # Type: src/types.py:QmkKeymapJson
 # Generated from: 'qmk c2json' (source) or 'generate_qmk_keymap_from_vitaly.py' (VIAL).
-# Used by: the PNG renderer (visuals), 'generate_vitaly_layout.py' (flashing).
+# Used by: the overlay asset generator, 'generate_vitaly_layout.py' (flashing).
 QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
 
 # Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_keycodes.py' scanning QMK firmware.
-# Used by: the PNG renderer for name resolution.
+# Used by: the overlay asset generator for name resolution.
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
 # Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from keymap.c.
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c'.
-# Used by: the PNG renderer and 'generate_vitaly_layout.py'.
+# Used by: the overlay asset generator and 'generate_vitaly_layout.py'.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 
 # VIAL-compatible keyboard definition (matrix, layout, VID/PID).
@@ -230,9 +230,18 @@ VITALY_JSON := $(BUILD_DIR)/vitaly.json
 
 # Same lazy-and-cached treatment as DEVICE_PID. These are only meaningful once
 # $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
-# first pass and then re-enter make to expand $(PNG).
+# first pass and then re-enter make to expand $(ASSETS).
 LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
-PNG = $(eval PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.png" 0 $$(( $(LAYERS) - 1 )); fi))$(PNG)
+ifeq ($(OS_FAMILY),macos)
+ASSET_EXTENSION := json
+ASSET_FORMAT := json
+STALE_ASSET_EXTENSION := png
+else
+ASSET_EXTENSION := png
+ASSET_FORMAT := png
+STALE_ASSET_EXTENSION := json
+endif
+ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.$(ASSET_EXTENSION)" 0 $$(( $(LAYERS) - 1 )); fi))$(ASSETS)
 
 endif
 
@@ -352,7 +361,7 @@ doctor:
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
 # Because LAYERS depends on $(QMK_KEYMAP_JSON), install-assets and draw-layers
-# build the JSON in a first make invocation, then re-enter make to expand PNG.
+# build the QMK JSON in a first make invocation, then re-enter make to expand assets.
 .PHONY: install-assets
 ifeq ($(OS_FAMILY),windows)
 install-assets:
@@ -591,6 +600,7 @@ uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_BINARY)"
 	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.png
+	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.json
 	@echo "✔ Overlay service and installed assets removed; logs remain at $(KEYMAP_OVERLAY_LOG_DIR)"
 
 .PHONY: _uninstall_service_macos
@@ -786,7 +796,7 @@ print-vars:
 	@echo "VIAL_JSON=$(VIAL_JSON)"
 	@echo "VITALY_JSON=$(VITALY_JSON)"
 	@echo "LAYERS=$(LAYERS)"
-	@echo "PNG=$(PNG)"
+	@echo "ASSETS=$(ASSETS)"
 	@echo ""
 	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
 	@echo "KEYBOARDS_DIR=$(KEYBOARDS_DIR)"
@@ -794,34 +804,35 @@ print-vars:
 # ================= INTERNAL TARGETS =================
 
 .PHONY: _internal_install
-_internal_install: $(PNG)
+_internal_install: $(ASSETS)
 	@if [ "$(LAYERS)" -eq "0" ]; then \
 		echo "ERROR: No layers found even after generation."; \
 		exit 1; \
 	fi
 	@echo "Installing keymap overlay assets..."
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)"
-	@cp $(BUILD_DIR)/$(KEYMAP_PREFIX)L*.png "$(KEYMAP_OVERLAY_DIR)/"
+	@cp $(BUILD_DIR)/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION) "$(KEYMAP_OVERLAY_DIR)/"
+	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(STALE_ASSET_EXTENSION)
 	@echo "✔ Overlay assets installed; run 'make run-overlay' to start the native app"
 
 .PHONY: _internal_draw_layers
-_internal_draw_layers: $(PNG)
+_internal_draw_layers: $(ASSETS)
 
 # ================= FILE RULES =================
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-RENDER_PNG_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) scripts/render_png.py src/types.py src/util.py
+RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) scripts/generate_overlay_asset.py src/types.py src/util.py
 ifeq ($(VIAL),true)
 RENDER_ENCODER_INPUT := --vitaly-json "$(VITALY_JSON)"
 else
-RENDER_PNG_DEPS += $(QMK_KEYMAP_C)
+RENDER_ASSET_DEPS += $(QMK_KEYMAP_C)
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
 endif
 
-$(BUILD_DIR)/$(KEYMAP_PREFIX)L%.png: $(RENDER_PNG_DEPS) | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.render_png --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" $(RENDER_ENCODER_INPUT))
+$(BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --output-format "$(ASSET_FORMAT)" $(RENDER_ENCODER_INPUT))
 
 .PHONY: _force_build
 _force_build:
@@ -843,7 +854,7 @@ else
 #
 # Order-only, unlike _force_build above, which is phony on purpose. A phony
 # normal prerequisite is always out of date, so it would remake the raw JSON on
-# every invocation and cascade through every PNG, re-running the renderer per
+# every invocation and cascade through every asset, re-running the renderer per
 # layer per keyboard with nothing changed.
 # This only has to have run before c2json validates -kb, which is what
 # order-only means. The files it copies are tracked above, as themselves.

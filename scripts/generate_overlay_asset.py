@@ -1,15 +1,17 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import json
 import logging
 import re
 import sys
+from dataclasses import asdict, dataclass
 from io import BytesIO
 from pathlib import Path
 from textwrap import wrap
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from src.types import (
     EncoderPlacement,
@@ -29,14 +31,10 @@ app = typer.Typer()
 Font = ImageFont.ImageFont | ImageFont.FreeTypeFont
 
 BACKGROUND = (0, 0, 0, 0)
-KEY_FILL = (248, 250, 255, 200)
-KEY_EDGE = (255, 255, 255, 55)
-KEY_HIGHLIGHT = (255, 255, 255, 235)
-KEY_TEXT = (32, 36, 44, 235)
-HELD_FILL = (255, 221, 221, 230)
-KNOB_FILL = (246, 249, 255, 200)
-SHADOW_RGB = (8, 12, 20)
-SHADOW_ALPHA = 24
+KEY_FILL = (232, 235, 240, 248)
+KEY_TEXT = (32, 36, 44, 255)
+HELD_FILL = (255, 221, 221, 255)
+KNOB_FILL = KEY_FILL
 PADDING = 20
 HEADER_HEIGHT = 28
 KEY_INSET = 3
@@ -44,6 +42,12 @@ KEY_RADIUS = 11
 SUPERSAMPLE_SCALE = 4
 ENCODER_PAIR_NAME = "ENCODER_CCW_CW"
 TRANSPARENT_KEYS = {"KC_TRNS", "KC_TRANSPARENT", "_______"}
+UI_FONT_CANDIDATES = (
+    "SFNS.ttf",
+    "segoeui.ttf",
+    "DejaVuSans.ttf",
+    "LiberationSans-Regular.ttf",
+)
 
 KEYCODE_LABELS = {
     "KC_NO": "",
@@ -73,6 +77,40 @@ KEYCODE_LABELS = {
 }
 
 
+@dataclass(frozen=True)
+class DisplayKey:
+    x: int
+    y: int
+    width: int
+    height: int
+    label: list[str]
+    held: bool
+
+
+@dataclass(frozen=True)
+class DisplayEncoder:
+    x: int
+    y: int
+    size: int
+    counter_clockwise: list[str]
+    clockwise: list[str]
+    press: str
+    held: bool
+
+
+@dataclass(frozen=True)
+class OverlayModel:
+    version: int
+    layer: int
+    width: int
+    height: int
+    header_font_size: int
+    key_font_size: int
+    encoder_font_size: int
+    keys: list[DisplayKey]
+    encoders: list[DisplayEncoder]
+
+
 @app.command()
 def main(
     qmk_keymap_json: Annotated[Path, typer.Option(help="Raw QMK keymap JSON")],
@@ -92,11 +130,14 @@ def main(
     vitaly_json: Annotated[
         Path | None, typer.Option(help="Vitaly dump containing encoder_layout")
     ] = None,
+    output_format: Annotated[
+        Literal["png", "json"], typer.Option(help="Installed asset format")
+    ] = "png",
 ) -> None:
-    """Render one keymap layer directly to a transparent PNG on stdout."""
+    """Build one platform-neutral keymap display model."""
     initialize_logging()
     try:
-        image = render_png(
+        model = build_overlay_model(
             qmk_keymap_json,
             keyboard_json,
             keyboard_config,
@@ -107,9 +148,14 @@ def main(
             keymap_c=keymap_c,
             vitaly_json=vitaly_json,
         )
-        output = BytesIO()
-        image.save(output, format="PNG", optimize=True)
-        _write_stdout(output.getvalue())
+        if output_format == "json":
+            _write_stdout(
+                (json.dumps(asdict(model), separators=(",", ":")) + "\n").encode()
+            )
+        else:
+            output = BytesIO()
+            _draw_model(model).save(output, format="PNG", optimize=True)
+            _write_stdout(output.getvalue())
         logger.info("Rendered layer %d from %s", layer, qmk_keymap_json)
     except Exception:
         logger.exception("Failed to render layer %d", layer)
@@ -129,6 +175,34 @@ def render_png(
     vitaly_json: Path | None = None,
 ) -> Image.Image:
     """Render one keymap layer as an RGBA image."""
+    return _draw_model(
+        build_overlay_model(
+            qmk_keymap_json,
+            keyboard_json,
+            keyboard_config,
+            custom_keycodes_json,
+            layout_name,
+            layer_index,
+            pixels_per_unit,
+            keymap_c=keymap_c,
+            vitaly_json=vitaly_json,
+        )
+    )
+
+
+def build_overlay_model(
+    qmk_keymap_json: Path,
+    keyboard_json: Path,
+    keyboard_config: Path,
+    custom_keycodes_json: Path,
+    layout_name: str,
+    layer_index: int,
+    pixels_per_unit: int = 64,
+    *,
+    keymap_c: Path | None = None,
+    vitaly_json: Path | None = None,
+) -> OverlayModel:
+    """Build one JSON-serializable display model from QMK sources."""
     if (keymap_c is None) == (vitaly_json is None):
         raise ValueError("Provide exactly one of keymap_c or vitaly_json")
 
@@ -148,7 +222,7 @@ def render_png(
         custom_keycodes,
     )
     layer = _resolve_layer(keymap, layer_index, custom_keycodes)
-    return _draw_layer(
+    return _build_layer_model(
         layout,
         layer,
         placements,
@@ -283,37 +357,23 @@ def _padded_encoder_pairs(
     return output
 
 
-def _draw_layer(
+def _build_layer_model(
     layout: list[LayoutKey],
     layer: list[str],
     placements: list[tuple[int | None, float, float, float, float]],
     encoder_pairs: list[list[str]],
     layer_index: int,
     pixels_per_unit: int,
-) -> Image.Image:
+) -> OverlayModel:
     bounds = [(key.x, key.y, key.w, key.h) for key in layout]
     bounds.extend((x, y, width, height) for _, x, y, width, height in placements)
     min_x = min(x for x, _, _, _ in bounds)
     min_y = min(y for _, y, _, _ in bounds)
     max_x = max(x + width for x, _, width, _ in bounds)
     max_y = max(y + height for _, y, _, height in bounds)
-    output_size = _canvas_size(min_x, min_y, max_x, max_y, pixels_per_unit, 1)
-    render_scale = SUPERSAMPLE_SCALE
-    render_pixels_per_unit = pixels_per_unit * render_scale
-    width, height = _canvas_size(
-        min_x,
-        min_y,
-        max_x,
-        max_y,
-        render_pixels_per_unit,
-        render_scale,
-    )
-    image = Image.new("RGBA", (width, height), BACKGROUND)
-    draw = ImageDraw.Draw(image)
-    shadow_mask = Image.new("L", (width, height), 0)
-    shadow_draw = ImageDraw.Draw(shadow_mask)
-    fonts = _fonts(render_pixels_per_unit)
-    _draw_layer_badge(draw, shadow_draw, layer_index, fonts, render_scale)
+    width, height = _canvas_size(min_x, min_y, max_x, max_y, pixels_per_unit, 1)
+    keys: list[DisplayKey] = []
+    encoders: list[DisplayEncoder] = []
 
     encoder_key_indices = {
         key_index for key_index, *_ in placements if key_index is not None
@@ -321,24 +381,30 @@ def _draw_layer(
     for key_index, key in enumerate(layout):
         if key_index in encoder_key_indices:
             continue
-        box = _pixel_box(
-            key.x,
-            key.y,
-            key.w,
-            key.h,
-            min_x,
-            min_y,
-            render_pixels_per_unit,
-            render_scale,
+        box = _inset_box(
+            _pixel_box(
+                key.x,
+                key.y,
+                key.w,
+                key.h,
+                min_x,
+                min_y,
+                pixels_per_unit,
+                1,
+            ),
+            KEY_INSET,
         )
-        _draw_key(
-            draw,
-            shadow_draw,
-            box,
-            layer[key_index],
-            layer_index,
-            fonts,
-            render_scale,
+        left, top, right, bottom = box
+        keycode = layer[key_index]
+        keys.append(
+            DisplayKey(
+                x=left,
+                y=top,
+                width=right - left,
+                height=bottom - top,
+                label=_wrap_label(_format_keycode(keycode), 3, 10),
+                held=_momentary_layer(keycode) == layer_index,
+            )
         )
 
     for encoder_index, placement in enumerate(placements):
@@ -350,69 +416,68 @@ def _draw_layer(
             key_height,
             min_x,
             min_y,
-            render_pixels_per_unit,
-            render_scale,
+            pixels_per_unit,
+            1,
         )
         press = layer[key_index] if key_index is not None else "KC_NO"
-        _draw_encoder(
-            draw,
-            shadow_draw,
-            box,
-            press,
-            encoder_pairs[encoder_index],
-            layer_index,
-            fonts,
-            render_scale,
+        left, top, right, bottom = _inset_box(_square_box(box), 2)
+        directions = [_format_keycode(code) for code in encoder_pairs[encoder_index]]
+        encoders.append(
+            DisplayEncoder(
+                x=left,
+                y=top,
+                size=min(right - left, bottom - top),
+                counter_clockwise=_wrap_label(directions[0], 2, 5),
+                clockwise=_wrap_label(directions[1], 2, 5),
+                press=_format_keycode(press),
+                held=_momentary_layer(press) == layer_index,
+            )
         )
-    shadow_alpha = shadow_mask.filter(ImageFilter.GaussianBlur(radius=5 * render_scale))
-    shadow = Image.new("RGBA", image.size, (*SHADOW_RGB, 0))
-    shadow.putalpha(shadow_alpha)
-    image = Image.alpha_composite(shadow, image)
-    return image.resize(output_size, Image.Resampling.LANCZOS)
+    return OverlayModel(
+        version=1,
+        layer=layer_index,
+        width=width,
+        height=height,
+        header_font_size=max(14, pixels_per_unit // 4),
+        key_font_size=max(10, pixels_per_unit // 5),
+        encoder_font_size=max(8, pixels_per_unit // 7),
+        keys=keys,
+        encoders=encoders,
+    )
 
 
-def _draw_layer_badge(
-    draw: ImageDraw.ImageDraw,
-    shadow_draw: ImageDraw.ImageDraw,
-    layer_index: int,
-    fonts: dict[str, Font],
-    render_scale: int,
-) -> None:
-    badge = (
-        PADDING * render_scale,
-        (PADDING - 4) * render_scale,
-        (PADDING + 40) * render_scale,
-        (PADDING + 22) * render_scale,
-    )
-    radius = 13 * render_scale
-    shadow_draw.rounded_rectangle(
-        _offset_box(badge, 0, 2 * render_scale),
-        radius=radius,
-        fill=SHADOW_ALPHA,
-    )
-    draw.rounded_rectangle(
-        badge,
-        radius=radius,
-        fill=KEY_FILL,
-        outline=KEY_EDGE,
-        width=render_scale,
-    )
-    left, top, right, _ = badge
-    draw.line(
-        [
-            (left + radius, top + render_scale),
-            (right - radius, top + render_scale),
-        ],
-        fill=KEY_HIGHLIGHT,
-        width=2 * render_scale,
-    )
+def _draw_model(model: OverlayModel) -> Image.Image:
+    scale = SUPERSAMPLE_SCALE
+    image = Image.new("RGBA", (model.width * scale, model.height * scale), BACKGROUND)
+    draw = ImageDraw.Draw(image)
+    fonts = {
+        "header": _ui_font(model.header_font_size * scale),
+        "key": _ui_font(model.key_font_size * scale),
+        "tiny": _ui_font(model.encoder_font_size * scale),
+    }
     draw.text(
-        _center(badge),
-        f"L{layer_index}",
+        (PADDING * scale, PADDING * scale),
+        f"L{model.layer}",
         fill=KEY_TEXT,
         font=fonts["header"],
-        anchor="mm",
+        anchor="la",
     )
+    for key in model.keys:
+        box = _scale_box((key.x, key.y, key.x + key.width, key.y + key.height), scale)
+        draw.rounded_rectangle(
+            box,
+            radius=KEY_RADIUS * scale,
+            fill=HELD_FILL if key.held else KEY_FILL,
+        )
+        _draw_lines(draw, key.label, _center(box), fonts["key"])
+    for encoder in model.encoders:
+        box = _scale_box(
+            (encoder.x, encoder.y, encoder.x + encoder.size, encoder.y + encoder.size),
+            scale,
+        )
+        draw.ellipse(box, fill=HELD_FILL if encoder.held else KNOB_FILL)
+        _draw_encoder_model(draw, encoder, box, fonts["tiny"], scale)
+    return image.resize((model.width, model.height), Image.Resampling.LANCZOS)
 
 
 def _canvas_size(
@@ -453,114 +518,48 @@ def _pixel_box(
     )
 
 
-def _draw_key(
+def _draw_encoder_model(
     draw: ImageDraw.ImageDraw,
-    shadow_draw: ImageDraw.ImageDraw,
+    encoder: DisplayEncoder,
     box: tuple[int, int, int, int],
-    keycode: str,
-    layer_index: int,
-    fonts: dict[str, Font],
-    render_scale: int,
+    font: Font,
+    scale: int,
 ) -> None:
-    held = _momentary_layer(keycode) == layer_index
-    inset = _inset_box(box, KEY_INSET * render_scale)
-    shadow_draw.rounded_rectangle(
-        _offset_box(inset, 0, 2 * render_scale),
-        radius=KEY_RADIUS * render_scale,
-        fill=SHADOW_ALPHA,
-    )
-    draw.rounded_rectangle(
-        inset,
-        radius=KEY_RADIUS * render_scale,
-        fill=HELD_FILL if held else KEY_FILL,
-        outline=KEY_EDGE,
-        width=render_scale,
-    )
-    left, top, right, _ = inset
-    draw.line(
-        [
-            (left + 9 * render_scale, top + render_scale),
-            (right - 9 * render_scale, top + render_scale),
-        ],
-        fill=KEY_HIGHLIGHT,
-        width=2 * render_scale,
-    )
-    _draw_centered_lines(
-        draw, _format_keycode(keycode), _center(inset), fonts["key"], 3
-    )
-
-
-def _draw_encoder(
-    draw: ImageDraw.ImageDraw,
-    shadow_draw: ImageDraw.ImageDraw,
-    box: tuple[int, int, int, int],
-    press_keycode: str,
-    directions: list[str],
-    layer_index: int,
-    fonts: dict[str, Font],
-    render_scale: int,
-) -> None:
-    left, top, right, bottom = _square_box(box)
-    held = _momentary_layer(press_keycode) == layer_index
-    circle = _inset_box((left, top, right, bottom), 2 * render_scale)
-    shadow_draw.ellipse(
-        _offset_box(circle, 0, 2 * render_scale),
-        fill=SHADOW_ALPHA,
-    )
-    draw.ellipse(
-        circle,
-        fill=HELD_FILL if held else KNOB_FILL,
-        outline=KEY_EDGE,
-        width=render_scale,
-    )
-    draw.arc(
-        _inset_box(circle, render_scale),
-        start=205,
-        end=335,
-        fill=KEY_HIGHLIGHT,
-        width=2 * render_scale,
-    )
-    center_x, center_y = _center(circle)
-    direction_labels = [_format_keycode(keycode) for keycode in directions]
-    if direction_labels[0]:
+    center_x, center_y = _center(box)
+    if encoder.counter_clockwise:
         _draw_turn_marker(
             draw,
-            center_x - 14 * render_scale,
-            center_y - 19 * render_scale,
-            render_scale,
+            center_x - 14 * scale,
+            center_y - 19 * scale,
+            scale,
             clockwise=False,
         )
-    if direction_labels[1]:
+    if encoder.clockwise:
         _draw_turn_marker(
             draw,
-            center_x + 14 * render_scale,
-            center_y - 19 * render_scale,
-            render_scale,
+            center_x + 14 * scale,
+            center_y - 19 * scale,
+            scale,
             clockwise=True,
         )
-    _draw_centered_lines(
+    _draw_lines(
         draw,
-        direction_labels[0],
-        (center_x - 14 * render_scale, center_y - 3 * render_scale),
-        fonts["tiny"],
-        2,
-        max_chars=5,
+        encoder.counter_clockwise,
+        (center_x - 14 * scale, center_y - 3 * scale),
+        font,
     )
-    _draw_centered_lines(
+    _draw_lines(
         draw,
-        direction_labels[1],
-        (center_x + 14 * render_scale, center_y - 3 * render_scale),
-        fonts["tiny"],
-        2,
-        max_chars=5,
+        encoder.clockwise,
+        (center_x + 14 * scale, center_y - 3 * scale),
+        font,
     )
-    press_label = _format_keycode(press_keycode)
-    if press_label:
+    if encoder.press:
         draw.text(
-            (center_x, center_y + 18 * render_scale),
-            f"P {press_label}",
+            (center_x, center_y + 18 * scale),
+            f"P {encoder.press}",
             fill=KEY_TEXT,
-            font=fonts["tiny"],
+            font=font,
             anchor="mm",
         )
 
@@ -591,26 +590,23 @@ def _draw_turn_marker(
     )
 
 
-def _fonts(pixels_per_unit: int) -> dict[str, Font]:
-    return {
-        "header": ImageFont.load_default(size=max(14, pixels_per_unit // 4)),
-        "key": ImageFont.load_default(size=max(10, pixels_per_unit // 6)),
-        "tiny": ImageFont.load_default(size=max(8, pixels_per_unit // 8)),
-    }
+def _ui_font(size: int) -> Font:
+    for name in UI_FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default(size=size)
 
 
-def _draw_centered_lines(
+def _draw_lines(
     draw: ImageDraw.ImageDraw,
-    label: str,
+    lines: list[str],
     center: tuple[int, int],
     font: Font,
-    max_lines: int,
-    *,
-    max_chars: int = 10,
 ) -> None:
-    if not label:
+    if not lines:
         return
-    lines = _wrap_label(label, max_lines, max_chars)
     line_height = font.getbbox("Ag")[3] + 1
     start_y = center[1] - (len(lines) - 1) * line_height / 2
     for index, line in enumerate(lines):
@@ -624,7 +620,9 @@ def _draw_centered_lines(
 
 
 def _wrap_label(label: str, max_lines: int, max_chars: int) -> list[str]:
-    lines = wrap(label, width=max_chars, break_long_words=True) or [label]
+    if not label:
+        return []
+    lines = wrap(label, width=max_chars, break_long_words=True)
     if len(lines) <= max_lines:
         return lines
     return [*lines[: max_lines - 1], lines[max_lines - 1][: max_chars - 3] + "..."]
@@ -664,13 +662,9 @@ def _inset_box(
     return left + inset, top + inset, right - inset, bottom - inset
 
 
-def _offset_box(
-    box: tuple[int, int, int, int],
-    offset_x: int,
-    offset_y: int,
-) -> tuple[int, int, int, int]:
+def _scale_box(box: tuple[int, int, int, int], scale: int) -> tuple[int, int, int, int]:
     left, top, right, bottom = box
-    return left + offset_x, top + offset_y, right + offset_x, bottom + offset_y
+    return left * scale, top * scale, right * scale, bottom * scale
 
 
 def _square_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:

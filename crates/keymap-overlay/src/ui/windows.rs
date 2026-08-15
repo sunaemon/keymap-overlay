@@ -1,7 +1,6 @@
-//! The Windows window, an eframe/egui window like the macOS one.
+//! The Windows eframe/egui window.
 //!
-//! It differs from `eframe_window.rs` in one structural way: **this window is
-//! mapped once and never hidden again.** Hiding it would be the natural thing
+//! This window is mapped once and never hidden again. Hiding it would be the natural thing
 //! to do, and it is what every other backend does, but on Windows it steals
 //! focus. `ViewportCommand::Visible(true)` reaches `winit`'s
 //! `WindowFlags::VISIBLE`, and winit only issues `SW_SHOWNOACTIVATE` for the
@@ -21,9 +20,7 @@
 //! - resizing must not activate either, which holds: winit's resize path passes
 //!   `SWP_NOACTIVATE`.
 //!
-//! Both of those are shared with macOS in `eframe_common.rs`, which stays
-//! mapped for its own reasons and hides the same way. What is left here, and
-//! specific to Windows, is the taskbar exclusion and the scale factor.
+//! What is left here is the taskbar exclusion and the scale factor.
 
 use anyhow::Result;
 use eframe::egui;

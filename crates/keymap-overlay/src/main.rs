@@ -9,12 +9,14 @@ mod ui;
 
 use anyhow::{Context, Result};
 use hidapi::{HidApi, HidDevice};
+#[cfg(not(target_os = "macos"))]
 use image::RgbaImage;
 use keymap_core::{
     ActiveLayerChange, RawLayerEvent, carries_report_magic, parse_raw_layer_event, transition_for,
     transition_for_disconnect,
 };
 use log::{error, info, warn};
+#[cfg(not(target_os = "macos"))]
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -152,12 +154,14 @@ pub(crate) fn transition_for_event(
     }
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 pub(crate) fn image_path(assets_dir: &Path, keyboard_id: u8, layer: u8) -> PathBuf {
     assets_dir.join(format!("{keyboard_id}_L{layer}.png"))
 }
 
 /// Decodes a layer image as RGBA8 with unassociated alpha, which is what egui
 /// takes directly and what the two Linux windows premultiply before blitting.
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn load_image(path: &Path) -> Result<RgbaImage> {
     let image = image::open(path)
         .with_context(|| format!("Failed to open {}", path.display()))?
@@ -165,9 +169,11 @@ pub(crate) fn load_image(path: &Path) -> Result<RgbaImage> {
     Ok(image)
 }
 
+#[cfg(not(target_os = "macos"))]
 pub(crate) type ImageCache = HashMap<(u8, u8), Arc<RgbaImage>>;
 
 /// Loads every installed layer image before the listener can show one.
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn load_image_cache(assets_dir: &Path) -> Result<ImageCache> {
     let mut images = HashMap::new();
     for entry in fs::read_dir(assets_dir)
@@ -192,6 +198,7 @@ pub(crate) fn load_image_cache(assets_dir: &Path) -> Result<ImageCache> {
     Ok(images)
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 fn image_key(path: &Path) -> Option<(u8, u8)> {
     if !path
         .extension()

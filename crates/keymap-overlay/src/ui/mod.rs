@@ -2,20 +2,19 @@
 //!
 //! Each backend owns the main thread and its own event loop, and starts the
 //! shared Raw HID listener once it has a way to be woken from another thread.
-//! Everything the two have in common — the protocol, the transitions, the
-//! images, the log — lives in `main.rs`.
+//! Everything the backends have in common — the protocol, the transitions,
+//! and the log — lives in `main.rs`.
 //!
-//! macOS and Windows have one window each; Linux has two, and `linux.rs`
-//! chooses between them. The two eframe windows keep only what is specific to
-//! their system, over the shared `eframe_common.rs`.
+//! macOS builds native AppKit views from JSON. Windows uses eframe; Linux has
+//! two windows, and `linux.rs` chooses between them.
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 mod eframe_common;
 
 #[cfg(target_os = "macos")]
-mod eframe_window;
+mod appkit;
 #[cfg(target_os = "macos")]
-pub(crate) use eframe_window::run;
+pub(crate) use appkit::run;
 
 #[cfg(target_os = "windows")]
 mod windows;

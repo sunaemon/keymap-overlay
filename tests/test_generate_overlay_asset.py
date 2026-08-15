@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.render_png import _parse_encoder_map, _resolve_layer, render_png
+from scripts.generate_overlay_asset import (
+    _parse_encoder_map,
+    _resolve_layer,
+    build_overlay_model,
+    render_png,
+)
 from src.types import KeycodesJson, QmkKeymapJson
 
 
@@ -56,7 +61,7 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    image = render_png(
+    args = (
         keymap,
         keyboard,
         config,
@@ -64,9 +69,16 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
         "LAYOUT",
         1,
         64,
-        keymap_c=keymap_c,
     )
+    model = build_overlay_model(*args, keymap_c=keymap_c)
+    image = render_png(*args, keymap_c=keymap_c)
 
+    assert model.version == 1
+    assert (model.width, model.height) == (168, 132)
+    assert model.keys[0].label == ["B"]
+    assert model.encoders[0].counter_clockwise == ["VOL -"]
+    assert model.encoders[0].clockwise == ["VOL +"]
+    assert model.encoders[0].press == "MUTE"
     assert image.mode == "RGBA"
     assert image.size == (168, 132)
     assert image.getbbox() is not None
