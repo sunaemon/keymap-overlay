@@ -1,0 +1,12 @@
+[package]
+name = "keymap-overlay-linux-protocol"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+zbus = "5.18.0"

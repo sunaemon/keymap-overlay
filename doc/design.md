@@ -35,7 +35,9 @@ Rust HID listener (hidapi)
   ↓
 native transparent window
   macOS: AppKit NSGlassEffectView + NSBox + NSTextField
-  Linux: Qt Quick + KDE LayerShellQt
+  Linux daemon: final model over session D-Bus
+    ├─ GNOME Shell extension (Wayland or X11)
+    └─ Qt Quick + KDE LayerShellQt (other desktops)
   Windows: WPF
   ↓
 active <keyboard>_L<layer> assets are composed and displayed
@@ -76,9 +78,10 @@ keyboard available even when another keyboard kept the previous session alive.
 
 ## Native Overlay
 
-`crates/keymap-overlay` is one application with three platform windows. Reading
-the keyboard, deciding what a report means, locating assets, and writing the
-log are shared; only the window differs behind `src/ui/` and the Linux bridge.
+`crates/keymap-overlay` shares the keyboard listener, transition reducer,
+asset model, and logging. macOS owns its window behind `src/ui/`; Windows owns
+its process in WPF; Linux separates the HID daemon from replaceable renderer
+clients.
 
 On **macOS** (`src/ui/appkit.rs`) AppKit owns the complete view hierarchy. The
 undecorated, always-on-top, click-through window uses an `NSGlassEffectView` as
@@ -106,11 +109,27 @@ Windows publishes one self-contained `keymap-overlay.exe`. The .NET single-file
 bundle contains the Rust bridge DLL and extracts native content automatically
 before launch; installation and autostart still manage one executable.
 
-On **Linux**, `src/ui/qt.rs` sends reduced show/hide transitions over a local
-Unix datagram socket. `QSocketNotifier` wakes the Qt main loop, so the resident
-process remains event-driven without polling. The C++ side of
-`keymap-overlay-qt-bridge` parses every installed JSON model at startup and
-builds its keys, encoders, and labels as Qt Quick items.
+On **Linux**, `src/ui/linux.rs` loads and validates the installed models, owns
+the reduced active-layer state, and publishes it on the user's D-Bus session.
+`com.sunaemon.KeymapOverlay.Renderer1.GetState` returns a generation number,
+visibility, and the final model JSON; `StateChanged` carries the same tuple.
+Renderers subscribe before reading the snapshot, then discard older
+generations. This closes the startup race without polling and keeps HID,
+layer composition, and asset selection in one Rust process.
+
+The GNOME Shell extension consumes that interface inside GNOME itself on both
+Wayland and X11. It builds `St` actors from the semantic model, uses Shell
+theme classes rather than fixed colours, and therefore follows the active
+GNOME light or dark style. As shell-owned chrome it can be topmost,
+click-through, and non-activating without asking Wayland for a privileged
+foreign window role.
+
+Other desktops start the `keymap-overlay-qt` client. It subscribes to the same
+D-Bus interface and forwards only the latest state over a local datagram to
+the Qt event loop. `QSocketNotifier` wakes the loop without polling; the C++
+side builds keys, encoders, and labels as Qt Quick items. The client exits
+cleanly under GNOME unless `KEYMAP_OVERLAY_FORCE_QT` is set, preventing two
+renderers from drawing the same layer.
 
 The QML window uses KDE LayerShellQt's attached `Window` API. It requests the
 overlay layer, no keyboard interaction, no exclusive zone, and placement on the
@@ -118,12 +137,11 @@ active screen. `Qt::WindowTransparentForInput` makes the surface click-through.
 No plain Wayland application window can supply those semantics: the compositor
 must grant the layer-surface role.
 
-The bridge is one deliberately narrow exception to the workspace's
+The Qt bridge is one deliberately narrow exception to the workspace's
 `unsafe_code = forbid` policy. CXX generates the unavoidable Rust/C++ FFI in
 `keymap-overlay-qt-bridge`; the crate exposes one safe function, while the HID
-protocol, transition state, socket ownership, and application lifecycle remain
-in the forbid-unsafe Rust crates. Qt is linked into the same executable rather
-than run as a helper process.
+protocol and transition state remain in forbid-unsafe Rust crates. Qt is a
+renderer helper and has no access to HID or the asset directory.
 
 The model uses platform-independent point geometry. On macOS those values are
 AppKit points, on Linux they are Qt logical pixels, and on Windows they are WPF
@@ -133,9 +151,9 @@ the active monitor's DPI scale when positioning the native window.
 
 ### Requirements on Linux
 
-- KDE Plasma on Wayland, Qt 6 Quick, and the KDE LayerShellQt QML module. GNOME,
-  X11, and compositors without that QML integration are not currently
-  supported.
+- GNOME Shell 45 or newer on Wayland or X11 uses the included shell extension.
+  KDE Plasma and other supported Wayland desktops use Qt 6 Quick and the KDE
+  LayerShellQt QML module. Qt also supplies the X11 fallback outside GNOME.
 - Read access to the keyboard's `hidraw` node, which `make install-udev-rules`
   grants with a `uaccess` rule per keyboard. hidapi is built against hidraw
   rather than its default libusb backend: libusb would detach the kernel driver
@@ -178,21 +196,22 @@ source-build workflow:
    install all layer assets as JSON. On Windows, verifies
    that WSL has already generated JSON models under
    `%USERPROFILE%/.config/keymap-overlay/`.
-2. Builds a release binary and installs it as
+2. Builds the platform executable and installs it as
    `~/.config/keymap-overlay/keymap-overlay` on macOS and Linux, and as
    `%USERPROFILE%/.config/keymap-overlay/keymap-overlay.exe` on Windows.
 3. Writes the per-user service definition:
    - macOS: the launchd agent
      `~/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist`.
-   - Linux: the systemd user unit
-     `~/.config/systemd/user/keymap-overlay.service`, wanted by
-     `graphical-session.target` because the overlay needs the compositor.
+   - Linux: `keymap-overlay.service` for HID and D-Bus state plus
+     `keymap-overlay-qt.service` for the non-GNOME renderer, both wanted by
+     `graphical-session.target`. The GNOME extension is installed under the
+     user's shell extension directory.
    - Windows: the current user's `KeymapOverlay` value under
      `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 4. Restarts the service so updates take effect immediately and starts it at
    future logins.
 
-All three definitions start at login. macOS and Linux also restart after a
+All service definitions start at login. macOS and Linux also restart after a
 crash and stay stopped after a clean exit; Windows uses the per-user Run key,
 which starts a fresh overlay at the next login.
 
@@ -252,7 +271,8 @@ labels, transparency metadata, held-state metadata, and encoder actions; it
 contains no toolkit-specific objects and does not pass through keymap-drawer,
 YAML, SVG, or another schema. All three platforms install these models as JSON,
 compose the held layers in memory using QMK precedence, and render the result
-with AppKit, Qt Quick, or WPF. Keys use quiet, nearly opaque fills and a low-contrast
+with AppKit, GNOME Shell, Qt Quick, or WPF. Keys use quiet, nearly opaque fills
+and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
 key alone receives its pale tint. Display-only Unicode labels come from single-character
 comments on `custom_keycodes` entries or an explicit `keymap-overlay-labels`
@@ -266,8 +286,9 @@ circular knob, places counter-clockwise and clockwise actions above it, and
 keeps its push action centred inside.
 
 All runtimes parse every installed JSON model at startup. Layer events compose
-only those in-memory models, so they never leave the previous layer visible
-while disk I/O completes.
+only those in-memory models. On Linux the daemon sends the composed model to
+renderer clients, so no renderer leaves the previous layer visible while disk
+I/O completes.
 
 Events already waiting when a UI loop wakes are reduced to their final active
 layer before the window changes. Intermediate restores and switches are not
@@ -277,7 +298,8 @@ empty content view while hiding so a later map cannot expose stale content.
 ### Native Windows Rather Than One Toolkit
 
 Each system gets the window integration it can actually support. AppKit covers
-macOS, Qt Quick plus KDE LayerShellQt covers Linux, and WPF covers Windows.
+macOS, GNOME Shell renders inside GNOME, Qt Quick plus KDE LayerShellQt covers
+other Linux Wayland sessions, and WPF covers Windows.
 On Wayland a normal application window cannot raise itself above others or
 reject input, which is the entire behaviour of this overlay; LayerShellQt is
 therefore a semantic requirement rather than a styling choice.

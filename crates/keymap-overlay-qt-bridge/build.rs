@@ -1,4 +1,8 @@
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
+        return;
+    }
+
     let qt = pkg_config::Config::new()
         .probe("Qt6Quick")
         .expect("Qt 6 Quick development files are required on Linux");

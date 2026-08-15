@@ -1,0 +1,18 @@
+.keymap-overlay {
+  padding: 0;
+  border-radius: 22px;
+}
+
+.keymap-overlay-key {
+  padding: 0;
+  border-radius: 11px;
+}
+
+.keymap-overlay-encoder {
+  padding: 0;
+  border-radius: 999px;
+}
+
+.keymap-overlay-label {
+  padding: 0;
+}

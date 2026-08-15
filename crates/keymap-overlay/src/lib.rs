@@ -33,7 +33,7 @@ const MAX_LOG_FILES: u8 = 3;
 const READ_TIMEOUT: i32 = 1_000;
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Starts logging and runs the native AppKit or Qt overlay.
+/// Starts logging and runs the native AppKit overlay or Linux renderer service.
 #[cfg(not(target_os = "windows"))]
 pub fn run_native_overlay() -> Result<()> {
     initialize_logging()?;
@@ -49,8 +49,8 @@ pub fn run_native_overlay() -> Result<()> {
 ///
 /// The listener runs on its own thread while the platform backend owns the main
 /// one, so delivering an event also has to wake whatever loop that backend
-/// runs. Each does it differently — an AppKit channel, a Qt socket notifier,
-/// or egui's `request_repaint` — and this is the seam between them.
+/// runs. Each does it differently — an AppKit channel, a Linux D-Bus service,
+/// or a WPF dispatcher callback — and this is the seam between them.
 ///
 /// Cloneable because each device gets its own reader thread.
 pub trait LayerEventSink: Clone + Send {

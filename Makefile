@@ -124,6 +124,12 @@ if [ -f "$(KEYMAP_OVERLAY_UNIT)" ]; then \
 	fi
 endef
 
+define STOP_KEYMAP_OVERLAY_QT_UNIT
+if [ -f "$(KEYMAP_OVERLAY_QT_UNIT)" ]; then \
+	systemctl --user disable --now "$(KEYMAP_OVERLAY_QT_UNIT_NAME)"; \
+	fi
+endef
+
 # The Windows Run key is per-user, so it needs no administrator access. Stop
 # the previous process before replacing its executable, if it is running. The
 # command is single-quoted so that the shell leaves PowerShell's $ alone, and
@@ -267,9 +273,11 @@ KEYMAP_OVERLAY_DIR := $(HOME)/.config/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
 endif
 KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay$(EXE_SUFFIX)
+KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay-qt
 WPF_PROJECT := windows/KeymapOverlay.Wpf/KeymapOverlay.Wpf.csproj
 WPF_PUBLISH_DIR := target/wpf-publish
 WINDOWS_BRIDGE_MANIFEST := crates/keymap-overlay-windows-bridge/Cargo.toml
+QT_BRIDGE_MANIFEST := crates/keymap-overlay-qt-bridge/Cargo.toml
 ifeq ($(OS_FAMILY),windows)
 OVERLAY_BUILD_BINARY := $(WPF_PUBLISH_DIR)/keymap-overlay.exe
 else
@@ -279,6 +287,11 @@ KEYMAP_OVERLAY_LABEL := com.sunaemon.keymap-overlay
 KEYMAP_OVERLAY_PLIST := $(HOME)/Library/LaunchAgents/$(KEYMAP_OVERLAY_LABEL).plist
 KEYMAP_OVERLAY_UNIT_NAME := keymap-overlay.service
 KEYMAP_OVERLAY_UNIT := $(HOME)/.config/systemd/user/$(KEYMAP_OVERLAY_UNIT_NAME)
+KEYMAP_OVERLAY_QT_UNIT_NAME := keymap-overlay-qt.service
+KEYMAP_OVERLAY_QT_UNIT := $(HOME)/.config/systemd/user/$(KEYMAP_OVERLAY_QT_UNIT_NAME)
+GNOME_EXTENSION_UUID := keymap-overlay@sunaemon
+GNOME_EXTENSION_SOURCE := linux/gnome-shell/$(GNOME_EXTENSION_UUID)
+GNOME_EXTENSION_DIR := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID)
 # The registry value under the current user's Run key that starts the overlay
 # when they sign in. It is intentionally a user-level autostart, not a service.
 KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
@@ -478,13 +491,15 @@ run-overlay:
 	$(KEYMAP_OVERLAY) "$(KEYMAP_OVERLAY_DIR)"
 
 .PHONY: build-overlay
-ifeq ($(OS_FAMILY),windows)
 build-overlay:
+ifeq ($(OS_FAMILY),windows)
 	$(CARGO) build --release --manifest-path "$(WINDOWS_BRIDGE_MANIFEST)" --target-dir target
 	$(DOTNET) publish "$(WPF_PROJECT)" --configuration Release --output "$(WPF_PUBLISH_DIR)"
 else
-build-overlay:
 	$(CARGO) build --release -p keymap-overlay
+ifeq ($(OS_FAMILY),linux)
+	$(CARGO) build --release --manifest-path "$(QT_BRIDGE_MANIFEST)" --target-dir target
+endif
 endif
 
 .PHONY: install-overlay
@@ -505,6 +520,7 @@ endif
 # underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
+	@$(MAKE) _install_renderer_$(OS_FAMILY)
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
 
@@ -522,6 +538,22 @@ _stop_service_linux:
 .PHONY: _stop_service_windows
 _stop_service_windows:
 	@$(STOP_KEYMAP_OVERLAY_PROCESS)
+
+.PHONY: _install_renderer_macos
+_install_renderer_macos:
+	@:
+
+.PHONY: _install_renderer_linux
+_install_renderer_linux:
+	install -C "target/release/keymap-overlay-qt" "$(KEYMAP_OVERLAY_QT_BINARY)"
+	@mkdir -p "$(GNOME_EXTENSION_DIR)"
+	install -m 0644 "$(GNOME_EXTENSION_SOURCE)/metadata.json" "$(GNOME_EXTENSION_DIR)/metadata.json"
+	install -m 0644 "$(GNOME_EXTENSION_SOURCE)/extension.js" "$(GNOME_EXTENSION_DIR)/extension.js"
+	install -m 0644 "$(GNOME_EXTENSION_SOURCE)/stylesheet.css" "$(GNOME_EXTENSION_DIR)/stylesheet.css"
+
+.PHONY: _install_renderer_windows
+_install_renderer_windows:
+	@:
 
 .PHONY: _install_service_macos
 _install_service_macos:
@@ -566,8 +598,7 @@ _install_service_linux:
 		'[Unit]' \
 		'Description=QMK keymap layer overlay' \
 		'Documentation=https://github.com/sunaemon/keymap-overlay' \
-		'# The Qt overlay is a Wayland layer surface, so it belongs to the' \
-		'# graphical session and goes away with it.' \
+		'# The daemon owns HID and publishes renderer state over session D-Bus.' \
 		'PartOf=graphical-session.target' \
 		'After=graphical-session.target' \
 		'# The compositor may still be coming up when the session target is' \
@@ -587,11 +618,35 @@ _install_service_linux:
 		'[Install]' \
 		'WantedBy=graphical-session.target'; \
 		} > "$(KEYMAP_OVERLAY_UNIT).tmp" && mv "$(KEYMAP_OVERLAY_UNIT).tmp" "$(KEYMAP_OVERLAY_UNIT)"
+	@{ \
+		printf '%s\n' \
+		'[Unit]' \
+		'Description=QMK keymap layer Qt renderer' \
+		'Documentation=https://github.com/sunaemon/keymap-overlay' \
+		'PartOf=graphical-session.target' \
+		'After=graphical-session.target $(KEYMAP_OVERLAY_UNIT_NAME)' \
+		'Wants=$(KEYMAP_OVERLAY_UNIT_NAME)' \
+		'StartLimitIntervalSec=0' \
+		'' \
+		'[Service]' \
+		'Type=simple' \
+		'ExecStart="$(KEYMAP_OVERLAY_QT_BINARY)"' \
+		'Restart=on-failure' \
+		'RestartSec=2' \
+		'' \
+		'[Install]' \
+		'WantedBy=graphical-session.target'; \
+		} > "$(KEYMAP_OVERLAY_QT_UNIT).tmp" && mv "$(KEYMAP_OVERLAY_QT_UNIT).tmp" "$(KEYMAP_OVERLAY_QT_UNIT)"
 	systemctl --user daemon-reload
-	systemctl --user enable "$(KEYMAP_OVERLAY_UNIT_NAME)"
+	systemctl --user enable "$(KEYMAP_OVERLAY_UNIT_NAME)" "$(KEYMAP_OVERLAY_QT_UNIT_NAME)"
 # restart, not start: this is also the update path, and the running process
 # still holds the previous binary.
 	systemctl --user restart "$(KEYMAP_OVERLAY_UNIT_NAME)"
+	systemctl --user restart "$(KEYMAP_OVERLAY_QT_UNIT_NAME)"
+	@if command -v gnome-extensions >/dev/null 2>&1 && printf '%s' "$${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome; then \
+		gnome-extensions enable "$(GNOME_EXTENSION_UUID)" || \
+			echo "NOTE: log out and back in, then enable $(GNOME_EXTENSION_UUID)."; \
+	fi
 
 # The current user's Run key starts the overlay at sign-in without requiring an
 # administrator to create a Task Scheduler entry. It has no equivalent of the
@@ -621,6 +676,7 @@ _install_service_windows:
 uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_BINARY)"
+	@$(MAKE) _uninstall_renderer_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.png
 	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.json
 	@echo "✔ Overlay service and installed assets removed; logs remain at $(KEYMAP_OVERLAY_LOG_DIR)"
@@ -632,8 +688,10 @@ _uninstall_service_macos:
 
 .PHONY: _uninstall_service_linux
 _uninstall_service_linux:
+	@$(STOP_KEYMAP_OVERLAY_QT_UNIT)
 	@$(STOP_KEYMAP_OVERLAY_UNIT)
 	rm -f "$(KEYMAP_OVERLAY_UNIT)"
+	rm -f "$(KEYMAP_OVERLAY_QT_UNIT)"
 	systemctl --user daemon-reload
 
 .PHONY: _uninstall_service_windows
@@ -641,6 +699,19 @@ _uninstall_service_windows:
 	@$(STOP_KEYMAP_OVERLAY_PROCESS)
 	@MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
 		'Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -ErrorAction SilentlyContinue; exit 0'
+
+.PHONY: _uninstall_renderer_macos
+_uninstall_renderer_macos:
+	@:
+
+.PHONY: _uninstall_renderer_linux
+_uninstall_renderer_linux:
+	rm -f "$(KEYMAP_OVERLAY_QT_BINARY)"
+	rm -rf "$(GNOME_EXTENSION_DIR)"
+
+.PHONY: _uninstall_renderer_windows
+_uninstall_renderer_windows:
+	@:
 
 # Linux only: macOS asks for Input Monitoring permission instead, which is
 # granted in System Settings rather than by a file, and Windows needs no

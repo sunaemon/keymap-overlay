@@ -5,9 +5,10 @@
 //! Everything the backends have in common — the protocol, the transitions,
 //! and the log — lives in `main.rs`.
 //!
-//! macOS builds native AppKit views from JSON and Linux builds native Qt Quick
-//! items from the same model. Windows owns its process in the WPF frontend and
-//! reaches the shared listener through the sibling bridge crate.
+//! macOS builds native AppKit views from JSON. Linux publishes the final model
+//! to independent Qt and desktop-shell renderers over the user D-Bus session.
+//! Windows owns its process in the WPF frontend and reaches the shared listener
+//! through the sibling bridge crate.
 
 #[cfg(target_os = "macos")]
 mod appkit;
@@ -15,9 +16,9 @@ mod appkit;
 pub(crate) use appkit::run;
 
 #[cfg(target_os = "linux")]
-mod qt;
+mod linux;
 #[cfg(target_os = "linux")]
-pub(crate) use qt::run;
+pub(crate) use linux::run;
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 compile_error!("the Rust executable has a window backend for macOS and Linux");

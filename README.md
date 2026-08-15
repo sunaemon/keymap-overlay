@@ -10,7 +10,7 @@ This project builds QMK firmware that reports momentary layer changes over Raw
 HID, generates one display asset for each keymap layer, and displays the active
 layer in a native overlay on macOS, Linux, and Windows. All three systems
 install semantic JSON, compose held layers with QMK precedence, and draw every
-key, encoder, and label with AppKit, Qt Quick, or WPF.
+key, encoder, and label with AppKit, GNOME Shell, Qt Quick, or WPF.
 
 ![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
 
@@ -50,19 +50,21 @@ must be an integer from 0 through 255.
 
 ## Platform Support
 
-|                | macOS                                   | Linux (KDE Plasma Wayland)                      | Windows                       |
+|                | macOS                                   | Linux                                           | Windows                       |
 | -------------- | --------------------------------------- | ----------------------------------------------- | ----------------------------- |
-| Overlay window | Native AppKit glass, controls, and text | Qt Quick with KDE LayerShellQt                  | Native WPF                    |
-| Autostart      | launchd agent                           | systemd user unit                               | current-user Run registry key |
+| Overlay window | Native AppKit glass, controls, and text | GNOME Shell or Qt Quick with KDE LayerShellQt   | Native WPF                    |
+| Autostart      | launchd agent                           | systemd user services + GNOME extension         | current-user Run registry key |
 | Raw HID access | Input Monitoring permission             | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant              |
 | Firmware tools | source checkout on macOS                | source checkout on Linux                        | source checkout in WSL        |
 | Overlay binary | GitHub Release                          | GitHub Release                                  | GitHub Release                |
 
-The Linux overlay currently targets KDE Plasma on Wayland. Qt Quick renders
-the semantic display model and LayerShellQt gives the window an overlay-layer,
-click-through surface on the active screen. GNOME, X11, and Wayland
-compositors without the KDE LayerShellQt QML module are not currently
-supported.
+Linux runs one Rust HID daemon and publishes its final display state over the
+user's D-Bus session. GNOME 45+ renders that state through the included Shell
+extension on Wayland or X11, so the overlay follows GNOME's light/dark theme.
+Other desktops use the Qt renderer: LayerShellQt supplies Wayland overlay
+semantics, while Qt supplies the X11 fallback. Cinnamon does not load GNOME
+extensions, but it can use the Qt renderer today and a future Cinnamon Spice
+can reuse the same D-Bus protocol.
 
 ## Enter the Keyboard Bootloader
 
@@ -118,7 +120,7 @@ the Qt 6 LayerShellQt QML module is installed automatically when the
 distribution provides `qml6-module-org-kde-layershell`; Ubuntu 24.04 does not
 ship that package, so KDE Plasma users on that release must install a Qt 6
 LayerShellQt package from a newer distribution or backport before running the
-overlay.
+Qt renderer. GNOME uses the included Shell extension instead.
 
 ### 2. Build and flash the firmware
 
@@ -142,7 +144,7 @@ make install-assets
 
 Run this again after changing the keymap. It installs JSON models such as
 `1_L1.json` under `~/.config/keymap-overlay`; the native overlay renders their
-keys, encoders, and text directly with AppKit, Qt Quick, or WPF.
+keys, encoders, and text directly with AppKit, GNOME Shell, Qt Quick, or WPF.
 
 On Linux, also grant the logged-in user access to the Raw HID interfaces and
 reconnect any keyboard that was already plugged in:
@@ -168,9 +170,13 @@ Review the downloaded script before leaving `less` with `q`. The installer then
 selects the release for the current OS and architecture, downloads it from an
 immutable versioned release URL, verifies the required SHA-256 checksum,
 installs the executable and license notices, registers the launchd agent or
-systemd user unit, and starts it. If GitHub CLI (`gh`) is available and
+systemd user services, and starts them. If GitHub CLI (`gh`) is available and
 authenticated, it also verifies GitHub's artifact attestations; `gh` is
 optional.
+On Linux it also installs the GNOME extension and the Qt fallback renderer. If
+GNOME cannot enable a newly installed extension in the running session, log
+out and back in and enable `keymap-overlay@sunaemon` with the Extensions app or
+`gnome-extensions enable keymap-overlay@sunaemon`.
 The installer prints every installed path when complete. Logs are written to
 `~/.local/var/log/keymap-overlay/overlay.log` and rotate at 1 MiB, retaining the
 current file and three previous files.

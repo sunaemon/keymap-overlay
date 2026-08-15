@@ -21,8 +21,8 @@ There are three parts:
 
 1. **Python scripts** (`scripts/`, `src/`) that build the shared display model
    and push keymaps to VIAL devices.
-2. **Rust crates** (`crates/`) that implement the Raw HID protocol, native
-   macOS/Linux windows, and the Windows bridge.
+2. **Rust crates** (`crates/`) that implement the Raw HID protocol, the native
+   macOS window, the Linux D-Bus daemon and Qt client, and the Windows bridge.
 3. **Firmware glue** (`firmware/`, `example/`) that sends the Raw HID reports.
 
 ## Core Components
@@ -57,8 +57,8 @@ raw QMK JSON; only the overlay resolves transparency, in memory.
 The first-party generator produces a platform-neutral model from QMK
 `keyboard.json`; encoder positions come from each keyboard's project
 `config.json`, because QMK describes encoder pins but not their physical layout.
-All three systems install JSON and draw the model with AppKit, Qt Quick, or
-WPF. An
+All three systems install JSON and draw the model with AppKit, GNOME Shell, Qt
+Quick, or WPF. An
 encoder placed at a matrix position replaces that push key with one circular
 control showing counter-clockwise, clockwise, and push actions.
 
@@ -66,6 +66,8 @@ control showing counter-clockwise, clockwise, and push actions.
 
 - `keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and its
   tests. Pure logic, no I/O, so it stays unit-testable.
+- `keymap-overlay-linux-protocol`: the typed Linux renderer D-Bus contract
+  shared by the daemon and Qt client.
 - `keymap-overlay`: the shared listener, transition reducer, model composition,
   logging code, and native macOS/Linux executable.
 - `keymap-overlay-qt-bridge`: the audited Linux-only CXX boundary. This is the
@@ -81,9 +83,11 @@ composition, and rotating log — while each native frontend owns its window:
 - `windows/KeymapOverlay.Wpf`: the native WPF window. Win32 styles make it
   transparent, click-through, topmost, and non-activating. A self-contained
   single-file publish embeds the Rust bridge DLL for automatic extraction.
-- `ui/qt.rs`: reduces HID events in Rust and wakes the native Qt main loop over
-  a Unix datagram socket. The bridge's C++ side builds a Qt Quick window from
-  semantic JSON; KDE LayerShellQt supplies the Wayland overlay surface.
+- `ui/linux.rs`: reduces HID events, loads the final semantic model, and
+  publishes renderer state over session D-Bus. The GNOME Shell extension
+  consumes it directly; the separate `keymap-overlay-qt` client forwards it to
+  the Qt event loop over a Unix datagram. KDE LayerShellQt supplies the Wayland
+  overlay surface outside GNOME.
 
 Cargo gates the dependencies per target, which is why Qt/CXX is kept on Linux,
 the C ABI bridge is kept on Windows, and hidapi uses hidraw on Linux rather than its
@@ -91,9 +95,10 @@ default libusb backend. Keep new dependencies on the same side of that line as
 the code using them.
 
 The overlay is event-driven. Delivering an event also wakes the UI thread — an
-AppKit channel on macOS, a Unix datagram watched by `QSocketNotifier` on Linux,
-or a WPF dispatcher callback on Windows, behind the `LayerEventSink` trait — so there
-is no polling loop and no periodic repaint.
+AppKit channel on macOS, a D-Bus signal followed by a Unix datagram watched by
+`QSocketNotifier` for Linux Qt, a Shell signal callback on GNOME, or a WPF
+dispatcher callback on Windows, behind the `LayerEventSink` trait — so there is
+no polling loop and no periodic repaint.
 Do not reintroduce one: this process runs from login to logout, so idle cost
 matters.
 
@@ -118,8 +123,8 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 
 - **Python**: keymap data extraction and processing.
   - `uv`: package manager. `pydantic` for validation, `typer` for CLIs.
-- **Rust/C++/C#**: the overlay (AppKit on macOS, WPF on Windows, Qt Quick plus
-  KDE LayerShellQt on Linux, and `hidapi`).
+- **Rust/C++/C#/GJS**: the overlay (AppKit on macOS, WPF on Windows, GNOME
+  Shell or Qt Quick plus KDE LayerShellQt on Linux, and `hidapi`).
 - **Makefile**: orchestrates build, installation, and flashing.
 - **mise**: pins every tool version, including formatters and linters.
 - **lefthook**: manages the git hooks declared in `lefthook.yml`.
@@ -189,9 +194,9 @@ third-party notices, then fails if any of that produced a diff. On macOS it
 runs `test`, `test-installer-sh`, `test-rust` and `build-overlay`. On Windows it
 runs `test`, the `install.ps1` Pester suite, `test-rust` and `build-overlay`; the
 other Windows steps set `shell: bash` so the Makefile runs under Git Bash. Each
-job builds only its own window, so `ui/appkit.rs` is compiled by the macOS job,
-WPF and its Rust bridge by the Windows job, and Qt by the Linux job. A
-fourth job runs `make audit`.
+job builds only its own native backend, so `ui/appkit.rs` is compiled by the
+macOS job, WPF and its Rust bridge by the Windows job, and the D-Bus daemon and
+Qt renderer by the Linux job. A fourth job runs `make audit`.
 
 Only the Linux job runs the complete lint task. After changing the Windows
 bridge, run clippy against its manifest; after changing WPF, publish the

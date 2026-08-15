@@ -1,6 +1,7 @@
 #include "src/qt_backend.h"
 
 #include <QByteArray>
+#include <QCursor>
 #include <QDebug>
 #include <QGuiApplication>
 #include <QJsonDocument>
@@ -8,6 +9,7 @@
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QSocketNotifier>
 #include <QString>
 #include <QUrl>
@@ -37,10 +39,12 @@ import org.kde.layershell 1.0 as LayerShell
 Window {
     id: root
     property var overlayModel: ({ keys: [], encoders: [] })
+    SystemPalette { id: palette; colorGroup: SystemPalette.Active }
 
     visible: false
     color: "transparent"
-    flags: Qt.FramelessWindowHint | Qt.WindowTransparentForInput | Qt.WindowDoesNotAcceptFocus
+    flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+           | Qt.WindowTransparentForInput | Qt.WindowDoesNotAcceptFocus
     width: overlayModel.width || 1
     height: overlayModel.height || 1
 
@@ -54,16 +58,16 @@ Window {
     Rectangle {
         anchors.fill: parent
         radius: 22
-        color: "#E6F1F3F7"
+        color: Qt.rgba(palette.window.r, palette.window.g, palette.window.b, 0.90)
         border.width: 1
-        border.color: "#1F20242C"
+        border.color: palette.mid
     }
 
     Text {
         x: 20
         y: 20
         text: "L" + (root.overlayModel.layer ?? "")
-        color: "#20242C"
+        color: palette.windowText
         font.pixelSize: root.overlayModel.header_font_size || 14
     }
 
@@ -76,15 +80,15 @@ Window {
             width: modelData.width
             height: modelData.height
             radius: 11
-            color: modelData.held ? "#FFFFDDDD" : "#F6DCE0E7"
+            color: modelData.held ? palette.highlight : palette.button
             border.width: 1
-            border.color: "#1F20242C"
+            border.color: palette.mid
 
             Text {
                 anchors.centerIn: parent
                 width: parent.width - 8
                 text: modelData.label.join("\n")
-                color: "#20242C"
+                color: modelData.held ? palette.highlightedText : palette.buttonText
                 font.pixelSize: root.overlayModel.key_font_size || 10
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -105,15 +109,15 @@ Window {
             Rectangle {
                 anchors.fill: parent
                 radius: width / 2
-                color: modelData.held ? "#FFFFDDDD" : "#F6DCE0E7"
+                color: modelData.held ? palette.highlight : palette.button
                 border.width: 1
-                border.color: "#1F20242C"
+                border.color: palette.mid
             }
 
             Text {
                 anchors.centerIn: parent
                 text: modelData.press ? "P " + modelData.press : ""
-                color: "#20242C"
+                color: modelData.held ? palette.highlightedText : palette.buttonText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
             }
 
@@ -123,7 +127,7 @@ Window {
                 anchors.bottom: parent.top
                 text: modelData.counter_clockwise.length
                       ? "← " + modelData.counter_clockwise.join(" ") : ""
-                color: "#20242C"
+                color: palette.windowText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
                 horizontalAlignment: Text.AlignRight
             }
@@ -134,7 +138,7 @@ Window {
                 anchors.bottom: parent.top
                 text: modelData.clockwise.length
                       ? modelData.clockwise.join(" ") + " →" : ""
-                color: "#20242C"
+                color: palette.windowText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
             }
         }
@@ -167,8 +171,7 @@ std::runtime_error qml_error(const QQmlComponent &component) {
 }
 
 void apply_packet(QQuickWindow &window, const QByteArray &packet) {
-  if (packet.size() == 1 &&
-      static_cast<std::uint8_t>(packet.front()) == Hide) {
+  if (packet.size() == 1 && static_cast<std::uint8_t>(packet.front()) == Hide) {
     window.hide();
     return;
   }
@@ -187,6 +190,17 @@ void apply_packet(QQuickWindow &window, const QByteArray &packet) {
   }
   window.setProperty("overlayModel", model.toVariantMap());
   window.resize(width, height);
+  if (QGuiApplication::platformName() == QStringLiteral("xcb")) {
+    auto *screen = QGuiApplication::screenAt(QCursor::pos());
+    if (!screen) {
+      screen = QGuiApplication::primaryScreen();
+    }
+    if (screen) {
+      const auto available = screen->availableGeometry();
+      window.setPosition(available.x() + (available.width() - width) / 2,
+                         available.y() + (available.height() - height) / 2);
+    }
+  }
   window.show();
 }
 
@@ -195,11 +209,18 @@ void drain_packets(OwnedFileDescriptor &descriptor, QQuickWindow &window) {
   packet.resize(static_cast<qsizetype>(MaxPacketSize));
   std::optional<QByteArray> latest;
   while (true) {
-    const auto count = ::recv(descriptor.get(), packet.data(),
-                              static_cast<std::size_t>(packet.size()), 0);
+    const auto count =
+        ::recv(descriptor.get(), packet.data(),
+               static_cast<std::size_t>(packet.size()), MSG_TRUNC);
     if (count > 0) {
+      if (count > packet.size()) {
+        throw std::runtime_error("A Qt renderer event exceeded its size limit");
+      }
       latest = packet.left(static_cast<qsizetype>(count));
       continue;
+    }
+    if (count == 0) {
+      throw std::runtime_error("The Qt renderer event socket closed");
     }
     if (count == -1 && errno == EINTR) {
       continue;
