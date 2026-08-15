@@ -3,6 +3,29 @@
   border-radius: 22px;
 }
 
+.keymap-overlay-light {
+  color: #20242c;
+  background-color: rgba(241, 243, 247, 0.94);
+  border: 1px solid rgba(32, 36, 44, 0.12);
+}
+
+.keymap-overlay-light .keymap-overlay-key,
+.keymap-overlay-light .keymap-overlay-encoder {
+  color: #20242c;
+  background-color: rgba(220, 224, 231, 0.96);
+  border: 1px solid rgba(32, 36, 44, 0.12);
+}
+
+.keymap-overlay-light .keymap-overlay-key:checked,
+.keymap-overlay-light .keymap-overlay-encoder:checked {
+  color: #20242c;
+  background-color: #ffdddd;
+}
+
+.keymap-overlay-light .keymap-overlay-label {
+  color: #20242c;
+}
+
 .keymap-overlay-key {
   padding: 0;
   border-radius: 11px;

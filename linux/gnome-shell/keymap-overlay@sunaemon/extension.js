@@ -9,6 +9,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 const BUS_NAME = 'com.sunaemon.KeymapOverlay';
 const OBJECT_PATH = '/com/sunaemon/KeymapOverlay';
 const RENDERER_INTERFACE = 'com.sunaemon.KeymapOverlay.Renderer1';
+const INTERFACE_SCHEMA = 'org.gnome.desktop.interface';
 const RENDERER_XML = `
 <node>
   <interface name="${RENDERER_INTERFACE}">
@@ -31,6 +32,11 @@ export default class KeymapOverlayExtension extends Extension {
     this._enabled = true;
     this._generation = -1;
     this._overlay = null;
+    this._interfaceSettings = new Gio.Settings({ schema_id: INTERFACE_SCHEMA });
+    this._colorSchemeId = this._interfaceSettings.connect(
+      'changed::color-scheme',
+      () => this._syncColorScheme()
+    );
     this._proxy = new RendererProxy(
       Gio.DBus.session,
       BUS_NAME,
@@ -67,6 +73,10 @@ export default class KeymapOverlayExtension extends Extension {
     this._proxy = null;
     this._proxySignalId = 0;
     this._ownerSignalId = 0;
+    if (this._interfaceSettings && this._colorSchemeId)
+      this._interfaceSettings.disconnect(this._colorSchemeId);
+    this._interfaceSettings = null;
+    this._colorSchemeId = 0;
     this._destroyOverlay();
   }
 
@@ -107,7 +117,7 @@ export default class KeymapOverlayExtension extends Extension {
   _render(model) {
     this._destroyOverlay();
     const overlay = new St.Widget({
-      style_class: 'popup-menu-content keymap-overlay',
+      style_class: this._overlayStyleClass(),
       reactive: false,
       can_focus: false,
       clip_to_allocation: true,
@@ -200,7 +210,7 @@ export default class KeymapOverlayExtension extends Extension {
     group.add_child(
       this._label(
         encoder.clockwise.length ? `${encoder.clockwise.join(' ')} →` : '',
-        halfSize + labelGap,
+        halfSize - labelGap,
         -model.encoder_font_size * 2,
         labelWidth,
         model.encoder_font_size,
@@ -248,6 +258,19 @@ export default class KeymapOverlayExtension extends Extension {
 
   _hide() {
     this._destroyOverlay();
+  }
+
+  _syncColorScheme() {
+    if (this._overlay)
+      this._overlay.set_style_class_name(this._overlayStyleClass());
+  }
+
+  _overlayStyleClass() {
+    const dark =
+      this._interfaceSettings?.get_string('color-scheme') === 'prefer-dark';
+    return dark
+      ? 'popup-menu-content keymap-overlay keymap-overlay-dark'
+      : 'keymap-overlay keymap-overlay-light';
   }
 
   _destroyOverlay() {
