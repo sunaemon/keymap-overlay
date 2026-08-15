@@ -216,7 +216,8 @@ fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLaye
 fn add_key_surface(root: &NSView, frame: NSRect, held: bool, radius: f64, mtm: MainThreadMarker) {
     let surface = NSBox::initWithFrame(mtm.alloc(), frame);
     surface.setBoxType(NSBoxType::Custom);
-    surface.setBorderWidth(0.0);
+    surface.setBorderWidth(0.75);
+    surface.setBorderColor(&key_border_color());
     surface.setCornerRadius(radius);
     let fill = if held { held_color() } else { key_color() };
     surface.setFillColor(&fill);
@@ -341,10 +342,19 @@ fn top_left_frame(x: u32, y: u32, width: u32, height: u32, canvas_height: u32) -
 
 fn key_color() -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(
-        232.0 / 255.0,
-        235.0 / 255.0,
-        240.0 / 255.0,
-        248.0 / 255.0,
+        220.0 / 255.0,
+        224.0 / 255.0,
+        231.0 / 255.0,
+        246.0 / 255.0,
+    )
+}
+
+fn key_border_color() -> Retained<NSColor> {
+    NSColor::colorWithSRGBRed_green_blue_alpha(
+        32.0 / 255.0,
+        36.0 / 255.0,
+        44.0 / 255.0,
+        31.0 / 255.0,
     )
 }
 

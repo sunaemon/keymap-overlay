@@ -31,8 +31,9 @@ app = typer.Typer()
 Font = ImageFont.ImageFont | ImageFont.FreeTypeFont
 
 BACKGROUND = (0, 0, 0, 0)
-KEY_FILL = (232, 235, 240, 248)
+KEY_FILL = (220, 224, 231, 246)
 KEY_TEXT = (32, 36, 44, 255)
+KEY_BORDER = (32, 36, 44, 31)
 HELD_FILL = (255, 221, 221, 255)
 KNOB_FILL = KEY_FILL
 PADDING = 20
@@ -468,6 +469,8 @@ def _draw_model(model: OverlayModel) -> Image.Image:
             box,
             radius=KEY_RADIUS * scale,
             fill=HELD_FILL if key.held else KEY_FILL,
+            outline=KEY_BORDER,
+            width=max(1, round(0.75 * scale)),
         )
         _draw_lines(draw, key.label, _center(box), fonts["key"])
     for encoder in model.encoders:
@@ -475,7 +478,12 @@ def _draw_model(model: OverlayModel) -> Image.Image:
             (encoder.x, encoder.y, encoder.x + encoder.size, encoder.y + encoder.size),
             scale,
         )
-        draw.ellipse(box, fill=HELD_FILL if encoder.held else KNOB_FILL)
+        draw.ellipse(
+            box,
+            fill=HELD_FILL if encoder.held else KNOB_FILL,
+            outline=KEY_BORDER,
+            width=max(1, round(0.75 * scale)),
+        )
         _draw_encoder_model(draw, encoder, box, fonts["tiny"], scale)
     return image.resize((model.width, model.height), Image.Resampling.LANCZOS)
 
