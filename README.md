@@ -8,9 +8,9 @@
 
 This project builds QMK firmware that reports momentary layer changes over Raw
 HID, generates one display asset for each keymap layer, and displays the active
-layer in a native overlay on macOS, Linux, and Windows. macOS installs semantic
-JSON and draws every key, encoder, and label with AppKit; Linux and Windows use
-PNGs generated from the same display model.
+layer in a native overlay on macOS, Linux, and Windows. macOS and Linux install
+semantic JSON and draw every key, encoder, and label with AppKit or Qt Quick;
+Windows uses PNGs generated from the same display model.
 
 ![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
 
@@ -50,19 +50,19 @@ must be an integer from 0 through 255.
 
 ## Platform Support
 
-|                | macOS                                   | Linux                                           | Windows                       |
+|                | macOS                                   | Linux (KDE Plasma Wayland)                      | Windows                       |
 | -------------- | --------------------------------------- | ----------------------------------------------- | ----------------------------- |
-| Overlay window | Native AppKit glass, controls, and text | `zwlr_layer_shell_v1` surface, or an X11 window | eframe/egui                   |
+| Overlay window | Native AppKit glass, controls, and text | Qt Quick with KDE LayerShellQt                  | eframe/egui                   |
 | Autostart      | launchd agent                           | systemd user unit                               | current-user Run registry key |
 | Raw HID access | Input Monitoring permission             | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant              |
 | Firmware tools | source checkout on macOS                | source checkout on Linux                        | source checkout in WSL        |
 | Overlay binary | GitHub Release                          | GitHub Release                                  | GitHub Release                |
 
-On Linux, the overlay uses `zwlr_layer_shell_v1` on COSMIC, sway, Hyprland,
-wayfire, and KDE Plasma. On GNOME, X11, and compositors without layer-shell, it
-uses an override-redirect X11 window through XWayland or X11. Set
-`KEYMAP_OVERLAY_BACKEND` to `auto`, `layer-shell`, or `x11` to override the
-selection.
+The Linux overlay currently targets KDE Plasma on Wayland. Qt Quick renders
+the semantic display model and LayerShellQt gives the window an overlay-layer,
+click-through surface on the active screen. GNOME, X11, and Wayland
+compositors without the KDE LayerShellQt QML module are not currently
+supported.
 
 ## Enter the Keyboard Bootloader
 
@@ -135,10 +135,9 @@ desktop already mounts it, or set `UF2_VOLUME_LABEL` for another volume label.
 make install-assets
 ```
 
-Run this again after changing the keymap. On macOS it installs JSON models such
-as `1_L1.json` under `~/.config/keymap-overlay`; the native overlay renders
-their keys, encoders, and text directly with AppKit. Linux installs PNGs made
-from the same model.
+Run this again after changing the keymap. On macOS and Linux it installs JSON
+models such as `1_L1.json` under `~/.config/keymap-overlay`; the native overlay
+renders their keys, encoders, and text directly with AppKit or Qt Quick.
 
 On Linux, also grant the logged-in user access to the Raw HID interfaces and
 reconnect any keyboard that was already plugged in:
@@ -493,7 +492,7 @@ make -C keymap-overlay \
 ```
 
 The binary installer is unchanged. The runtime reads platform assets from the
-configuration directory: JSON on macOS, PNG on Linux and Windows.
+configuration directory: JSON on macOS and Linux, PNG on Windows.
 
 ## Getting Started for Development
 

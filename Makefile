@@ -87,12 +87,11 @@ VITALY ?= $(MISE) exec cargo:vitaly@$(VITALY_VERSION) -- vitaly
 
 QMK_TOOLCHAIN_PACKAGES := osx-cross/arm/arm-none-eabi-gcc@8 osx-cross/avr/avr-gcc@9 avrdude dfu-programmer dfu-util
 
-# The same set per distribution, plus the libraries the overlay itself links:
-# libudev for hidraw enumeration, libwayland-client for the layer-shell window,
-# and libX11 for the fallback one.
-LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs wayland libx11 ttf-liberation
-LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev libwayland-dev libx11-dev fonts-liberation
-LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel wayland-devel libX11-devel liberation-mono-fonts
+# The same set per distribution, plus libudev for Raw HID and the Qt 6 /
+# LayerShellQt stack used by the native KDE Plasma overlay.
+LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs qt6-base qt6-declarative layer-shell-qt ttf-liberation
+LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev qt6-base-dev qt6-declarative-dev qml6-module-org-kde-layershell fonts-liberation
+LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel qt6-qtbase-devel qt6-qtdeclarative-devel layer-shell-qt liberation-mono-fonts
 
 # Escape XML character data so that a HOME containing & or < still produces a
 # valid plist. Ampersands must be substituted first.
@@ -239,14 +238,14 @@ VITALY_JSON := $(BUILD_DIR)/vitaly.json
 # $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
 # first pass and then re-enter make to expand $(ASSETS).
 LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
-ifeq ($(OVERLAY_PLATFORM),macos)
-ASSET_EXTENSION := json
-ASSET_FORMAT := json
-STALE_ASSET_EXTENSION := png
-else
+ifeq ($(OVERLAY_PLATFORM),windows)
 ASSET_EXTENSION := png
 ASSET_FORMAT := png
 STALE_ASSET_EXTENSION := json
+else
+ASSET_EXTENSION := json
+ASSET_FORMAT := json
+STALE_ASSET_EXTENSION := png
 endif
 ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)
 ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%g.$(ASSET_EXTENSION)" 0 $$(( $(LAYERS) - 1 )); fi))$(ASSETS)
@@ -324,8 +323,8 @@ _setup_toolchain_macos:
 	$(BREW) install $(QMK_TOOLCHAIN_PACKAGES)
 
 # Distributions ship the compilers QMK wants, so there is no equivalent of the
-# osx-cross taps here. libudev and the Wayland client library are the overlay's
-# own build dependencies, not QMK's.
+# osx-cross taps here. libudev, Qt Quick, and LayerShellQt are the overlay's own
+# build and runtime dependencies, not QMK's.
 .PHONY: _setup_toolchain_linux
 _setup_toolchain_linux:
 	@if command -v pacman >/dev/null; then \
@@ -336,8 +335,8 @@ _setup_toolchain_linux:
 		set -x; $(SUDO) dnf install --assumeyes $(LINUX_TOOLCHAIN_PACKAGES_DNF); \
 	else \
 		echo "ERROR: no supported package manager (pacman, apt-get, dnf) was found."; \
-		echo "Install the ARM and AVR toolchains, libudev, and the Wayland client"; \
-		echo "development files by hand, then run the rest of 'make setup'."; \
+		echo "Install the ARM and AVR toolchains, libudev, Qt 6 Quick, and"; \
+		echo "LayerShellQt by hand, then run the rest of 'make setup'."; \
 		exit 1; \
 	fi
 
@@ -552,7 +551,7 @@ _install_service_linux:
 		'[Unit]' \
 		'Description=QMK keymap layer overlay' \
 		'Documentation=https://github.com/sunaemon/keymap-overlay' \
-		'# The overlay is a Wayland layer surface, so it belongs to the' \
+		'# The Qt overlay is a Wayland layer surface, so it belongs to the' \
 		'# graphical session and goes away with it.' \
 		'PartOf=graphical-session.target' \
 		'After=graphical-session.target' \

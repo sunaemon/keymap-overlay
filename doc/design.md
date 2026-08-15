@@ -13,16 +13,16 @@ build/<keyboard>/qmk-keymap.json
   ↓ first-party display-model generator
 platform-neutral geometry, labels, and state (one model per layer)
   ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
-  ├─ Linux: Pillow → build/<keyboard>/assets/linux/<keyboard>_L<n>.png
+  ├─ Linux: build/<keyboard>/assets/linux/<keyboard>_L<n>.json
   └─ Windows: Pillow → build/<keyboard>/assets/windows/<keyboard>_L<n>.png
   ↓ make install-assets
 platform configuration directory/<keyboard>_L<n>.<json|png>
 ```
 
 `make install-assets` is the platform-independent model-generation and copy
-target. It installs JSON on macOS and PNG on Linux. On Windows, generate PNGs
-from WSL with `make install-assets`, then run the native `make install-overlay`;
-WSL writes them directly to `%USERPROFILE%/.config/keymap-overlay/`.
+target. It installs JSON on macOS and Linux. On Windows, generate PNGs from WSL
+with `make install-assets`, then run the native `make install-overlay`; WSL
+writes them directly to `%USERPROFILE%/.config/keymap-overlay/`.
 
 ## Runtime Data Flow
 
@@ -35,8 +35,8 @@ Rust HID listener (hidapi)
   ↓
 native transparent window
   macOS: AppKit NSGlassEffectView + NSBox + NSTextField
+  Linux: Qt Quick + KDE LayerShellQt
   Windows: eframe/egui
-  Linux: wlr-layer-shell surface, or an override-redirect X11 window
   ↓
 matching <keyboard>_L<layer> asset is displayed
   ↓
@@ -75,9 +75,9 @@ keyboard available even when another keyboard kept the previous session alive.
 
 ## Native Overlay
 
-`crates/keymap-overlay` is one Rust application with four windows. Reading the
-keyboard, deciding what a report means, loading the asset, and writing the log
-are shared; only the window differs, behind `src/ui/`.
+`crates/keymap-overlay` is one application with three platform windows. Reading
+the keyboard, deciding what a report means, locating assets, and writing the
+log are shared; only the window differs behind `src/ui/` and the Linux bridge.
 
 On **macOS** (`src/ui/appkit.rs`) AppKit owns the complete view hierarchy. The
 undecorated, always-on-top, click-through window uses an `NSGlassEffectView` as
@@ -114,53 +114,36 @@ because they all unmap, but here it would be a permanent rectangle across the
 screen. And resizing must not activate either, which holds: winit's resize path
 passes `SWP_NOACTIVATE`.
 
-On **Linux** there are two windows, chosen at startup by `src/ui/linux.rs` and
-overridable with `KEYMAP_OVERLAY_BACKEND` (`auto`, `layer-shell`, `x11`).
+On **Linux**, `src/ui/qt.rs` sends reduced show/hide transitions over a local
+Unix datagram socket. `QSocketNotifier` wakes the Qt main loop, so the resident
+process remains event-driven without polling. The C++ side of
+`keymap-overlay-qt-bridge` parses every installed JSON model at startup and
+builds its keys, encoders, and labels as Qt Quick items.
 
-`src/ui/wayland.rs` is the one to want: a `zwlr_layer_shell_v1` surface on the
-overlay layer, drawn into a `wl_shm` buffer. A Wayland application window has no
-say over stacking and no way to be skipped by the pointer, so an ordinary window
-cannot be this overlay; a layer surface can be both. Clicks pass through because
-the surface's input region is empty.
+The QML window uses KDE LayerShellQt's attached `Window` API. It requests the
+overlay layer, no keyboard interaction, no exclusive zone, and placement on the
+active screen. `Qt::WindowTransparentForInput` makes the surface click-through.
+No plain Wayland application window can supply those semantics: the compositor
+must grant the layer-surface role.
 
-`src/ui/x11.rs` is the fallback for compositors with no layer shell, GNOME above
-all, reached through XWayland in a Wayland session and directly in an X11 one.
-The window is **override-redirect**: the window manager does not manage it, so
-it is never focused, never restacked below managed windows, and never decorated
-or moved. That is not a detail. The usual route — asking for
-`_NET_WM_STATE_ABOVE` — is a request a window manager may ignore, and it was
-ignored in testing; worse, a managed window takes focus when it is mapped, which
-here would mean swallowing the very keystrokes the layer key was held for. Being
-unmanaged also means nothing places the window, so it is centred by hand. Clicks
-pass through via `set_cursor_hittest`.
-
-It uses winit and uploads pixels directly over X11 rather than using eframe,
-because eframe offers no way to ask for an override-redirect window and because
-blitting one decoded image per key hold does not need a GPU context. The direct
-upload also provides the defined 32-bit ARGB format the transparent visual
-requires; softbuffer's public pixel format has no alpha channel.
-
-On Linux, hiding is unmapping: the overlay attaches a null buffer, which per the
-protocol returns the layer surface to the state it had when it was created.
-Showing a layer therefore re-sends the layer state, commits without a buffer,
-and attaches the image when the configure that follows arrives. Switching
-between visible layers of the same size instead replaces the buffer in one
-commit, avoiding an unmap/configure round trip and a stale frame. The surface
-is unmapped between key holds, so a hidden Linux overlay is not a window at all.
-macOS and Windows instead keep a transparent, click-through window mapped to
-avoid platform show behaviour that is inappropriate for the overlay.
+The bridge is one deliberately narrow exception to the workspace's
+`unsafe_code = forbid` policy. CXX generates the unavoidable Rust/C++ FFI in
+`keymap-overlay-qt-bridge`; the crate exposes one safe function, while the HID
+protocol, transition state, socket ownership, and application lifecycle remain
+in the forbid-unsafe Rust crates. Qt is linked into the same executable rather
+than run as a helper process.
 
 The model uses platform-independent point geometry. On macOS those values are
-AppKit points; on Linux and Windows the generated image is presented at its own
-pixel size. `PIXELS_PER_UNIT` controls the size of one QMK layout unit. Windows
-reports a scale factor that egui would otherwise apply on top, so that backend
-pins `pixels_per_point` to 1.
+AppKit points and on Linux they are Qt logical pixels. Windows presents the
+generated image at its own pixel size. `PIXELS_PER_UNIT` controls the size of
+one QMK layout unit. Windows reports a scale factor that egui would otherwise
+apply on top, so that backend pins `pixels_per_point` to 1.
 
 ### Requirements on Linux
 
-- For the layer-shell window, a compositor that implements
-  `zwlr_layer_shell_v1`: COSMIC, sway, Hyprland, wayfire and KDE Plasma do.
-  Otherwise the X11 window is used, which needs XWayland in a Wayland session.
+- KDE Plasma on Wayland, Qt 6 Quick, and the KDE LayerShellQt QML module. GNOME,
+  X11, and compositors without that QML integration are not currently
+  supported.
 - Read access to the keyboard's `hidraw` node, which `make install-udev-rules`
   grants with a `uaccess` rule per keyboard. hidapi is built against hidraw
   rather than its default libusb backend: libusb would detach the kernel driver
@@ -200,7 +183,7 @@ source-build workflow:
 `make install-overlay` performs the following steps:
 
 1. On macOS and Linux, uses the `install-assets` target to generate and
-   install all layer assets (JSON on macOS, PNG on Linux). On Windows, verifies
+   install all layer assets as JSON. On Windows, verifies
    that WSL has already generated PNGs under
    `%USERPROFILE%/.config/keymap-overlay/`.
 2. Builds a release binary and installs it as
@@ -275,12 +258,12 @@ The Python generator converts QMK's keymap and keyboard JSON into one small,
 versioned display model per layer. The model contains only canvas geometry,
 labels, held-state flags, and encoder actions; it contains no toolkit-specific
 objects and does not pass through keymap-drawer, YAML, SVG, or another schema.
-macOS installs this model as JSON and renders it with AppKit. Linux and Windows
-use the same in-memory model as input to the first-party Pillow compatibility
-renderer, which supersamples and downsamples a transparent RGBA PNG for smooth
-edges. Keys use quiet, nearly opaque fills and a low-contrast hairline so they
-stay distinct over bright and dark backgrounds; the held layer key alone
-receives its pale tint. Display-only Unicode labels come from single-character
+macOS and Linux install this model as JSON and render it with AppKit or Qt
+Quick. Windows uses the same in-memory model as input to the first-party Pillow
+compatibility renderer, which supersamples and downsamples a transparent RGBA
+PNG for smooth edges. Keys use quiet, nearly opaque fills and a low-contrast
+hairline so they stay distinct over bright and dark backgrounds; the held layer
+key alone receives its pale tint. Display-only Unicode labels come from single-character
 comments on `custom_keycodes` entries or an explicit `keymap-overlay-labels`
 comment block in `keymap.c`. Platform blocks suffixed with `-macos`, `-linux`,
 or `-windows` override common labels; `OVERLAY_PLATFORM` selects the target and
@@ -291,36 +274,30 @@ layout coordinates. Matrix placement replaces the normal key drawing with one
 circular knob, places counter-clockwise and clockwise actions above it, and
 keeps its push action centred inside.
 
-The macOS runtime parses every installed JSON model and builds its native view
-tree at startup. Linux and Windows decode and cache every installed PNG at
-startup. Layer events therefore only select an in-memory view or image; they
-never leave the previous layer visible while disk I/O or decoding completes.
+The macOS and Linux runtimes parse every installed JSON model and build or cache
+their native representation at startup. Windows decodes and caches every
+installed PNG. Layer events therefore only select an in-memory view or image;
+they never leave the previous layer visible while disk I/O or decoding
+completes.
 
 Events already waiting when a UI loop wakes are reduced to their final active
 layer before the window changes. Intermediate restores and switches are not
 drawn on the way to a newer layer or a hide, and the macOS window swaps to an
 empty content view while hiding so a later map cannot expose stale content.
 
-### Four Windows Rather Than One Toolkit
+### Native Windows Rather Than One Toolkit
 
-eframe runs on Linux too, so the overlay could have had a single window
-implementation. It would not have worked. On Wayland an application window
-cannot raise itself above others or ignore the pointer, which is the entire
-behaviour of this overlay, and only layer-shell offers both. On X11 eframe
-cannot ask for an override-redirect window, so what it produces is a managed
-window: measured taking focus every time it appeared, and never receiving the
-always-on-top state it asked for.
-
-So each system gets the window it can actually support. AppKit covers macOS,
-eframe covers Windows, and keeping eframe off Linux also keeps egui, glutin and
-accesskit out of that dependency tree.
+Each system gets the window integration it can actually support. AppKit covers
+macOS, Qt Quick plus KDE LayerShellQt covers Linux, and eframe covers Windows.
+On Wayland a normal application window cannot raise itself above others or
+reject input, which is the entire behaviour of this overlay; LayerShellQt is
+therefore a semantic requirement rather than a styling choice.
 
 Windows and macOS use different native-window implementations because macOS
 can compose Liquid Glass and native controls directly while Windows needs the mapped,
 non-activating behaviour described above.
 
-The cost is four windows to maintain, each exercised only by the CI job for its
-own system, and only one of the four — the layer surface — with real guarantees
-behind it. What CI can prove is that each compiles and that the shared logic
-passes; that a window stays on top, passes clicks through and never takes focus
-has always needed a real machine.
+The cost is three windows to maintain, each exercised only by the CI job for
+its own system. What CI can prove is that each compiles and that the shared
+logic passes; that a window stays on top, passes clicks through and never takes
+focus still needs a real machine.

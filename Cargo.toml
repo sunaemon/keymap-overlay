@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/keymap-core", "crates/keymap-overlay"]
+exclude = ["crates/keymap-overlay-qt-bridge"]
 resolver = "2"
 
 [workspace.package]

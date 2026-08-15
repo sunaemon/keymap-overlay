@@ -9,14 +9,14 @@ mod ui;
 
 use anyhow::{Context, Result};
 use hidapi::{HidApi, HidDevice};
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 use image::RgbaImage;
 use keymap_core::{
     ActiveLayerChange, RawLayerEvent, carries_report_magic, parse_raw_layer_event, transition_for,
     transition_for_disconnect,
 };
 use log::{error, info, warn};
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -57,12 +57,10 @@ fn run() -> Result<()> {
 ///
 /// The listener runs on its own thread while the platform backend owns the main
 /// one, so delivering an event also has to wake whatever loop that backend
-/// runs. Each does it differently — `request_repaint` on macOS, a calloop
-/// channel for the Wayland window, an event-loop proxy for the X11 one — and
-/// this is the seam between them.
+/// runs. Each does it differently — an AppKit channel, a Qt socket notifier,
+/// or egui's `request_repaint` — and this is the seam between them.
 ///
-/// Cloneable because each device gets its own reader thread, the same way the
-/// channel sender used to be cloned.
+/// Cloneable because each device gets its own reader thread.
 pub(crate) trait LayerEventSink: Clone + Send {
     /// Returns whether the receiving end is still there; a reader stops once
     /// it is not.
@@ -110,10 +108,8 @@ pub(crate) enum Transition {
 /// screen. Intermediate restores and switches are not drawn on the way to a
 /// newer layer or a hide.
 ///
-/// It accumulates rather than folding an iterator because that is the shape both
-/// kinds of backend can use. The eframe windows drain an mpsc channel when their
-/// callback runs; the Wayland and X11 windows are handed one event at a time by
-/// calloop and by the winit event-loop proxy, with nothing to drain.
+/// It accumulates rather than folding an iterator because every backend can
+/// receive several HID events before its UI callback runs.
 #[derive(Default)]
 pub(crate) struct PendingTransition {
     held_keys: Vec<(u8, u8)>,
@@ -154,14 +150,13 @@ pub(crate) fn transition_for_event(
     }
 }
 
-#[cfg(any(not(target_os = "macos"), test))]
+#[cfg(any(target_os = "windows", test))]
 pub(crate) fn image_path(assets_dir: &Path, keyboard_id: u8, layer: u8) -> PathBuf {
     assets_dir.join(format!("{keyboard_id}_L{layer}.png"))
 }
 
-/// Decodes a layer image as RGBA8 with unassociated alpha, which is what egui
-/// takes directly and what the two Linux windows premultiply before blitting.
-#[cfg(not(target_os = "macos"))]
+/// Decodes a Windows layer image as RGBA8 for egui.
+#[cfg(target_os = "windows")]
 pub(crate) fn load_image(path: &Path) -> Result<RgbaImage> {
     let image = image::open(path)
         .with_context(|| format!("Failed to open {}", path.display()))?
@@ -169,11 +164,11 @@ pub(crate) fn load_image(path: &Path) -> Result<RgbaImage> {
     Ok(image)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 pub(crate) type ImageCache = HashMap<(u8, u8), Arc<RgbaImage>>;
 
 /// Loads every installed layer image before the listener can show one.
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 pub(crate) fn load_image_cache(assets_dir: &Path) -> Result<ImageCache> {
     let mut images = HashMap::new();
     for entry in fs::read_dir(assets_dir)
@@ -198,7 +193,7 @@ pub(crate) fn load_image_cache(assets_dir: &Path) -> Result<ImageCache> {
     Ok(images)
 }
 
-#[cfg(any(not(target_os = "macos"), test))]
+#[cfg(any(target_os = "windows", test))]
 fn image_key(path: &Path) -> Option<(u8, u8)> {
     if !path
         .extension()
@@ -208,13 +203,6 @@ fn image_key(path: &Path) -> Option<(u8, u8)> {
     }
     let (keyboard_id, layer) = path.file_stem()?.to_str()?.split_once("_L")?;
     Some((keyboard_id.parse().ok()?, layer.parse().ok()?))
-}
-
-/// Scales a colour channel by its alpha, which is how both Wayland's
-/// ARGB8888 and X11's 32-bit visual expect the channels of a blended pixel.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-pub(crate) fn premultiply(value: u8, alpha: u8) -> u8 {
-    ((u16::from(value) * u16::from(alpha)) / 255) as u8
 }
 
 fn initialize_logging() -> Result<()> {

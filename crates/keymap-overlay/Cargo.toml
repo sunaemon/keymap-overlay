@@ -15,9 +15,8 @@ log = "0.4.33"
 env_logger = "0.11.11"
 
 # The window is the one part that cannot be shared: macOS gets native AppKit,
-# Windows gets eframe, and Linux gets a wlr-layer-shell surface with an X11
-# fallback for compositors that have no layer shell. eframe is left off the
-# macOS and Linux sides.
+# Windows gets eframe, and Linux links the audited CXX bridge to a native Qt
+# Quick / LayerShellQt window. eframe stays on the Windows side only.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
@@ -70,7 +69,7 @@ hidapi = { version = "2.6.6", default-features = false, features = [
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-image = { version = "=0.25.10", default-features = false, features = ["png"] }
+keymap-overlay-qt-bridge = { path = "../keymap-overlay-qt-bridge" }
 # Waking the listener when a keyboard arrives. hidapi exposes no hot-plug
 # callback, and libudev is already linked for its hidraw enumeration, so this
 # is a binding to a library the overlay loads either way.
@@ -79,29 +78,11 @@ udev = { version = "0.9", default-features = false }
 # forbids unsafe, which rules out calling poll(2) through libc, and polling's
 # safe wrapper still needs an unsafe `add`.
 rustix = { version = "1.1", features = ["event"] }
-# winit directly rather than through eframe, because the X11 overlay needs an
-# override-redirect window and eframe exposes no way to ask for one. x11 without
-# wayland is also what makes the fallback reachable: the feature decides which
-# backends winit compiles, so a winit without the Wayland one opens an X11
-# window even in a Wayland session, through XWayland.
-winit = { version = "0.30.13", default-features = false, features = [
-  "rwh_06",
-  "x11",
-] }
-# The X11 fallback uploads premultiplied ARGB pixels directly. softbuffer's
-# public pixel format has no alpha channel, so it cannot define the transparent
-# buffer this window needs.
-x11rb = { version = "0.14.0", default-features = false, features = ["image"] }
 # hidraw, not the default libusb backend: libusb detaches the kernel driver,
 # which would stop the keyboard from typing, and only hidraw reports the usage
 # page the Raw HID interface is selected by.
 hidapi = { version = "2.6.6", default-features = false, features = [
   "linux-static-hidraw",
-] }
-# The default xkbcommon feature is off: it links a C library to translate key
-# events, and this surface never takes input.
-smithay-client-toolkit = { version = "0.21.1", default-features = false, features = [
-  "calloop",
 ] }
 
 [dev-dependencies]
