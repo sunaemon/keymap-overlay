@@ -107,9 +107,12 @@ pure-Rust WinUI 3 frontend through Microsoft's unreleased `windows-reactor`
 crate. It calls the shared listener, reducer, model loader, and composer
 directly, so it has no C ABI bridge. `make build-winui-overlay` builds it on
 Windows; normal builds, installation, and releases intentionally continue to
-use WPF. WinUI 3 does not officially support transparent top-level windows, so
-the prototype currently uses a layered-window color key and must not replace
-WPF until transparency and repeated-show focus behavior pass physical testing.
+use WPF. Because WinUI 3 does not officially support transparent top-level
+windows, the prototype hosts its WinUI visual tree in a
+`DesktopWindowXamlSource` attached to a layered Win32 popup. Win32 owns only
+overlay window behavior; WinUI still owns controls, layout, typography, DPI,
+and theme resources. The prototype must not replace WPF until XAML Island
+transparency and repeated-show focus behavior pass physical testing.
 
 The transparent WPF window is mapped once and shrinks to one pixel while idle.
 Its HWND uses `WS_EX_NOACTIVATE`, `WS_EX_TOOLWINDOW`, and click-through styling,

@@ -10,35 +10,45 @@ use keymap_overlay::{
 };
 use std::sync::{Arc, Mutex};
 use windows_reactor::{
-    App, AsyncSetState, BackgroundExt, Canvas, CanvasChildExt, Color, Element, HorizontalAlignment,
-    KeyExt, LayoutExt, Shape, TextStyleExt, Thickness, VerticalAlignment, WindowSize, border,
-    text_block,
+    AsyncSetState, BackgroundExt, Canvas, CanvasChildExt, Color, Component, Element,
+    HorizontalAlignment, KeyExt, LayoutExt, RenderCx, Shape, TextStyleExt, Thickness,
+    VerticalAlignment, WindowSize, border, text_block, tokens,
 };
 
-const KEY_FILL: Color = Color {
+const TRANSPARENT: Color = Color {
+    a: 0,
+    r: 0,
+    g: 0,
+    b: 0,
+};
+const ENCODER_FILL: Color = Color {
     a: 0xF6,
     r: 0xDC,
     g: 0xE0,
     b: 0xE7,
 };
-const HELD_FILL: Color = Color {
+const HELD_ENCODER_FILL: Color = Color {
     a: 0xFF,
     r: 0xFF,
     g: 0xDD,
     b: 0xDD,
 };
-const KEY_BORDER: Color = Color {
+const ENCODER_STROKE: Color = Color {
     a: 0x1F,
     r: 0x20,
     g: 0x24,
     b: 0x2C,
 };
-const TEXT_FILL: Color = Color {
-    a: 0xFF,
-    r: 0x20,
-    g: 0x24,
-    b: 0x2C,
-};
+
+pub(super) struct OverlayComponent {
+    models: Arc<ModelCache>,
+}
+
+impl Component for OverlayComponent {
+    fn render(&self, _props: &(), context: &mut RenderCx) -> Element {
+        render(context, Arc::clone(&self.models))
+    }
+}
 
 #[derive(Clone)]
 struct WinUiSink {
@@ -68,11 +78,7 @@ pub(crate) fn run() -> Result<()> {
     initialize_logging()?;
     let models = Arc::new(load_model_cache(&assets_dir()?)?);
     windows_reactor::bootstrap().context("Failed to initialize the Windows App SDK runtime")?;
-    App::new()
-        .title("Keymap Overlay (WinUI prototype)")
-        .inner_size(1.0, 1.0)
-        .render(move |context| render(context, Arc::clone(&models)))
-        .context("The WinUI event loop failed")?;
+    native::run(OverlayComponent { models }).context("The WinUI event loop failed")?;
     Ok(())
 }
 
@@ -98,7 +104,7 @@ fn render(context: &mut windows_reactor::RenderCx, models: Arc<ModelCache>) -> E
             height: 1.0,
         });
     context.use_effect((transition, window_size), move || {
-        native::update_window(window_size);
+        native::request_window(window_size);
     });
 
     model.map_or_else(hidden_canvas, model_canvas)
@@ -116,7 +122,7 @@ fn hidden_canvas() -> Element {
     Canvas::new(Vec::<Element>::new())
         .width(1.0)
         .height(1.0)
-        .background(Color::rgb(0, 0, 0))
+        .background(TRANSPARENT)
         .into()
 }
 
@@ -136,8 +142,12 @@ fn model_canvas(model: OverlayModel) -> Element {
             border(label(key.label.join("\n"), model.key_font_size))
                 .width(f64::from(key.width))
                 .height(f64::from(key.height))
-                .background(if key.held { HELD_FILL } else { KEY_FILL })
-                .border_brush(KEY_BORDER)
+                .background(if key.held {
+                    tokens::SystemCritical
+                } else {
+                    tokens::CardBackground
+                })
+                .border_brush(tokens::CardStroke)
                 .border_thickness(Thickness::uniform(1.0))
                 .corner_radius(11.0)
                 .canvas_left(f64::from(key.x))
@@ -154,8 +164,12 @@ fn model_canvas(model: OverlayModel) -> Element {
             Shape::ellipse()
                 .width(size)
                 .height(size)
-                .fill(if encoder.held { HELD_FILL } else { KEY_FILL })
-                .stroke(KEY_BORDER)
+                .fill(if encoder.held {
+                    HELD_ENCODER_FILL
+                } else {
+                    ENCODER_FILL
+                })
+                .stroke(ENCODER_STROKE)
                 .stroke_thickness(1.0)
                 .canvas_left(x)
                 .canvas_top(y)
@@ -201,9 +215,7 @@ fn model_canvas(model: OverlayModel) -> Element {
     Canvas::new(children)
         .width(f64::from(model.width))
         .height(f64::from(model.height))
-        // WinUI cannot create a transparent top-level window. The native
-        // boundary color-keys this exact background as a prototype workaround.
-        .background(Color::rgb(0, 0, 0))
+        .background(TRANSPARENT)
         .into()
 }
 
@@ -211,7 +223,7 @@ fn label(text: impl Into<String>, font_size: f64) -> windows_reactor::TextBlock 
     text_block(text)
         .font_family("Segoe UI")
         .font_size(font_size)
-        .foreground(TEXT_FILL)
+        .foreground(tokens::PrimaryText)
         .wrap()
         .horizontal_alignment(HorizontalAlignment::Center)
         .vertical_alignment(VerticalAlignment::Center)
