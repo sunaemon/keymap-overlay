@@ -153,7 +153,8 @@ the active monitor's DPI scale when positioning the native window.
 
 - GNOME Shell 45 or newer on Wayland or X11 uses the included shell extension.
   KDE Plasma and other supported Wayland desktops use Qt 6 Quick and the KDE
-  LayerShellQt QML module. Qt also supplies the X11 fallback outside GNOME.
+  LayerShellQt QML module. Qt is the preferred KDE renderer on both Wayland
+  and X11, and also supports other non-GNOME desktops.
 - Read access to the keyboard's `hidraw` node, which `make install-udev-rules`
   grants with a `uaccess` rule per keyboard. hidapi is built against hidraw
   rather than its default libusb backend: libusb would detach the kernel driver

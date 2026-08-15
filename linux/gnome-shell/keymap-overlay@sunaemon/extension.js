@@ -110,6 +110,7 @@ export default class KeymapOverlayExtension extends Extension {
       style_class: 'popup-menu-content keymap-overlay',
       reactive: false,
       can_focus: false,
+      clip_to_allocation: true,
       visible: false,
     });
     overlay.set_size(model.width, model.height);
@@ -187,7 +188,9 @@ export default class KeymapOverlayExtension extends Extension {
         -encoder.size,
         -model.encoder_font_size * 2,
         encoder.size * 2,
-        model.encoder_font_size
+        model.encoder_font_size,
+        model.encoder_font_size * 2,
+        true
       )
     );
     group.add_child(
@@ -196,29 +199,49 @@ export default class KeymapOverlayExtension extends Extension {
         encoder.size,
         -model.encoder_font_size * 2,
         encoder.size * 2,
-        model.encoder_font_size
+        model.encoder_font_size,
+        model.encoder_font_size * 2,
+        true
       )
     );
     return group;
   }
 
-  _label(text, x, y, width, fontSize, height = fontSize * 2) {
+  _label(
+    text,
+    x,
+    y,
+    width,
+    fontSize,
+    height = fontSize * 2,
+    singleLine = false
+  ) {
     const label = new St.Label({
       text,
       style_class: 'keymap-overlay-label',
       style: `font-size: ${fontSize}px;`,
-      x_align: Clutter.ActorAlign.CENTER,
+      x_align: Clutter.ActorAlign.FILL,
       y_align: Clutter.ActorAlign.CENTER,
     });
-    label.set_position(x, y);
-    label.set_size(Math.max(1, width), Math.max(1, height));
-    label.clutter_text.set_line_wrap(true);
+    label.clutter_text.set_line_wrap(!singleLine);
     label.clutter_text.set_line_alignment(Pango.Alignment.CENTER);
-    return label;
+    label.clutter_text.set_ellipsize(
+      singleLine ? Pango.EllipsizeMode.END : Pango.EllipsizeMode.NONE
+    );
+
+    const container = new St.Bin({
+      child: label,
+      reactive: false,
+      can_focus: false,
+      clip_to_allocation: true,
+    });
+    container.set_position(x, y);
+    container.set_size(Math.max(1, width), Math.max(1, height));
+    return container;
   }
 
   _hide() {
-    this._overlay?.hide();
+    this._destroyOverlay();
   }
 
   _destroyOverlay() {

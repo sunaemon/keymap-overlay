@@ -61,10 +61,11 @@ must be an integer from 0 through 255.
 Linux runs one Rust HID daemon and publishes its final display state over the
 user's D-Bus session. GNOME 45+ renders that state through the included Shell
 extension on Wayland or X11, so the overlay follows GNOME's light/dark theme.
-Other desktops use the Qt renderer: LayerShellQt supplies Wayland overlay
-semantics, while Qt supplies the X11 fallback. Cinnamon does not load GNOME
-extensions, but it can use the Qt renderer today and a future Cinnamon Spice
-can reuse the same D-Bus protocol.
+KDE Plasma uses the Qt renderer as its preferred native integration:
+LayerShellQt supplies Wayland overlay semantics, and Qt also supports X11.
+Other non-GNOME desktops can use the same renderer. Cinnamon does not load
+GNOME extensions, but it can use the Qt renderer today and a future Cinnamon
+Spice can reuse the same D-Bus protocol.
 
 ## Enter the Keyboard Bootloader
 
@@ -173,7 +174,8 @@ installs the executable and license notices, registers the launchd agent or
 systemd user services, and starts them. If GitHub CLI (`gh`) is available and
 authenticated, it also verifies GitHub's artifact attestations; `gh` is
 optional.
-On Linux it also installs the GNOME extension and the Qt fallback renderer.
+On Linux it also installs the GNOME Shell and Qt renderers. GNOME selects its
+Shell extension, while KDE Plasma and other non-GNOME desktops select Qt.
 The installer prints every installed path when complete. Logs are written to
 `~/.local/var/log/keymap-overlay/overlay.log` and rotate at 1 MiB, retaining the
 current file and three previous files.
