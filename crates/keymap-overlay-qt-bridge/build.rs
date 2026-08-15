@@ -12,6 +12,7 @@ fn main() {
         .include(".")
         .includes(qt.include_paths)
         .flag_if_supported("-std=c++17")
+        .flag_if_supported("-Wsfinae-incomplete=0")
         .compile("keymap-overlay-qt");
 
     println!("cargo:rerun-if-changed=src/lib.rs");

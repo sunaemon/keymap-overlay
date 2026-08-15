@@ -15,8 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zbus::blocking::Connection;
 
 use crate::{
-    LayerEventSink, ListenerEvent, ModelCache, OverlayModel, PendingTransition, Transition,
-    compose_model, load_model_cache, spawn_raw_hid_listener,
+    LayerEventSink, ListenerEvent, ModelCache, PendingTransition, Transition, compose_model,
+    load_model_cache, spawn_raw_hid_listener,
 };
 
 #[derive(Clone)]
@@ -146,6 +146,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::OverlayModel;
     use std::collections::HashMap;
 
     fn model(layer: u8) -> OverlayModel {
