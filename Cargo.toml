@@ -4,9 +4,7 @@ members = [
   "crates/keymap-overlay",
   "crates/keymap-overlay-windows-bridge",
 ]
-exclude = [
-  "crates/keymap-overlay-qt-bridge",
-]
+exclude = ["crates/keymap-overlay-qt-bridge"]
 resolver = "2"
 
 [workspace.package]

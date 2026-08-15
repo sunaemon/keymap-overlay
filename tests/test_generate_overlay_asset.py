@@ -37,6 +37,7 @@ def _keyboard() -> dict:
 
 
 def test_builds_keys_and_an_encoder_into_the_shared_model(tmp_path: Path) -> None:
+    """Builds keys and an encoder into the shared display model."""
     keymap = _write(
         tmp_path / "keymap.json",
         {

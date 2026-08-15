@@ -87,7 +87,7 @@ function Assert-SupportedPlatform {
 }
 
 function Assert-LayerAssets {
-    if (-not (Get-ChildItem -LiteralPath $assetDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
+    if (-not (Get-ChildItem -LiteralPath $assetDirectory -Filter '*_L*.json' -File -ErrorAction SilentlyContinue)) {
         throw "No layer JSON models found in $assetDirectory. Generate assets from a source checkout before installing the binary."
     }
 }

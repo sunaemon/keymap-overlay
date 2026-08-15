@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace KeymapOverlay;
 
+/// <summary>Declares the native functions used to configure and position the overlay.</summary>
 internal static class NativeMethods
 {
     internal const int GwlExStyle = -20;
@@ -47,6 +48,18 @@ internal static class NativeMethods
     [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
+
+    [DllImport("shcore.dll")]
+    internal static extern int GetDpiForMonitor(
+        nint monitor,
+        MonitorDpiType dpiType,
+        out uint dpiX,
+        out uint dpiY);
+
+    internal enum MonitorDpiType
+    {
+        Effective = 0,
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct Point

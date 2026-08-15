@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace KeymapOverlay;
 
+/// <summary>Describes one platform-neutral keyboard layer display model.</summary>
 internal sealed class OverlayModel
 {
     [JsonPropertyName("version")]
@@ -32,6 +33,7 @@ internal sealed class OverlayModel
     public required List<DisplayEncoder> Encoders { get; init; }
 }
 
+/// <summary>Describes one rendered key in a layer display model.</summary>
 internal sealed class DisplayKey
 {
     [JsonPropertyName("x")]
@@ -53,6 +55,7 @@ internal sealed class DisplayKey
     public bool Held { get; init; }
 }
 
+/// <summary>Describes one rendered encoder in a layer display model.</summary>
 internal sealed class DisplayEncoder
 {
     [JsonPropertyName("x")]

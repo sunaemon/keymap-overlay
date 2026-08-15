@@ -10,6 +10,7 @@ using IOPath = System.IO.Path;
 
 namespace KeymapOverlay;
 
+/// <summary>Renders layer models in a non-activating native Windows overlay.</summary>
 internal sealed class OverlayWindow : Window
 {
     private const uint MonitorDefaultToNearest = 2;
@@ -54,7 +55,17 @@ internal sealed class OverlayWindow : Window
     private static Dictionary<(byte, byte), OverlayModel> LoadModels(string directory)
     {
         var result = new Dictionary<(byte, byte), OverlayModel>();
-        foreach (var path in Directory.EnumerateFiles(directory, "*_L*.json"))
+        string[] paths;
+        try
+        {
+            paths = Directory.EnumerateFiles(directory, "*_L*.json").ToArray();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return result;
+        }
+
+        foreach (var path in paths)
         {
             try
             {
@@ -68,7 +79,7 @@ internal sealed class OverlayWindow : Window
                     result[(keyboard, layer)] = model;
                 }
             }
-            catch (JsonException)
+            catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException)
             {
                 // A bad model is unavailable just like a missing one; other
                 // installed keyboards remain usable.
@@ -143,9 +154,26 @@ internal sealed class OverlayWindow : Window
             return;
         }
 
-        var dpi = VisualTreeHelper.GetDpi(this);
-        var pixelWidth = (int)Math.Round(width * dpi.DpiScaleX);
-        var pixelHeight = (int)Math.Round(height * dpi.DpiScaleY);
+        double dpiScaleX;
+        double dpiScaleY;
+        if (NativeMethods.GetDpiForMonitor(
+                monitor,
+                NativeMethods.MonitorDpiType.Effective,
+                out var dpiX,
+                out var dpiY) == 0)
+        {
+            dpiScaleX = dpiX / 96.0;
+            dpiScaleY = dpiY / 96.0;
+        }
+        else
+        {
+            var dpi = VisualTreeHelper.GetDpi(this);
+            dpiScaleX = dpi.DpiScaleX;
+            dpiScaleY = dpi.DpiScaleY;
+        }
+
+        var pixelWidth = (int)Math.Round(width * dpiScaleX);
+        var pixelHeight = (int)Math.Round(height * dpiScaleY);
         var x = info.Work.Left + (info.Work.Right - info.Work.Left - pixelWidth) / 2;
         var y = info.Work.Top + (info.Work.Bottom - info.Work.Top - pixelHeight) / 2;
         NativeMethods.SetWindowPos(

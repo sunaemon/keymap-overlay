@@ -286,9 +286,11 @@ Note: CLI `main` functions are part of the public API and should appear with oth
 
 ### Docstrings
 
-Use one-line triple-quoted docstrings for functions and classes, e.g.:
+Use one-line triple-quoted docstrings for Python functions and classes, e.g.:
 
 `"""Returns a logger instance with the given name."""`
+
+Use one-line `///` XML documentation comments for C# types and public APIs.
 
 ### Python
 

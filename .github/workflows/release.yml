@@ -79,10 +79,19 @@ jobs:
           case "$RUNNER_OS" in
             Windows)
               asset="keymap-overlay-windows-${arch}.zip"
+              sdk_version="$(dotnet --version)"
+              runtime_version="$(dotnet --list-runtimes | awk '$1 == "Microsoft.NETCore.App" { print $2; exit }')"
+              wpf_version="$(dotnet --list-runtimes | awk '$1 == "Microsoft.WindowsDesktop.App" { print $2; exit }')"
               cp target/wpf-publish/keymap-overlay.exe dist/package/
               cp LICENSE.md dist/package/LICENSE
               cp THIRD-PARTY-LICENSES.html dist/package/
-              (cd dist/package && 7z a "$dist/$asset" keymap-overlay.exe LICENSE example/LICENSE THIRD-PARTY-LICENSES.html)
+              cp "$DOTNET_ROOT/LICENSE.txt" dist/package/DOTNET-LIBRARY-LICENSE.txt
+              cp "$DOTNET_ROOT/ThirdPartyNotices.txt" "dist/package/dotnet-runtime-${runtime_version}-THIRD-PARTY-NOTICES.txt"
+              cp "$DOTNET_ROOT/sdk/${sdk_version}/Sdks/Microsoft.NET.Sdk.WindowsDesktop/THIRD-PARTY-NOTICES.TXT" \
+                "dist/package/dotnet-wpf-${wpf_version}-THIRD-PARTY-NOTICES.txt"
+              (cd dist/package && 7z a "$dist/$asset" \
+                keymap-overlay.exe LICENSE example/LICENSE THIRD-PARTY-LICENSES.html \
+                DOTNET-LIBRARY-LICENSE.txt dotnet-*-THIRD-PARTY-NOTICES.txt)
               ;;
             macOS)
               asset="keymap-overlay-macos-${arch}.tar.gz"

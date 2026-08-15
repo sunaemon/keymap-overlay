@@ -146,7 +146,8 @@ pub fn initialize_logging() -> Result<()> {
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .target(env_logger::Target::Pipe(Box::new(writer)))
-        .init();
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("Failed to initialize logger: {error}"))?;
     Ok(())
 }
 
@@ -294,6 +295,11 @@ fn receive_from_device(
         if !sink.send(ListenerEvent::Layer(event)) {
             return Ok(());
         }
+    }
+    if keyboard_id.is_some() {
+        // Another reader ended the session. Closing this device can lose its
+        // matching release report, so clear any layer it may still hold.
+        sink.send(ListenerEvent::Disconnected { keyboard_id });
     }
     Ok(())
 }

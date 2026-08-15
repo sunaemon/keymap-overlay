@@ -3,6 +3,7 @@ using System.Windows;
 
 namespace KeymapOverlay;
 
+/// <summary>Owns WPF startup and shutdown for the overlay.</summary>
 public partial class App : Application
 {
     protected override void OnStartup(StartupEventArgs e)
@@ -18,6 +19,18 @@ public partial class App : Application
         var window = new OverlayWindow(assetsDirectory);
         MainWindow = window;
         window.Show();
-        window.StartListener();
+        try
+        {
+            window.StartListener();
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(
+                error.Message,
+                "Keymap Overlay",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown(1);
+        }
     }
 }

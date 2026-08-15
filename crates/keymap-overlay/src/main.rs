@@ -6,4 +6,5 @@ fn main() -> anyhow::Result<()> {
 #[cfg(target_os = "windows")]
 fn main() {
     eprintln!("The Windows frontend is built from windows/KeymapOverlay.Wpf");
+    std::process::exit(1);
 }

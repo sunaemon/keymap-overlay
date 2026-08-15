@@ -4,21 +4,19 @@ use keymap_overlay::{
     LayerEventSink, ListenerEvent, PendingTransition, Transition, initialize_logging,
     spawn_raw_hid_listener,
 };
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, OnceLock};
 
+// Tag: bits 24-31; keyboard ID: bits 8-15; layer: bits 0-7.
 const TRANSITION_IGNORE: u32 = 0;
 const TRANSITION_HIDE: u32 = 1;
 const TRANSITION_SHOW: u32 = 2 << 24;
 
-static STATE: OnceLock<BridgeState> = OnceLock::new();
+static STATE: OnceLock<Arc<SharedState>> = OnceLock::new();
 
 #[derive(Clone)]
 struct BridgeSink {
     state: Arc<SharedState>,
-}
-
-struct BridgeState {
-    shared: Arc<SharedState>,
 }
 
 struct SharedState {
@@ -41,6 +39,10 @@ impl LayerEventSink for BridgeSink {
 /// Starts the HID listener. Returns zero, or a negative value on failure.
 #[unsafe(no_mangle)]
 pub extern "system" fn keymap_overlay_start(wake: extern "system" fn()) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| start(wake))).unwrap_or(-1)
+}
+
+fn start(wake: extern "system" fn()) -> i32 {
     if STATE.get().is_some() {
         return -2;
     }
@@ -52,12 +54,7 @@ pub extern "system" fn keymap_overlay_start(wake: extern "system" fn()) -> i32 {
         pending: Mutex::new(PendingTransition::default()),
         wake,
     });
-    if STATE
-        .set(BridgeState {
-            shared: Arc::clone(&shared),
-        })
-        .is_err()
-    {
+    if STATE.set(Arc::clone(&shared)).is_err() {
         return -2;
     }
     spawn_raw_hid_listener(BridgeSink { state: shared });
@@ -71,7 +68,6 @@ pub extern "system" fn keymap_overlay_take_transition() -> u32 {
         return TRANSITION_IGNORE;
     };
     match state
-        .shared
         .pending
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

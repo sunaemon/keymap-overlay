@@ -490,7 +490,8 @@ endif
 .PHONY: install-overlay
 ifeq ($(OS_FAMILY),windows)
 install-overlay: build-overlay
-	@if ! compgen -G "$(KEYMAP_OVERLAY_DIR)/*.json" >/dev/null; then \
+	@set -- "$(KEYMAP_OVERLAY_DIR)"/*_L*.json; \
+	if ! test -e "$$1"; then \
 		echo "ERROR: no layer JSON models found in $(KEYMAP_OVERLAY_DIR)."; \
 		echo "Generate them in WSL with the command in README's Setup on Windows section first."; \
 		exit 1; \

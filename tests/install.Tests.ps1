@@ -38,6 +38,18 @@ Describe 'install.ps1' {
         { Confirm-AttestationsIfAvailable -Paths @('release.zip', 'SHA256SUMS') } | Should -Not -Throw
     }
 
+    It 'rejects unrelated JSON files as layer assets' {
+        Set-Content -LiteralPath (Join-Path $assetDirectory 'keymap-overlay.runtimeconfig.json') -Value '{}'
+
+        { Assert-LayerAssets } | Should -Throw
+    }
+
+    It 'accepts a generated layer model as an asset' {
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.json') -Value '{}'
+
+        { Assert-LayerAssets } | Should -Not -Throw
+    }
+
     It 'extracts and validates a complete release archive' {
         $fixture = Join-Path $TestDrive 'fixture'
         $archive = Join-Path $TestDrive 'fixture.zip'
