@@ -22,10 +22,10 @@ const TRANSPARENT: Color = Color {
     b: 0,
 };
 const KEY_FILL: Color = Color {
-    a: 0xF6,
-    r: 0xDC,
-    g: 0xE0,
-    b: 0xE7,
+    a: 0xE0,
+    r: 0xF1,
+    g: 0xF4,
+    b: 0xF8,
 };
 const HELD_FILL: Color = Color {
     a: 0xFF,
@@ -34,10 +34,22 @@ const HELD_FILL: Color = Color {
     b: 0xDD,
 };
 const ENCODER_STROKE: Color = Color {
-    a: 0x1F,
+    a: 0x60,
     r: 0x20,
     g: 0x24,
     b: 0x2C,
+};
+const OVERLAY_FILL: Color = Color {
+    a: 0xE8,
+    r: 0xD8,
+    g: 0xE0,
+    b: 0xEA,
+};
+const OVERLAY_STROKE: Color = Color {
+    a: 0x70,
+    r: 0x60,
+    g: 0x67,
+    b: 0x73,
 };
 
 pub(super) struct OverlayComponent {
@@ -160,6 +172,10 @@ fn model_canvas(model: OverlayModel) -> Element {
         let size = f64::from(encoder.size);
         let x = f64::from(encoder.x);
         let y = f64::from(encoder.y);
+        let center_x = x + size / 2.0;
+        let label_width = size * 0.7;
+        let label_gap = 3.0;
+        let label_top = y - 30.0;
         children.push(
             Shape::ellipse()
                 .width(size)
@@ -173,28 +189,22 @@ fn model_canvas(model: OverlayModel) -> Element {
                 .into(),
         );
         children.push(
-            label(
-                format!("↶ {}", encoder.counter_clockwise.join(" ")),
-                model.encoder_font_size,
-            )
-            .width(size * 1.5)
-            .height(24.0)
-            .canvas_left(x - size)
-            .canvas_top(y - 26.0)
-            .with_key(format!("encoder-{index}-ccw"))
-            .into(),
+            label(encoder.counter_clockwise.join(" "), model.encoder_font_size)
+                .width(label_width)
+                .height(26.0)
+                .canvas_left(center_x - label_width - label_gap / 2.0)
+                .canvas_top(label_top)
+                .with_key(format!("encoder-{index}-ccw"))
+                .into(),
         );
         children.push(
-            label(
-                format!("{} ↷", encoder.clockwise.join(" ")),
-                model.encoder_font_size,
-            )
-            .width(size * 1.5)
-            .height(24.0)
-            .canvas_left(x + size / 2.0)
-            .canvas_top(y - 26.0)
-            .with_key(format!("encoder-{index}-cw"))
-            .into(),
+            label(encoder.clockwise.join(" "), model.encoder_font_size)
+                .width(label_width)
+                .height(26.0)
+                .canvas_left(center_x + label_gap / 2.0)
+                .canvas_top(label_top)
+                .with_key(format!("encoder-{index}-cw"))
+                .into(),
         );
         if !encoder.press.is_empty() {
             children.push(
@@ -216,8 +226,8 @@ fn model_canvas(model: OverlayModel) -> Element {
     )
     .width(f64::from(model.width))
     .height(f64::from(model.height))
-    .background(tokens::LayerFill)
-    .border_brush(tokens::SurfaceStroke)
+    .background(OVERLAY_FILL)
+    .border_brush(OVERLAY_STROKE)
     .border_thickness(Thickness::uniform(1.0))
     .corner_radius(16.0)
     .into()

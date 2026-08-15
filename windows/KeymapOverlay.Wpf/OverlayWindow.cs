@@ -18,9 +18,11 @@ internal sealed class OverlayWindow : Window
     private const uint TransitionShow = 2 << 24;
     private const int DeviceNodesChanged = 0x0007;
     private const int WindowMessageDeviceChange = 0x0219;
-    private static readonly Brush KeyFill = Brush("#F6DCE0E7");
+    private static readonly Brush KeyFill = Brush("#E0F1F4F8");
     private static readonly Brush HeldFill = Brush("#FFFFDDDD");
-    private static readonly Brush KeyBorder = Brush("#1F20242C");
+    private static readonly Brush KeyBorder = Brush("#6020242C");
+    private static readonly Brush OverlayFill = Brush("#E8D8E0EA");
+    private static readonly Brush OverlayBorder = Brush("#70606773");
     private static readonly Brush TextFill = Brush("#FF20242C");
 
     private readonly Dictionary<(byte Keyboard, byte Layer), OverlayModel> models;
@@ -317,7 +319,7 @@ internal sealed class OverlayWindow : Window
             NativeMethods.SwpNoActivate);
     }
 
-    private static Canvas BuildCanvas(OverlayModel model)
+    private static Border BuildCanvas(OverlayModel model)
     {
         var canvas = new Canvas { Width = model.Width, Height = model.Height, Background = Brushes.Transparent };
         AddText(canvas, $"L{model.Layer}", 20, 14, model.Width - 40, 30, model.HeaderFontSize, TextAlignment.Left);
@@ -341,7 +343,16 @@ internal sealed class OverlayWindow : Window
         {
             AddEncoder(canvas, encoder, model.EncoderFontSize);
         }
-        return canvas;
+        return new Border
+        {
+            Width = model.Width,
+            Height = model.Height,
+            CornerRadius = new CornerRadius(16),
+            Background = OverlayFill,
+            BorderBrush = OverlayBorder,
+            BorderThickness = new Thickness(1),
+            Child = canvas,
+        };
     }
 
     private static void AddEncoder(Canvas canvas, DisplayEncoder encoder, double fontSize)
@@ -357,19 +368,26 @@ internal sealed class OverlayWindow : Window
         Canvas.SetLeft(knob, encoder.X);
         Canvas.SetTop(knob, encoder.Y);
         canvas.Children.Add(knob);
-        AddText(canvas, $"↶ {string.Join(' ', encoder.CounterClockwise)}", encoder.X - encoder.Size, encoder.Y - 26, encoder.Size * 1.5, 24, fontSize, TextAlignment.Right);
-        AddText(canvas, $"{string.Join(' ', encoder.Clockwise)} ↷", encoder.X + encoder.Size / 2, encoder.Y - 26, encoder.Size * 1.5, 24, fontSize, TextAlignment.Left);
+        var centerX = encoder.X + encoder.Size / 2;
+        var labelWidth = encoder.Size * 0.7;
+        const double labelGap = 3;
+        var labelTop = encoder.Y - 30;
+        AddText(canvas, string.Join(' ', encoder.CounterClockwise), centerX - labelWidth - labelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
+        AddText(canvas, string.Join(' ', encoder.Clockwise), centerX + labelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
         AddText(canvas, string.IsNullOrEmpty(encoder.Press) ? "" : $"P {encoder.Press}", encoder.X, encoder.Y, encoder.Size, encoder.Size, fontSize, TextAlignment.Center);
     }
 
     private static void AddText(Canvas canvas, string text, double x, double y, double width, double height, double fontSize, TextAlignment alignment)
     {
-        var label = Label(text, fontSize, alignment);
-        label.Width = width;
-        label.Height = height;
-        Canvas.SetLeft(label, x);
-        Canvas.SetTop(label, y);
-        canvas.Children.Add(label);
+        var container = new Grid
+        {
+            Width = width,
+            Height = height,
+        };
+        container.Children.Add(Label(text, fontSize, alignment));
+        Canvas.SetLeft(container, x);
+        Canvas.SetTop(container, y);
+        canvas.Children.Add(container);
     }
 
     private static TextBlock Label(string text, double fontSize, TextAlignment alignment) => new()
