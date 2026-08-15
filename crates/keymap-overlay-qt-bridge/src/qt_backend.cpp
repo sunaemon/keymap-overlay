@@ -29,6 +29,7 @@
 namespace {
 
 constexpr std::uint8_t Hide = 2;
+constexpr std::uint8_t RelayFailed = 3;
 constexpr std::size_t MaxPacketSize = 1024 * 1024;
 
 constexpr auto overlay_qml = R"QML(
@@ -39,7 +40,7 @@ import org.kde.layershell 1.0 as LayerShell
 Window {
     id: root
     property var overlayModel: ({ keys: [], encoders: [] })
-    SystemPalette { id: palette; colorGroup: SystemPalette.Active }
+    SystemPalette { id: systemPalette; colorGroup: SystemPalette.Active }
 
     visible: false
     color: "transparent"
@@ -58,16 +59,16 @@ Window {
     Rectangle {
         anchors.fill: parent
         radius: 22
-        color: Qt.rgba(palette.window.r, palette.window.g, palette.window.b, 0.90)
+        color: Qt.rgba(systemPalette.window.r, systemPalette.window.g, systemPalette.window.b, 0.90)
         border.width: 1
-        border.color: palette.mid
+        border.color: systemPalette.mid
     }
 
     Text {
         x: 20
         y: 20
         text: "L" + (root.overlayModel.layer ?? "")
-        color: palette.windowText
+        color: systemPalette.windowText
         font.pixelSize: root.overlayModel.header_font_size || 14
     }
 
@@ -80,15 +81,15 @@ Window {
             width: modelData.width
             height: modelData.height
             radius: 11
-            color: modelData.held ? palette.highlight : palette.button
+            color: modelData.held ? systemPalette.highlight : systemPalette.button
             border.width: 1
-            border.color: palette.mid
+            border.color: systemPalette.mid
 
             Text {
                 anchors.centerIn: parent
                 width: parent.width - 8
                 text: modelData.label.join("\n")
-                color: modelData.held ? palette.highlightedText : palette.buttonText
+                color: modelData.held ? systemPalette.highlightedText : systemPalette.buttonText
                 font.pixelSize: root.overlayModel.key_font_size || 10
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -109,15 +110,15 @@ Window {
             Rectangle {
                 anchors.fill: parent
                 radius: width / 2
-                color: modelData.held ? palette.highlight : palette.button
+                color: modelData.held ? systemPalette.highlight : systemPalette.button
                 border.width: 1
-                border.color: palette.mid
+                border.color: systemPalette.mid
             }
 
             Text {
                 anchors.centerIn: parent
                 text: modelData.press ? "P " + modelData.press : ""
-                color: modelData.held ? palette.highlightedText : palette.buttonText
+                color: modelData.held ? systemPalette.highlightedText : systemPalette.buttonText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
             }
 
@@ -127,7 +128,7 @@ Window {
                 anchors.bottom: parent.top
                 text: modelData.counter_clockwise.length
                       ? "← " + modelData.counter_clockwise.join(" ") : ""
-                color: palette.windowText
+                color: systemPalette.windowText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
                 horizontalAlignment: Text.AlignRight
             }
@@ -138,7 +139,7 @@ Window {
                 anchors.bottom: parent.top
                 text: modelData.clockwise.length
                       ? modelData.clockwise.join(" ") + " →" : ""
-                color: palette.windowText
+                color: systemPalette.windowText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
             }
         }
@@ -174,6 +175,10 @@ void apply_packet(QQuickWindow &window, const QByteArray &packet) {
   if (packet.size() == 1 && static_cast<std::uint8_t>(packet.front()) == Hide) {
     window.hide();
     return;
+  }
+  if (packet.size() == 1 &&
+      static_cast<std::uint8_t>(packet.front()) == RelayFailed) {
+    throw std::runtime_error("The renderer state relay stopped");
   }
   QJsonParseError parse_error;
   const auto document = QJsonDocument::fromJson(packet, &parse_error);
@@ -227,10 +232,6 @@ void drain_packets(OwnedFileDescriptor &descriptor, QQuickWindow &window) {
     }
     if (count == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
       break;
-    }
-    if (count == 0) {
-      QGuiApplication::quit();
-      return;
     }
     if (count < 0) {
       throw std::system_error(errno, std::generic_category(),

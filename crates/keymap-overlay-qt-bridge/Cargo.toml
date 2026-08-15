@@ -15,7 +15,7 @@ unsafe_code = "allow"
 anyhow = "1.0"
 cxx = "1.0"
 keymap-overlay-linux-protocol = { path = "../keymap-overlay-linux-protocol" }
-zbus = "5.18.0"
+zbus.workspace = true
 
 [[bin]]
 name = "keymap-overlay-qt"

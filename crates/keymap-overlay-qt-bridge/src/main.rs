@@ -11,6 +11,7 @@ mod linux {
     use zbus::blocking::Connection;
 
     const HIDE: u8 = 2;
+    const RELAY_FAILED: u8 = 3;
 
     pub(super) fn run() -> Result<()> {
         if is_gnome_desktop() && env::var_os("KEYMAP_OVERLAY_FORCE_QT").is_none() {
@@ -22,6 +23,7 @@ mod linux {
         thread::spawn(move || {
             if let Err(error) = relay_renderer_state(&writer) {
                 eprintln!("Qt renderer stopped: {error:#}");
+                let _ = writer.send(&[RELAY_FAILED]);
             }
         });
         keymap_overlay_qt_bridge::run_qt_overlay(reader.into_raw_fd())
@@ -99,6 +101,11 @@ mod linux {
             send_state(&writer, &(2, false, String::new())).expect("hide state");
             let count = reader.recv(&mut packet).expect("hide packet");
             assert_eq!(&packet[..count], &[HIDE]);
+        }
+
+        #[test]
+        fn relay_failure_packet_is_distinct_from_state_packets() {
+            assert_ne!(RELAY_FAILED, HIDE);
         }
     }
 }

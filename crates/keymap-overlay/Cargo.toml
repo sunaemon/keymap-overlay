@@ -70,7 +70,7 @@ hidapi = { version = "2.6.6", default-features = false, features = [
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keymap-overlay-linux-protocol = { path = "../keymap-overlay-linux-protocol" }
-zbus = "5.18.0"
+zbus.workspace = true
 # Waking the listener when a keyboard arrives. hidapi exposes no hot-plug
 # callback, and libudev is already linked for its hidraw enumeration, so this
 # is a binding to a library the overlay loads either way.

@@ -104,7 +104,13 @@ export default class KeymapOverlayExtension extends Extension {
     let model;
     try {
       model = JSON.parse(modelJson);
-      if (model.version !== 2 || model.width <= 0 || model.height <= 0)
+      if (
+        model.version !== 2 ||
+        model.width <= 0 ||
+        model.height <= 0 ||
+        !Array.isArray(model.keys) ||
+        !Array.isArray(model.encoders)
+      )
         throw new Error('invalid model header');
     } catch (error) {
       console.error(`Keymap Overlay: cannot decode model: ${error.message}`);

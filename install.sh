@@ -413,9 +413,15 @@ WantedBy=graphical-session.target
 EOF
   mv "${QT_SERVICE_PATH}.tmp" "$QT_SERVICE_PATH" || return
   systemctl --user daemon-reload &&
-    systemctl --user enable keymap-overlay.service keymap-overlay-qt.service &&
-    systemctl --user restart keymap-overlay.service &&
-    systemctl --user restart keymap-overlay-qt.service || return
+    systemctl --user enable keymap-overlay.service &&
+    systemctl --user restart keymap-overlay.service || return
+  if [ -n "${KEYMAP_OVERLAY_FORCE_QT:-}" ] ||
+    ! printf '%s' "${XDG_CURRENT_DESKTOP:-}" | grep -Eqi '(^|:)gnome(:|$)'; then
+    systemctl --user enable keymap-overlay-qt.service &&
+      systemctl --user restart keymap-overlay-qt.service || return
+  else
+    systemctl --user disable --now keymap-overlay-qt.service || return
+  fi
   if command -v gnome-extensions >/dev/null 2>&1 &&
     printf '%s' "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome; then
     gnome-extensions enable "$GNOME_EXTENSION_UUID" ||

@@ -13,6 +13,9 @@ version = "0.0.3"
 license = "MIT"
 repository = "https://github.com/sunaemon/keymap-overlay"
 
+[workspace.dependencies]
+zbus = "5.18.0"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

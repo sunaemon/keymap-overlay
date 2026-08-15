@@ -9,4 +9,4 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-zbus = "5.18.0"
+zbus.workspace = true

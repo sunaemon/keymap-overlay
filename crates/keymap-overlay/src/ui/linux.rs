@@ -35,6 +35,12 @@ struct RendererState {
     model_json: String,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct UpdateOutcome {
+    changed: bool,
+    missing_model: bool,
+}
+
 impl RendererState {
     fn for_process() -> Result<Self> {
         let generation = SystemTime::now()
@@ -49,34 +55,54 @@ impl RendererState {
         })
     }
 
-    fn update(&mut self, transition: &Transition, models: &ModelCache) -> Result<bool> {
+    fn update(&mut self, transition: &Transition, models: &ModelCache) -> Result<UpdateOutcome> {
         match transition {
             Transition::Show {
                 keyboard_id,
                 layers,
             } => {
                 let Some(model) = compose_model(models, *keyboard_id, layers) else {
-                    self.hide();
-                    return Ok(true);
+                    return Ok(UpdateOutcome {
+                        changed: self.hide(),
+                        missing_model: true,
+                    });
                 };
-                self.generation = self.generation.wrapping_add(1);
-                self.visible = true;
-                self.model_json = serde_json::to_string(&model)
+                let model_json = serde_json::to_string(&model)
                     .context("Failed to serialize an overlay model")?;
-                Ok(true)
+                Ok(UpdateOutcome {
+                    changed: self.replace_content(true, model_json),
+                    missing_model: false,
+                })
             }
-            Transition::Hide => {
-                self.hide();
-                Ok(true)
-            }
-            Transition::Ignore => Ok(false),
+            Transition::Hide => Ok(UpdateOutcome {
+                changed: self.hide(),
+                missing_model: false,
+            }),
+            Transition::Ignore => Ok(UpdateOutcome {
+                changed: false,
+                missing_model: false,
+            }),
         }
     }
 
-    fn hide(&mut self) {
-        self.generation = self.generation.wrapping_add(1);
-        self.visible = false;
-        self.model_json.clear();
+    fn replace_content(&mut self, visible: bool, model_json: String) -> bool {
+        let next = Self {
+            generation: self.generation,
+            visible,
+            model_json,
+        };
+        if *self == next {
+            return false;
+        }
+        *self = Self {
+            generation: self.generation.wrapping_add(1),
+            ..next
+        };
+        true
+    }
+
+    fn hide(&mut self) -> bool {
+        self.replace_content(false, String::new())
     }
 
     fn tuple(&self) -> (u64, bool, String) {
@@ -107,16 +133,8 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     for event in receiver {
         pending.push(event);
         let transition = pending.take();
-        let missing_model = match &transition {
-            Transition::Show {
-                keyboard_id,
-                layers,
-            } => compose_model(&models, *keyboard_id, layers).is_none(),
-            Transition::Hide | Transition::Ignore => false,
-        };
-        let changed = state.update(&transition, &models)?;
-        let snapshot = state.tuple();
-        if missing_model
+        let outcome = state.update(&transition, &models)?;
+        if outcome.missing_model
             && let Transition::Show {
                 keyboard_id,
                 layers,
@@ -126,9 +144,10 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
                 "Overlay model composition is unavailable for keyboard {keyboard_id}, layers {layers:?}"
             );
         }
-        if !changed {
+        if !outcome.changed {
             continue;
         }
+        let snapshot = state.tuple();
         state_store.set(snapshot.clone());
         connection
             .emit_signal(
@@ -168,16 +187,21 @@ mod tests {
         let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
         let mut state = RendererState::default();
 
-        assert!(
-            state
-                .update(
-                    &Transition::Show {
-                        keyboard_id: 2,
-                        layers: vec![3],
-                    },
-                    &models,
-                )
-                .expect("show model")
+        let show = state
+            .update(
+                &Transition::Show {
+                    keyboard_id: 2,
+                    layers: vec![3],
+                },
+                &models,
+            )
+            .expect("show model");
+        assert_eq!(
+            show,
+            UpdateOutcome {
+                changed: true,
+                missing_model: false,
+            }
         );
         assert!(state.visible);
         assert_eq!(
@@ -189,6 +213,7 @@ mod tests {
             state
                 .update(&Transition::Hide, &models)
                 .expect("hide model")
+                .changed
         );
         assert!(!state.visible);
         assert!(state.model_json.is_empty());
@@ -196,21 +221,83 @@ mod tests {
     }
 
     #[test]
-    fn missing_models_publish_a_hidden_state() {
+    fn unchanged_states_are_not_published() {
+        let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
         let mut state = RendererState::default();
+        let show = Transition::Show {
+            keyboard_id: 2,
+            layers: vec![3],
+        };
 
+        assert!(state.update(&show, &models).expect("first show").changed);
+        let generation = state.generation;
+        assert!(!state.update(&show, &models).expect("repeated show").changed);
+        assert_eq!(state.generation, generation);
         assert!(
             state
-                .update(
-                    &Transition::Show {
-                        keyboard_id: 1,
-                        layers: vec![9],
-                    },
-                    &HashMap::new(),
-                )
-                .expect("missing model")
+                .update(&Transition::Hide, &models)
+                .expect("first hide")
+                .changed
+        );
+        let generation = state.generation;
+        assert!(
+            !state
+                .update(&Transition::Hide, &models)
+                .expect("repeated hide")
+                .changed
+        );
+        assert_eq!(state.generation, generation);
+    }
+
+    #[test]
+    fn missing_models_hide_visible_state_once() {
+        let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
+        let mut state = RendererState::default();
+        state
+            .update(
+                &Transition::Show {
+                    keyboard_id: 2,
+                    layers: vec![3],
+                },
+                &models,
+            )
+            .expect("show model");
+
+        let missing = state
+            .update(
+                &Transition::Show {
+                    keyboard_id: 1,
+                    layers: vec![9],
+                },
+                &models,
+            )
+            .expect("missing model");
+        assert_eq!(
+            missing,
+            UpdateOutcome {
+                changed: true,
+                missing_model: true,
+            }
         );
         assert!(!state.visible);
-        assert_eq!(state.generation, 1);
+        assert_eq!(state.generation, 2);
+
+        let repeated = state
+            .update(
+                &Transition::Show {
+                    keyboard_id: 1,
+                    layers: vec![9],
+                },
+                &models,
+            )
+            .expect("repeated missing model");
+        assert_eq!(
+            repeated,
+            UpdateOutcome {
+                changed: false,
+                missing_model: true,
+            }
+        );
+        assert_eq!(state.generation, 2);
     }
 }

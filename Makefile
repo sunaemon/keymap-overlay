@@ -638,11 +638,16 @@ _install_service_linux:
 		'WantedBy=graphical-session.target'; \
 		} > "$(KEYMAP_OVERLAY_QT_UNIT).tmp" && mv "$(KEYMAP_OVERLAY_QT_UNIT).tmp" "$(KEYMAP_OVERLAY_QT_UNIT)"
 	systemctl --user daemon-reload
-	systemctl --user enable "$(KEYMAP_OVERLAY_UNIT_NAME)" "$(KEYMAP_OVERLAY_QT_UNIT_NAME)"
+	systemctl --user enable "$(KEYMAP_OVERLAY_UNIT_NAME)"
 # restart, not start: this is also the update path, and the running process
 # still holds the previous binary.
 	systemctl --user restart "$(KEYMAP_OVERLAY_UNIT_NAME)"
-	systemctl --user restart "$(KEYMAP_OVERLAY_QT_UNIT_NAME)"
+	@if [ -n "$${KEYMAP_OVERLAY_FORCE_QT:-}" ] || ! printf '%s' "$${XDG_CURRENT_DESKTOP:-}" | grep -Eqi '(^|:)gnome(:|$$)'; then \
+		systemctl --user enable "$(KEYMAP_OVERLAY_QT_UNIT_NAME)"; \
+		systemctl --user restart "$(KEYMAP_OVERLAY_QT_UNIT_NAME)"; \
+	else \
+		systemctl --user disable --now "$(KEYMAP_OVERLAY_QT_UNIT_NAME)"; \
+	fi
 	@if command -v gnome-extensions >/dev/null 2>&1 && printf '%s' "$${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome; then \
 		gnome-extensions enable "$(GNOME_EXTENSION_UUID)" || \
 			echo "NOTE: log out and back in, then enable $(GNOME_EXTENSION_UUID)."; \

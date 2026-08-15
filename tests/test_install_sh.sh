@@ -145,6 +145,8 @@ run_installer() {
     TEST_COMMAND_LOG="$home/commands.log" \
     TEST_REAL_INSTALL="$REAL_INSTALL" \
     TEST_FAIL_SERVICE="${TEST_FAIL_SERVICE:-0}" \
+    XDG_CURRENT_DESKTOP="${TEST_XDG_CURRENT_DESKTOP:-}" \
+    KEYMAP_OVERLAY_FORCE_QT="${TEST_KEYMAP_OVERLAY_FORCE_QT:-}" \
     /bin/sh "$PROJECT_DIRECTORY/install.sh" "$@"
 }
 
@@ -198,6 +200,29 @@ test_macos_stops_service_before_replacing_binary() {
   test "$stop_line" -lt "$install_line"
 }
 
+test_gnome_disables_qt_renderer_unless_forced() {
+  home="$TEST_DIRECTORY/gnome home"
+  assets="$home/.config/keymap-overlay"
+  mkdir -p "$assets"
+  : >"$assets/1_L0.json"
+  : >"$home/commands.log"
+
+  TEST_XDG_CURRENT_DESKTOP=ubuntu:GNOME \
+    run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
+
+  grep -F 'systemctl --user disable --now keymap-overlay-qt.service' "$home/commands.log" >/dev/null
+  if grep -F 'systemctl --user restart keymap-overlay-qt.service' "$home/commands.log" >/dev/null; then
+    echo 'Qt renderer unexpectedly started under GNOME.' >&2
+    exit 1
+  fi
+
+  : >"$home/commands.log"
+  TEST_XDG_CURRENT_DESKTOP=ubuntu:GNOME \
+    TEST_KEYMAP_OVERLAY_FORCE_QT=1 \
+    run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
+  grep -F 'systemctl --user restart keymap-overlay-qt.service' "$home/commands.log" >/dev/null
+}
+
 test_failed_service_install_rolls_back() {
   home="$TEST_DIRECTORY/rollback home"
   assets="$home/.config/keymap-overlay"
@@ -245,6 +270,7 @@ test_missing_layer_assets_fails_without_installing_files() {
 
 test_linux_install_and_uninstall
 test_macos_stops_service_before_replacing_binary
+test_gnome_disables_qt_renderer_unless_forced
 test_failed_service_install_rolls_back
 test_missing_layer_assets_fails_without_installing_files
 echo 'install.sh tests passed'
