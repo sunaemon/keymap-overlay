@@ -52,7 +52,7 @@ fn native_options() -> eframe::NativeOptions {
 }
 
 /// Layer images are presented at their own pixel size, as on the other systems
-/// — `DPI` in the Makefile is where an image is sized for a screen. Windows
+/// — `PIXELS_PER_UNIT` in the Makefile is where an image is sized for a screen. Windows
 /// reports a scale factor for the display, which egui would otherwise apply to
 /// both the image and the viewport sizes the shared code sends, so it is pinned
 /// to 1:1 here instead.

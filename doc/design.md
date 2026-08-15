@@ -9,11 +9,8 @@ momentary layer in a native overlay, on macOS, Linux and Windows.
 keymap.c (or VIAL EEPROM with VIAL=true)
   ↓ QMK c2json / Vitaly export
 build/<keyboard>/qmk-keymap.json
-  ↓ postprocess_qmk_keymap.py
-build/<keyboard>/keymap-drawer.yaml
-  ↓ keymap-drawer (one SVG per layer)
-build/<keyboard>/<keyboard>_L<n>.svg
-  ↓ resvg
+  + keyboard.json + config.json + encoder map
+  ↓ first-party Pillow renderer (one PNG per layer)
 build/<keyboard>/<keyboard>_L<n>.png
   ↓ make install-assets
 platform configuration directory/<keyboard>_L<n>.png
@@ -154,9 +151,9 @@ macOS and Windows instead keep a transparent, click-through window mapped to
 avoid platform show behaviour that is inappropriate for the overlay.
 
 The image is presented at its own pixel size on all three systems rather than
-being scaled to the display; `DPI` in the Makefile is where an image is sized
-for a screen. Windows reports a scale factor that egui would otherwise apply on
-top, so that backend pins `pixels_per_point` to 1.
+being scaled to the display; `PIXELS_PER_UNIT` in the Makefile controls how
+many pixels represent one QMK layout unit. Windows reports a scale factor that
+egui would otherwise apply on top, so that backend pins `pixels_per_point` to 1.
 
 ### Requirements on Linux
 
@@ -270,12 +267,19 @@ The project uses VIAL because `vitaly` can read and write VIAL keymap data for
 the EEPROM-based workflow. This is optional: the default image-generation
 path reads the keymap source compiled into the firmware.
 
-### PNG at Runtime
+### Direct PNG Rendering
 
-The runtime loads PNG files rather than SVGs. Rendering happens during the
-build, and every installed layer PNG is decoded and cached at startup. Layer
-events therefore only select an in-memory image; they never leave the previous
-layer visible while disk I/O or PNG decoding completes.
+The Python renderer draws transparent RGBA PNGs directly from QMK's keymap and
+keyboard JSON. There is no drawing-schema conversion, YAML, SVG, or separate
+rasterization step. Encoder placement is the only project-specific geometry:
+QMK knows the encoder count and pins but not where knobs sit, so `config.json`
+maps each encoder to its push-switch matrix position or to explicit `x`/`y`
+layout coordinates. Matrix placement replaces the normal key drawing with one
+circular knob that contains counter-clockwise, clockwise, and push actions.
+
+The runtime decodes and caches every installed PNG at startup. Layer events
+therefore only select an in-memory image; they never leave the previous layer
+visible while disk I/O or PNG decoding completes.
 
 Events already waiting when a UI loop wakes are reduced to their final active
 layer before the window changes. Intermediate restores and switches are not

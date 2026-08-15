@@ -19,8 +19,8 @@ targets that would do so stop with a message pointing at WSL, macOS or Linux.
 
 There are three parts:
 
-1. **Python scripts** (`scripts/`, `src/`) that turn a QMK keymap into the JSON
-   `keymap-drawer` needs, and that push keymaps to VIAL devices.
+1. **Python scripts** (`scripts/`, `src/`) that render QMK keymaps directly to
+   PNG and push keymaps to VIAL devices.
 2. **Rust crates** (`crates/`) that implement the Raw HID protocol and the
    overlay window.
 3. **Firmware glue** (`firmware/`, `example/`) that sends the Raw HID reports.
@@ -33,8 +33,9 @@ There are three parts:
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
 - `generate_custom_keycodes.py`: Extracts the `custom_keycodes` enum from
   `keymap.c` and assigns each entry its numeric value.
-- `postprocess_qmk_keymap.py`: Prepares the QMK keymap JSON for **drawing**.
-  Applies custom keycode names and resolves `KC_TRNS`.
+- `render_png.py`: Draws one transparent layer PNG directly from QMK JSON,
+  including encoder rotation and push actions. It resolves custom keycode names
+  and `KC_TRNS` in memory for display only.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
@@ -46,13 +47,16 @@ There are three parts:
 
 Transparency resolution is for **display only**. `KC_TRNS` must survive intact
 on the path that writes to the device, otherwise layers stop inheriting from
-layer 0 in EEPROM. `flash-keymap` therefore consumes the _raw_ keymap JSON,
-never `$(QMK_KEYMAP_JSON)`.
+layer 0 in EEPROM. `flash-keymap` and the renderer therefore consume the same
+raw QMK JSON; only the renderer resolves transparency, in memory.
 
-### 2. Visualization (`keymap-drawer`)
+### 2. Visualization
 
-The project uses [keymap-drawer](https://github.com/caksoylar/keymap-drawer) to
-turn QMK JSON into SVGs, then `resvg` to rasterize them to PNG.
+The first-party Pillow renderer writes transparent RGBA PNGs directly. Keys are
+placed from QMK `keyboard.json`; encoder positions come from each keyboard's
+project `config.json`, because QMK describes encoder pins but not their physical
+layout. An encoder placed at a matrix position replaces that push key with one
+circular control showing counter-clockwise, clockwise, and push actions.
 
 ### 3. Rust Crates (`crates/`)
 
@@ -328,7 +332,7 @@ Use one-line triple-quoted docstrings for functions and classes, e.g.:
 - `typings/`: Type stubs for Python libraries.
 - `tests/`: pytest suite and its JSON fixtures.
 - `doc/`: Design documentation and README images.
-- `build/`: Generated artifacts (JSON, SVG, PNG). Not checked in.
+- `build/`: Generated artifacts (JSON and PNG). Not checked in.
 - `qmk_firmware/`: The QMK firmware submodule.
 
 ## Important Files

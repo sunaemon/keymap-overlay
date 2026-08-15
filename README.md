@@ -410,6 +410,21 @@ mkdir -p keyboards
 cp -R keymap-overlay/example/. keyboards/
 ```
 
+Each keyboard's `config.json` names its QMK keyboard. If it has rotary
+encoders, list them in QMK encoder order and place each at its push-switch
+matrix position:
+
+```json
+{
+  "qmk_keyboard": "doio/kb16/rev2",
+  "encoders": [{ "matrix": [0, 4] }, { "matrix": [1, 4] }, { "matrix": [2, 4] }]
+}
+```
+
+The renderer replaces those keys with circular knobs showing counter-clockwise,
+clockwise, and push actions. For an encoder without a push switch, use explicit
+QMK layout coordinates such as `{ "x": 4, "y": 0 }` instead.
+
 Run source-based firmware and image commands with an absolute
 `KEYBOARDS_DIR`, because `make -C` changes the working directory:
 

@@ -300,7 +300,7 @@ impl LayerShellHandler for OverlayState {
 
 impl CompositorHandler for OverlayState {
     /// The image is presented at its pixel size on every display, which is what
-    /// the macOS window does too; `DPI` in the Makefile is how the images are
+    /// the macOS window does too; `PIXELS_PER_UNIT` in the Makefile is how images are
     /// sized for a screen.
     fn scale_factor_changed(
         &mut self,
