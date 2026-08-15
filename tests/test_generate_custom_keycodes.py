@@ -54,6 +54,15 @@ def test_qk_user_0_is_accepted_as_the_current_safe_range_name(
     assert keycodes.root == {"0x7E40": "KC_ALPHA"}
 
 
+def test_qk_user_0_is_accepted_as_the_keymap_anchor(tmp_path: Path) -> None:
+    """QK_USER_0 is also valid in the keymap's custom-keycode enum."""
+    keymap_c = _write_keymap(tmp_path, " KC_ALPHA = QK_USER_0, KC_BETA ")
+
+    keycodes = generate_custom_keycodes(keymap_c, _write_keycodes(tmp_path))
+
+    assert keycodes.root == {"0x7E40": "KC_ALPHA", "0x7E41": "KC_BETA"}
+
+
 def test_comments_do_not_become_keycodes(tmp_path: Path) -> None:
     """Real keymaps annotate every entry with the glyph it types."""
     keymap_c = _write_keymap(

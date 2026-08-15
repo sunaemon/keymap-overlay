@@ -224,6 +224,26 @@ mod tests {
                 layers: vec![2],
             }
         );
+
+        let (sender, receiver) = mpsc::channel();
+        let second_keyboard = ListenerEvent::Layer(keymap_core::RawLayerEvent {
+            keyboard_id: 2,
+            layer: 4,
+            pressed: true,
+        });
+        sender
+            .send(ListenerEvent::Disconnected {
+                keyboard_id: Some(2),
+            })
+            .expect("queue keyboard disconnect");
+
+        assert_eq!(
+            reduce_queued_events(second_keyboard, &receiver, &mut pending),
+            Transition::Show {
+                keyboard_id: 1,
+                layers: vec![2],
+            }
+        );
     }
 
     #[test]

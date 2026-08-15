@@ -109,6 +109,7 @@ def _build_layer_grid(
     layer_idx: int,
     custom_map: dict[str, str],
 ) -> list[list[str]]:
+    """Place one flat QMK layer into its matrix-shaped VIAL grid."""
     layer_grid = _init_layer_grid(rows, cols)
 
     for key_idx, keycode in enumerate(flat_layer):
@@ -125,6 +126,7 @@ def _build_layer_grid(
 
 
 def _init_layer_grid(rows: int, cols: int) -> list[list[str]]:
+    """Create an empty VIAL layer grid with the requested dimensions."""
     return [["KC_NO" for _ in range(cols)] for _ in range(rows)]
 
 
@@ -134,6 +136,7 @@ def _build_encoder_layout(
     layer_count: int,
     custom_map: dict[str, str],
 ) -> list[list[list[str]]]:
+    """Build one padded VIAL encoder-action list per keymap layer."""
     output: list[list[list[str]]] = []
     for layer_index in range(layer_count):
         pairs = encoder_layers[layer_index] if layer_index < len(encoder_layers) else []

@@ -71,11 +71,12 @@ The Rust listener selects the QMK Raw HID usage page (`0xFF60`) and usage
 (`0x61`), then ignores every report that does not match this protocol. VIAL
 uses the same HID interface, so unrelated VIAL traffic is ignored.
 
-Device arrival notifications end the current reader session so all connected
-keyboards are enumerated again. Linux receives usage-filtered notifications
-from udev, macOS from `IOHIDManager`, and Windows forwards `WM_DEVICECHANGE`
-from the mapped WPF window. This makes a reconnected keyboard available even
-when another keyboard kept the previous session alive.
+Device arrival notifications request another enumeration without interrupting
+healthy readers, so a release cannot be lost while the new device becomes
+openable. Linux receives `hidraw` add notifications from udev, macOS receives
+usage-filtered notifications from `IOHIDManager`, and Windows forwards
+`WM_DEVICECHANGE` from the mapped WPF window. This makes a reconnected keyboard
+available even while another keyboard remains active.
 
 ## Native Overlay
 

@@ -92,6 +92,8 @@ printf 'systemctl %s\n' "$*" >>"$TEST_COMMAND_LOG"
 case "$*" in
   *is-enabled*keymap-overlay-qt*) [ "${TEST_QT_ENABLED:-1}" -eq 1 ] ;;
   *is-active*keymap-overlay-qt*) [ "${TEST_QT_ACTIVE:-1}" -eq 1 ] ;;
+  *is-enabled*keymap-overlay.service*) [ "${TEST_MAIN_ENABLED:-1}" -eq 1 ] ;;
+  *is-active*keymap-overlay.service*) [ "${TEST_MAIN_ACTIVE:-1}" -eq 1 ] ;;
   *restart*keymap-overlay.service*)
     if [ "${TEST_FAIL_SERVICE:-0}" -ne 0 ] && [ ! -f "${TEST_COMMAND_LOG}.failed-once" ]; then
       : >"${TEST_COMMAND_LOG}.failed-once"
@@ -152,6 +154,8 @@ run_installer() {
     TEST_COMMAND_LOG="$home/commands.log" \
     TEST_REAL_INSTALL="$REAL_INSTALL" \
     TEST_FAIL_SERVICE="${TEST_FAIL_SERVICE:-0}" \
+    TEST_MAIN_ENABLED="${TEST_MAIN_ENABLED:-1}" \
+    TEST_MAIN_ACTIVE="${TEST_MAIN_ACTIVE:-1}" \
     TEST_QT_ENABLED="${TEST_QT_ENABLED:-1}" \
     TEST_QT_ACTIVE="${TEST_QT_ACTIVE:-1}" \
     XDG_CURRENT_DESKTOP="${TEST_XDG_CURRENT_DESKTOP:-}" \
@@ -195,7 +199,7 @@ test_linux_install_and_uninstall() {
 }
 
 test_macos_stops_service_before_replacing_binary() {
-  home="$TEST_DIRECTORY/macos home"
+  home="$TEST_DIRECTORY/macos & home"
   assets="$home/.config/keymap-overlay"
   mkdir -p "$assets"
   : >"$assets/1_L0.json"
@@ -204,6 +208,9 @@ test_macos_stops_service_before_replacing_binary() {
   run_installer "$home" Darwin arm64 keymap-overlay-macos-arm64.tar.gz
 
   test -d "$home/.local/var/log/keymap-overlay"
+  assert_file_contains \
+    "$home/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist" \
+    'macos &amp; home/.config/keymap-overlay'
   stop_line=$(grep -n 'launchctl bootout' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   install_line=$(grep -n 'install .*keymap-overlay' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   test "$stop_line" -lt "$install_line"
@@ -271,6 +278,8 @@ test_failed_gnome_upgrade_keeps_qt_disabled() {
   : >"$home/commands.log"
 
   if TEST_FAIL_SERVICE=1 \
+    TEST_MAIN_ENABLED=0 \
+    TEST_MAIN_ACTIVE=0 \
     TEST_QT_ENABLED=0 \
     TEST_QT_ACTIVE=0 \
     TEST_XDG_CURRENT_DESKTOP=GNOME \
@@ -285,6 +294,8 @@ test_failed_gnome_upgrade_keeps_qt_disabled() {
   fi
   grep -F 'systemctl --user disable keymap-overlay-qt.service' "$home/commands.log" >/dev/null
   grep -F 'systemctl --user stop keymap-overlay-qt.service' "$home/commands.log" >/dev/null
+  grep -F 'systemctl --user disable keymap-overlay.service' "$home/commands.log" >/dev/null
+  grep -F 'systemctl --user stop keymap-overlay.service' "$home/commands.log" >/dev/null
 }
 
 test_missing_layer_assets_fails_without_installing_files() {

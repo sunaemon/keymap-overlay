@@ -45,6 +45,16 @@ pub extern "system" fn keymap_overlay_start(wake: extern "system" fn()) -> i32 {
     catch_unwind(AssertUnwindSafe(|| start(wake))).unwrap_or(-1)
 }
 
+/// Re-enumerates Raw HID interfaces after Windows reports a device arrival.
+#[unsafe(no_mangle)]
+pub extern "system" fn keymap_overlay_device_arrived() {
+    let _ = catch_unwind(|| {
+        if let Some(listener) = STATE.get().and_then(|state| state.listener.get()) {
+            listener.device_arrived();
+        }
+    });
+}
+
 fn start(wake: extern "system" fn()) -> i32 {
     if STATE.get().is_some() {
         return -2;
@@ -69,16 +79,6 @@ fn start(wake: extern "system" fn()) -> i32 {
         return -2;
     }
     0
-}
-
-/// Re-enumerates Raw HID interfaces after Windows reports a device arrival.
-#[unsafe(no_mangle)]
-pub extern "system" fn keymap_overlay_device_arrived() {
-    let _ = catch_unwind(|| {
-        if let Some(listener) = STATE.get().and_then(|state| state.listener.get()) {
-            listener.device_arrived();
-        }
-    });
 }
 
 /// Returns the final queued transition packed into one FFI-safe integer.
