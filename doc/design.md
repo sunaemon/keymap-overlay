@@ -277,13 +277,16 @@ objects and does not pass through keymap-drawer, YAML, SVG, or another schema.
 macOS installs this model as JSON and renders it with AppKit. Linux and Windows
 use the same in-memory model as input to the first-party Pillow compatibility
 renderer, which supersamples and downsamples a transparent RGBA PNG for smooth
-edges. Keys use quiet, borderless, nearly opaque fills so they stay distinct
-over bright and dark backgrounds; the held layer key alone receives its pale
-tint. Encoder placement is the only project-specific geometry:
+edges. Keys use quiet, nearly opaque fills and a low-contrast hairline so they
+stay distinct over bright and dark backgrounds; the held layer key alone
+receives its pale tint. Display-only Unicode labels come from single-character
+comments on `custom_keycodes` entries or an explicit `keymap-overlay-labels`
+comment block in `keymap.c`. Encoder placement is the only project-specific geometry:
 QMK knows the encoder count and pins but not where knobs sit, so `config.json`
 maps each encoder to its push-switch matrix position or to explicit `x`/`y`
 layout coordinates. Matrix placement replaces the normal key drawing with one
-circular knob that contains counter-clockwise, clockwise, and push actions.
+circular knob, places counter-clockwise and clockwise actions above it, and
+keeps its push action centred inside.
 
 The macOS runtime parses every installed JSON model and builds its native view
 tree at startup. Linux and Windows decode and cache every installed PNG at

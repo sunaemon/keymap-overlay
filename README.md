@@ -429,6 +429,32 @@ The display-model generator replaces those keys with circular knobs showing coun
 clockwise, and push actions. For an encoder without a push switch, use explicit
 QMK layout coordinates such as `{ "x": 4, "y": 0 }` instead.
 
+Display-only Unicode labels can live beside the keymap without changing the
+firmware. A one-character trailing comment on a `custom_keycodes` entry becomes
+that key's label:
+
+```c
+enum custom_keycodes {
+  KC_ALPHA = SAFE_RANGE, // α
+  KC_BETA,               // β
+};
+```
+
+Map standard or multi-character keycodes in a dedicated comment block anywhere
+in `keymap.c`:
+
+```c
+/* keymap-overlay-labels
+KC_LGUI = ⌘
+KC_LALT = ⌥
+KC_LCTL = ⌃
+KC_LSFT = ⇧
+*/
+```
+
+These annotations are consumed only by `make install-assets`; the C compiler
+sees ordinary comments.
+
 Run source-based firmware and asset commands with an absolute
 `KEYBOARDS_DIR`, because `make -C` changes the working directory:
 

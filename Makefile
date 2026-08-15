@@ -823,11 +823,10 @@ _internal_draw_layers: $(ASSETS)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) scripts/generate_overlay_asset.py src/types.py src/util.py
+RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) scripts/generate_overlay_asset.py src/types.py src/util.py
 ifeq ($(VIAL),true)
-RENDER_ENCODER_INPUT := --vitaly-json "$(VITALY_JSON)"
+RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)" --vitaly-json "$(VITALY_JSON)"
 else
-RENDER_ASSET_DEPS += $(QMK_KEYMAP_C)
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
 endif
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts.generate_overlay_asset import (
+    _parse_display_labels,
     _parse_encoder_map,
     _resolve_layer,
     build_overlay_model,
@@ -41,7 +42,7 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
         tmp_path / "keymap.json",
         {
             "layout": "LAYOUT",
-            "layers": [["KC_A", "KC_MUTE"], ["KC_B", "KC_MUTE"]],
+            "layers": [["KC_A", "KC_MUTE"], ["KC_ALPHA", "KC_MUTE"]],
         },
     )
     keyboard = _write(tmp_path / "keyboard.json", _keyboard())
@@ -53,6 +54,9 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
     keymap_c = tmp_path / "keymap.c"
     keymap_c.write_text(
         """
+        /* keymap-overlay-labels
+         * KC_ALPHA = α
+         */
         const uint16_t PROGMEM encoder_map[2][1][2] = {
           [0] = {ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
           [1] = {ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
@@ -75,7 +79,7 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
 
     assert model.version == 1
     assert (model.width, model.height) == (168, 142)
-    assert model.keys[0].label == ["B"]
+    assert model.keys[0].label == ["α"]
     assert model.encoders[0].counter_clockwise == ["VOL -"]
     assert model.encoders[0].clockwise == ["VOL +"]
     assert model.encoders[0].press == "MUTE"
@@ -98,6 +102,56 @@ def test_encoder_parser_preserves_nested_keycode_arguments(tmp_path: Path) -> No
     )
 
     assert _parse_encoder_map(keymap_c) == [[["LCTL(KC_Z)", "LT(1, KC_X)"]]]
+
+
+def test_parses_unicode_display_labels_from_keymap_comment(tmp_path: Path) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        """
+        /* keymap-overlay-labels
+         * KC_ALPHA = α
+         * KC_LGUI = ⌘
+         */
+        """,
+        encoding="utf-8",
+    )
+
+    assert _parse_display_labels(keymap_c) == {
+        "KC_ALPHA": "α",
+        "KC_LGUI": "⌘",
+    }
+
+
+def test_uses_single_character_custom_keycode_comments_as_labels(
+    tmp_path: Path,
+) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        """
+        enum custom_keycodes {
+          KC_ALPHA = SAFE_RANGE, // α
+          KC_BETA,               // β
+          KC_INTERNAL            // a longer explanation is not a label
+        };
+        """,
+        encoding="utf-8",
+    )
+
+    assert _parse_display_labels(keymap_c) == {
+        "KC_ALPHA": "α",
+        "KC_BETA": "β",
+    }
+
+
+def test_rejects_malformed_display_label(tmp_path: Path) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        "/* keymap-overlay-labels\nKC_ALPHA α\n*/",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Malformed keymap-overlay label"):
+        _parse_display_labels(keymap_c)
 
 
 def test_resolves_display_layer_without_changing_raw_keymap() -> None:

@@ -151,7 +151,10 @@ def main(
         )
         if output_format == "json":
             _write_stdout(
-                (json.dumps(asdict(model), separators=(",", ":")) + "\n").encode()
+                (
+                    json.dumps(asdict(model), ensure_ascii=False, separators=(",", ":"))
+                    + "\n"
+                ).encode()
             )
         else:
             output = BytesIO()
@@ -204,13 +207,14 @@ def build_overlay_model(
     vitaly_json: Path | None = None,
 ) -> OverlayModel:
     """Build one JSON-serializable display model from QMK sources."""
-    if (keymap_c is None) == (vitaly_json is None):
-        raise ValueError("Provide exactly one of keymap_c or vitaly_json")
+    if keymap_c is None and vitaly_json is None:
+        raise ValueError("Provide keymap_c or vitaly_json")
 
     keymap = parse_json(QmkKeymapJson, qmk_keymap_json)
     keyboard = parse_json(KeyboardJson, keyboard_json)
     config = parse_json(KeyboardConfig, keyboard_config)
     custom_keycodes = parse_json(KeycodesJson, custom_keycodes_json)
+    display_labels = _parse_display_labels(keymap_c) if keymap_c else {}
     layout = keyboard.layout_keys(layout_name)
     _validate_layer(keymap, layout, layer_index)
 
@@ -228,6 +232,7 @@ def build_overlay_model(
         layer,
         placements,
         encoder_pairs,
+        display_labels,
         layer_index,
         pixels_per_unit,
     )
@@ -363,6 +368,7 @@ def _build_layer_model(
     layer: list[str],
     placements: list[tuple[int | None, float, float, float, float]],
     encoder_pairs: list[list[str]],
+    display_labels: dict[str, str],
     layer_index: int,
     pixels_per_unit: int,
 ) -> OverlayModel:
@@ -403,7 +409,7 @@ def _build_layer_model(
                 y=top,
                 width=right - left,
                 height=bottom - top,
-                label=_wrap_label(_format_keycode(keycode), 3, 10),
+                label=_wrap_label(_format_keycode(keycode, display_labels), 3, 10),
                 held=_momentary_layer(keycode) == layer_index,
             )
         )
@@ -422,7 +428,10 @@ def _build_layer_model(
         )
         press = layer[key_index] if key_index is not None else "KC_NO"
         left, top, right, bottom = _inset_box(_square_box(box), 2)
-        directions = [_format_keycode(code) for code in encoder_pairs[encoder_index]]
+        directions = [
+            _format_keycode(code, display_labels)
+            for code in encoder_pairs[encoder_index]
+        ]
         encoders.append(
             DisplayEncoder(
                 x=left,
@@ -430,7 +439,7 @@ def _build_layer_model(
                 size=min(right - left, bottom - top),
                 counter_clockwise=_wrap_label(directions[0], 2, 5),
                 clockwise=_wrap_label(directions[1], 2, 5),
-                press=_format_keycode(press),
+                press=_format_keycode(press, display_labels),
                 held=_momentary_layer(press) == layer_index,
             )
         )
@@ -599,8 +608,10 @@ def _wrap_label(label: str, max_lines: int, max_chars: int) -> list[str]:
     return [*lines[: max_lines - 1], lines[max_lines - 1][: max_chars - 3] + "..."]
 
 
-def _format_keycode(keycode: str) -> str:
+def _format_keycode(keycode: str, display_labels: dict[str, str]) -> str:
     keycode = keycode.strip()
+    if keycode in display_labels:
+        return display_labels[keycode]
     if keycode in TRANSPARENT_KEYS:
         return ""
     if keycode in KEYCODE_LABELS:
@@ -613,6 +624,46 @@ def _format_keycode(keycode: str) -> str:
             keycode = keycode[len(prefix) :]
             break
     return keycode.replace("_", " ")
+
+
+def _parse_display_labels(keymap_c: Path) -> dict[str, str]:
+    content = keymap_c.read_text(encoding="utf-8")
+    labels: dict[str, str] = {}
+
+    custom_keycodes = re.search(
+        r"enum\s+custom_keycodes\s*\{(.*?)\};",
+        content,
+        re.DOTALL,
+    )
+    if custom_keycodes:
+        for line in custom_keycodes.group(1).splitlines():
+            match = re.fullmatch(
+                r"\s*([A-Za-z_]\w*)(?:\s*=\s*[^,]+)?\s*,?\s*//\s*(.*?)\s*",
+                line,
+            )
+            if match and len(match.group(2)) == 1:
+                labels[match.group(1)] = match.group(2)
+
+    blocks = re.findall(
+        r"/\*\s*keymap-overlay-labels\b(.*?)\*/",
+        content,
+        re.DOTALL,
+    )
+    for block in blocks:
+        for raw_line in block.splitlines():
+            line = re.sub(r"^\s*\*\s?", "", raw_line).strip()
+            if not line:
+                continue
+            match = re.fullmatch(r"(\S+)\s*=\s*(.+?)\s*", line)
+            if match is None:
+                raise ValueError(
+                    f"Malformed keymap-overlay label in {keymap_c}: {line}"
+                )
+            keycode, label = match.groups()
+            if keycode in labels:
+                raise ValueError(f"Duplicate keymap-overlay label for {keycode}")
+            labels[keycode] = label
+    return labels
 
 
 def _momentary_layer(keycode: str) -> int | None:

@@ -19,8 +19,8 @@ targets that would do so stop with a message pointing at WSL, macOS or Linux.
 
 There are three parts:
 
-1. **Python scripts** (`scripts/`, `src/`) that render QMK keymaps directly to
-   PNG and push keymaps to VIAL devices.
+1. **Python scripts** (`scripts/`, `src/`) that build the shared display model,
+   render compatibility PNGs, and push keymaps to VIAL devices.
 2. **Rust crates** (`crates/`) that implement the Raw HID protocol and the
    overlay window.
 3. **Firmware glue** (`firmware/`, `example/`) that sends the Raw HID reports.
@@ -36,7 +36,8 @@ There are three parts:
 - `generate_overlay_asset.py`: Builds the shared display model and emits macOS
   JSON or a transparent PNG,
   including encoder rotation and push actions. It resolves custom keycode names
-  and `KC_TRNS` in memory for display only.
+  and `KC_TRNS` in memory for display only, and reads Unicode label annotations
+  from `keymap.c`.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
