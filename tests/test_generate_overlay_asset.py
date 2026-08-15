@@ -74,13 +74,13 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
     image = render_png(*args, keymap_c=keymap_c)
 
     assert model.version == 1
-    assert (model.width, model.height) == (168, 132)
+    assert (model.width, model.height) == (168, 142)
     assert model.keys[0].label == ["B"]
     assert model.encoders[0].counter_clockwise == ["VOL -"]
     assert model.encoders[0].clockwise == ["VOL +"]
     assert model.encoders[0].press == "MUTE"
     assert image.mode == "RGBA"
-    assert image.size == (168, 132)
+    assert image.size == (168, 142)
     assert image.getbbox() is not None
     alpha_histogram = image.getchannel("A").histogram()
     assert sum(alpha_histogram[1:255]) > 0

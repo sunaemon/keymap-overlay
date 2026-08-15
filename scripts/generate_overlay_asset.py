@@ -36,7 +36,7 @@ KEY_TEXT = (32, 36, 44, 255)
 HELD_FILL = (255, 221, 221, 255)
 KNOB_FILL = KEY_FILL
 PADDING = 20
-HEADER_HEIGHT = 28
+HEADER_HEIGHT = 38
 KEY_INSET = 3
 KEY_RADIUS = 11
 SUPERSAMPLE_SCALE = 4
@@ -440,7 +440,7 @@ def _build_layer_model(
         height=height,
         header_font_size=max(14, pixels_per_unit // 4),
         key_font_size=max(10, pixels_per_unit // 5),
-        encoder_font_size=max(8, pixels_per_unit // 7),
+        encoder_font_size=max(10, pixels_per_unit // 6),
         keys=keys,
         encoders=encoders,
     )
@@ -526,68 +526,31 @@ def _draw_encoder_model(
     scale: int,
 ) -> None:
     center_x, center_y = _center(box)
+    label_y = box[1] - 8 * scale
     if encoder.counter_clockwise:
-        _draw_turn_marker(
-            draw,
-            center_x - 14 * scale,
-            center_y - 19 * scale,
-            scale,
-            clockwise=False,
+        draw.text(
+            (center_x - 3 * scale, label_y),
+            f"← {' '.join(encoder.counter_clockwise)}",
+            fill=KEY_TEXT,
+            font=font,
+            anchor="rm",
         )
     if encoder.clockwise:
-        _draw_turn_marker(
-            draw,
-            center_x + 14 * scale,
-            center_y - 19 * scale,
-            scale,
-            clockwise=True,
+        draw.text(
+            (center_x + 3 * scale, label_y),
+            f"{' '.join(encoder.clockwise)} →",
+            fill=KEY_TEXT,
+            font=font,
+            anchor="lm",
         )
-    _draw_lines(
-        draw,
-        encoder.counter_clockwise,
-        (center_x - 14 * scale, center_y - 3 * scale),
-        font,
-    )
-    _draw_lines(
-        draw,
-        encoder.clockwise,
-        (center_x + 14 * scale, center_y - 3 * scale),
-        font,
-    )
     if encoder.press:
         draw.text(
-            (center_x, center_y + 18 * scale),
+            (center_x, center_y),
             f"P {encoder.press}",
             fill=KEY_TEXT,
             font=font,
             anchor="mm",
         )
-
-
-def _draw_turn_marker(
-    draw: ImageDraw.ImageDraw,
-    center_x: int,
-    center_y: int,
-    render_scale: int,
-    *,
-    clockwise: bool,
-) -> None:
-    direction = 1 if clockwise else -1
-    draw.line(
-        [
-            (
-                center_x - 4 * direction * render_scale,
-                center_y - 3 * render_scale,
-            ),
-            (center_x, center_y),
-            (
-                center_x - 4 * direction * render_scale,
-                center_y + 3 * render_scale,
-            ),
-        ],
-        fill=KEY_TEXT,
-        width=render_scale,
-    )
 
 
 def _ui_font(size: int) -> Font:

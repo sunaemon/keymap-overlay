@@ -276,36 +276,39 @@ fn add_encoder(
         mtm,
     );
 
-    let half = f64::from(encoder.size) / 2.0;
-    let y = frame.origin.y;
-    let x = frame.origin.x;
+    let size = f64::from(encoder.size);
+    let half = size / 2.0;
+    let center_x = frame.origin.x + half;
+    let label_half_width = size * 0.75;
+    let label_gap = 3.0;
+    let label_y = frame.origin.y + size + 2.0;
     add_label(
         root,
-        &encoder_text("↶", &encoder.counter_clockwise),
-        NSRect::new(NSPoint::new(x, y + half - 5.0), NSSize::new(half, half)),
+        &encoder_text("←", &encoder.counter_clockwise),
+        NSRect::new(
+            NSPoint::new(center_x - label_half_width, label_y),
+            NSSize::new(label_half_width - label_gap, 18.0),
+        ),
         model.encoder_font_size,
-        NSTextAlignment::Center,
+        NSTextAlignment::Right,
         mtm,
     );
     add_label(
         root,
-        &encoder_text("↷", &encoder.clockwise),
+        &encoder_text_trailing(&encoder.clockwise, "→"),
         NSRect::new(
-            NSPoint::new(x + half, y + half - 5.0),
-            NSSize::new(half, half),
+            NSPoint::new(center_x + label_gap, label_y),
+            NSSize::new(label_half_width - label_gap, 18.0),
         ),
         model.encoder_font_size,
-        NSTextAlignment::Center,
+        NSTextAlignment::Left,
         mtm,
     );
     if !encoder.press.is_empty() {
         add_label(
             root,
             &format!("P {}", encoder.press),
-            NSRect::new(
-                NSPoint::new(x, y + 5.0),
-                NSSize::new(f64::from(encoder.size), half),
-            ),
+            frame,
             model.encoder_font_size,
             NSTextAlignment::Center,
             mtm,
@@ -318,6 +321,14 @@ fn encoder_text(arrow: &str, lines: &[String]) -> String {
         String::new()
     } else {
         format!("{arrow} {}", lines.join(" "))
+    }
+}
+
+fn encoder_text_trailing(lines: &[String], arrow: &str) -> String {
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{} {arrow}", lines.join(" "))
     }
 }
 
