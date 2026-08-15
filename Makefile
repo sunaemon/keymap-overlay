@@ -89,10 +89,10 @@ QMK_TOOLCHAIN_PACKAGES := osx-cross/arm/arm-none-eabi-gcc@8 osx-cross/avr/avr-gc
 
 # The same set per distribution, plus libudev for Raw HID and the Qt 6 /
 # LayerShellQt stack used by the native KDE Plasma overlay.
-LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs qt6-base qt6-declarative layer-shell-qt ttf-liberation
-LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev qt6-base-dev qt6-declarative-dev qt6-wayland fonts-liberation
+LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs cmake qt6-base qt6-declarative layer-shell-qt ttf-liberation
+LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev cmake qt6-base-dev qt6-declarative-dev qt6-wayland fonts-liberation
 LINUX_LAYERSHELL_QML_APT := qml6-module-org-kde-layershell
-LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtwayland layer-shell-qt liberation-mono-fonts
+LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel cmake qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtwayland layer-shell-qt liberation-mono-fonts
 
 # Escape XML character data so that a HOME containing & or < still produces a
 # valid plist. Ampersands must be substituted first.
@@ -277,7 +277,8 @@ KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay-qt
 WPF_PROJECT := windows/KeymapOverlay.Wpf/KeymapOverlay.Wpf.csproj
 WPF_PUBLISH_DIR := target/wpf-publish
 WINDOWS_BRIDGE_MANIFEST := crates/keymap-overlay-windows-bridge/Cargo.toml
-QT_BRIDGE_MANIFEST := crates/keymap-overlay-qt-bridge/Cargo.toml
+QT_RENDERER_SOURCE := linux/qt
+QT_RENDERER_BUILD_DIR := target/qt-release
 ifeq ($(OS_FAMILY),windows)
 OVERLAY_BUILD_BINARY := $(WPF_PUBLISH_DIR)/keymap-overlay.exe
 else
@@ -301,6 +302,7 @@ KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
 KEYMAP_OVERLAY_UDEV_RULES := /etc/udev/rules.d/50-keymap-overlay.rules
 KEYMAP_OVERLAY ?= $(CARGO) run -p keymap-overlay --
 DOTNET ?= $(MISE) exec -- dotnet
+CMAKE ?= cmake
 
 # ================= TARGETS =================
 
@@ -498,7 +500,10 @@ ifeq ($(OS_FAMILY),windows)
 else
 	$(CARGO) build --release -p keymap-overlay
 ifeq ($(OS_FAMILY),linux)
-	$(CARGO) build --release --manifest-path "$(QT_BRIDGE_MANIFEST)" --target-dir target
+	$(CMAKE) -S "$(QT_RENDERER_SOURCE)" -B "$(QT_RENDERER_BUILD_DIR)" \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$(abspath target/release)"
+	$(CMAKE) --build "$(QT_RENDERER_BUILD_DIR)" --config Release
 endif
 endif
 

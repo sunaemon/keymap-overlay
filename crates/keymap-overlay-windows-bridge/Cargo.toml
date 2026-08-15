@@ -8,9 +8,8 @@ repository = "https://github.com/sunaemon/keymap-overlay"
 [lib]
 crate-type = ["cdylib"]
 
-# This is the Windows equivalent of the audited CXX bridge on Linux. The
-# exported ABI requires unsafe attributes, while the public surface contains
-# only safe scalar values and a wake callback.
+# The exported Windows ABI requires unsafe attributes, while the public surface
+# contains only safe scalar values and a wake callback.
 [lints.rust]
 unsafe_code = "allow"
 

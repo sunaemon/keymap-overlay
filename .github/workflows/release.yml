@@ -41,7 +41,7 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes libudev-dev qt6-base-dev qt6-declarative-dev
+        run: sudo apt-get update && sudo apt-get install --yes libudev-dev cmake qt6-base-dev qt6-declarative-dev
 
       - name: Install mise
         uses: jdx/mise-action@v4

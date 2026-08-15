@@ -32,7 +32,7 @@ git ls-files Makefile "*.mk" | xargs mbake format --config .mbake.toml
 # so drop every symlink from the list; the targets are formatted anyway.
 git ls-files "*.md" "*.yml" "*.yaml" "*.json" "*.js" "*.css" | while IFS= read -r f; do [ -L "$f" ] || printf '%s\n' "$f"; done | xargs prettier --write
 git ls-files "*.toml" | xargs taplo fmt
-git ls-files "*.c" "*.h" | while IFS= read -r file; do clang-format -i "$file"; done
+git ls-files "*.c" "*.h" "*.cpp" | while IFS= read -r file; do [ ! -f "$file" ] || clang-format -i "$file"; done
 """
 
 [tasks.lint]
@@ -44,7 +44,4 @@ ruff check --fix .
 ty check --extra-search-path typings .
 shellcheck install.sh tests/test_install_sh.sh
 cargo clippy --workspace --all-targets -- -D warnings
-if [ "$(uname -s)" = Linux ]; then
-  cargo clippy --manifest-path crates/keymap-overlay-qt-bridge/Cargo.toml --all-targets -- -D warnings
-fi
 """

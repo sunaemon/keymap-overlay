@@ -2,7 +2,6 @@
 members = [
   "crates/keymap-core",
   "crates/keymap-overlay-linux-protocol",
-  "crates/keymap-overlay-qt-bridge",
   "crates/keymap-overlay",
   "crates/keymap-overlay-windows-bridge",
 ]

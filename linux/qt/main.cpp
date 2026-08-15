@@ -1,5 +1,3 @@
-#include "src/qt_backend.h"
-
 #include <QByteArray>
 #include <QCursor>
 #include <QDBusConnection>
@@ -10,6 +8,7 @@
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QObject>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickWindow>
@@ -17,6 +16,7 @@
 #include <QString>
 #include <QUrl>
 #include <QVariant>
+#include <QtGlobal>
 
 #include <memory>
 #include <stdexcept>
@@ -27,6 +27,16 @@ namespace {
 constexpr auto BusName = "com.sunaemon.KeymapOverlay";
 constexpr auto ObjectPath = "/com/sunaemon/KeymapOverlay";
 constexpr auto RendererInterface = "com.sunaemon.KeymapOverlay.Renderer1";
+
+bool is_gnome_desktop() {
+  const auto desktop = qEnvironmentVariable("XDG_CURRENT_DESKTOP");
+  for (const auto &part : desktop.split(':')) {
+    if (part.compare(QStringLiteral("gnome"), Qt::CaseInsensitive) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
 
 constexpr auto overlay_qml = R"QML(
 import QtQuick
@@ -199,14 +209,13 @@ public:
     if (!connection_.isConnected()) {
       throw std::runtime_error("Failed to connect to the user D-Bus session");
     }
-    QObject::connect(&owner_watcher_,
-                     &QDBusServiceWatcher::serviceOwnerChanged, this,
-                     &RendererClient::service_owner_changed);
-    if (!connection_.connect(
-            QString::fromLatin1(BusName), QString::fromLatin1(ObjectPath),
-            QString::fromLatin1(RendererInterface),
-            QStringLiteral("StateChanged"), this,
-            SLOT(state_changed(qulonglong, bool, QString)))) {
+    QObject::connect(&owner_watcher_, &QDBusServiceWatcher::serviceOwnerChanged,
+                     this, &RendererClient::service_owner_changed);
+    if (!connection_.connect(QString::fromLatin1(BusName),
+                             QString::fromLatin1(ObjectPath),
+                             QString::fromLatin1(RendererInterface),
+                             QStringLiteral("StateChanged"), this,
+                             SLOT(state_changed(qulonglong, bool, QString)))) {
       throw std::runtime_error("Failed to subscribe to renderer state");
     }
     refresh_state();
@@ -238,9 +247,9 @@ private:
   }
 
   void refresh_state() {
-    QDBusInterface renderer(QString::fromLatin1(BusName),
-                            QString::fromLatin1(ObjectPath),
-                            QString::fromLatin1(RendererInterface), connection_);
+    QDBusInterface renderer(
+        QString::fromLatin1(BusName), QString::fromLatin1(ObjectPath),
+        QString::fromLatin1(RendererInterface), connection_);
     if (!renderer.isValid()) {
       throw std::runtime_error("The renderer D-Bus service is unavailable: " +
                                renderer.lastError().message().toStdString());
@@ -286,35 +295,38 @@ private:
 
 } // namespace
 
-void run_qt_overlay() {
-  int argc = 1;
-  char program_name[] = "keymap-overlay";
-  char *argv[] = {program_name, nullptr};
+int main(int argc, char *argv[]) {
+  if (is_gnome_desktop() &&
+      !qEnvironmentVariableIsSet("KEYMAP_OVERLAY_FORCE_QT")) {
+    return 0;
+  }
+
   QGuiApplication application(argc, argv);
 
-  QQmlEngine engine;
-  QQmlComponent component(&engine);
-  component.setData(overlay_qml,
-                    QUrl(QStringLiteral("qrc:/keymap-overlay.qml")));
-  if (component.isError()) {
-    throw qml_error(component);
-  }
-  std::unique_ptr<QObject> root(component.create());
-  if (!root) {
-    throw qml_error(component);
-  }
-  auto *window = qobject_cast<QQuickWindow *>(root.get());
-  if (!window) {
-    throw std::runtime_error("The Qt overlay root is not a window");
-  }
+  try {
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(overlay_qml,
+                      QUrl(QStringLiteral("qrc:/keymap-overlay.qml")));
+    if (component.isError()) {
+      throw qml_error(component);
+    }
+    std::unique_ptr<QObject> root(component.create());
+    if (!root) {
+      throw qml_error(component);
+    }
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    if (!window) {
+      throw std::runtime_error("The Qt overlay root is not a window");
+    }
 
-  RendererClient renderer(*window);
+    RendererClient renderer(*window);
 
-  const auto result = application.exec();
-  if (result != 0) {
-    throw std::runtime_error("The Qt event loop exited with status " +
-                             std::to_string(result));
+    return application.exec();
+  } catch (const std::exception &error) {
+    qCritical() << error.what();
+    return 1;
   }
 }
 
-#include "qt_backend.moc"
+#include "main.moc"

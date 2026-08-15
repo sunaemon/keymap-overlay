@@ -21,8 +21,9 @@ There are three parts:
 
 1. **Python scripts** (`scripts/`, `src/`) that build the shared display model
    and push keymaps to VIAL devices.
-2. **Rust crates** (`crates/`) that implement the Raw HID protocol, the native
-   macOS window, the Linux D-Bus daemon and Qt client, and the Windows bridge.
+2. **Native applications** (`crates/`, `linux/qt/`, and `windows/`) that
+   implement the Raw HID protocol, native macOS window, Linux D-Bus daemon and
+   Qt client, and Windows bridge.
 3. **Firmware glue** (`firmware/`, `example/`) that sends the Raw HID reports.
 
 ## Core Components
@@ -67,12 +68,9 @@ control showing counter-clockwise, clockwise, and push actions.
 - `keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and its
   tests. Pure logic, no I/O, so it stays unit-testable.
 - `keymap-overlay-linux-protocol`: the typed Linux renderer D-Bus contract
-  shared by the daemon and Qt client.
+  implemented by the daemon and consumed by both native renderers.
 - `keymap-overlay`: the shared listener, transition reducer, model composition,
   logging code, and native macOS/Linux executable.
-- `keymap-overlay-qt-bridge`: the audited Linux-only CXX boundary. This is the
-  sole crate allowed to contain generated unsafe FFI; its public API is safe,
-  and protocol/application logic remains in crates that forbid unsafe code.
 - `keymap-overlay-windows-bridge`: the audited Windows C ABI boundary. WPF
   supplies a wake callback and takes the final reduced show/hide transition.
 
@@ -89,10 +87,10 @@ composition, and rotating log — while each native frontend owns its window:
   through QtDBus. KDE LayerShellQt supplies the Wayland overlay surface outside
   GNOME.
 
-Cargo gates the dependencies per target, which is why Qt/CXX is kept on Linux,
-the C ABI bridge is kept on Windows, and hidapi uses hidraw on Linux rather than its
-default libusb backend. Keep new dependencies on the same side of that line as
-the code using them.
+Cargo gates the Rust dependencies per target, the standalone Qt client is built
+only on Linux, the C ABI bridge is kept on Windows, and hidapi uses hidraw on
+Linux rather than its default libusb backend. Keep new dependencies on the same
+side of that line as the code using them.
 
 The overlay is event-driven. Delivering an event also wakes the UI thread — an
 AppKit channel on macOS, a QtDBus or Shell signal callback on Linux, or a WPF
@@ -320,9 +318,9 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
 
 ### Rust
 
-- Application crates forbid `unsafe_code` and deny clippy warnings. The sole
-  exception is `keymap-overlay-qt-bridge`, whose CXX-generated FFI is allowed
-  to be unsafe behind one safe public function; do not expand that boundary.
+- Application logic crates forbid `unsafe_code` and deny clippy warnings. The
+  audited Windows bridge is the only exception because its exported C ABI uses
+  unsafe attributes.
 - Keep protocol and other pure logic in `keymap-core` where it can be tested
   without hardware, and confine I/O to `keymap-overlay`.
 - Use `anyhow::Context` to attach the path or device to an error rather than
@@ -333,6 +331,7 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
 - `crates/`: Rust workspace (`keymap-core`, `keymap-overlay`); the overlay's
   per-system windows live in `crates/keymap-overlay/src/ui/`.
 - `firmware/`: Shared QMK header copied into keymaps at build time.
+- `linux/`: Standalone Qt renderer and GNOME Shell extension.
 - `example/`: Local keyboard configurations and keymaps, one numbered directory
   per keyboard (configurable via `KEYBOARDS_DIR`).
 - `scripts/`: Python utility scripts.

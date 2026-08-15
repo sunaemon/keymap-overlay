@@ -138,11 +138,10 @@ active screen. `Qt::WindowTransparentForInput` makes the surface click-through.
 No plain Wayland application window can supply those semantics: the compositor
 must grant the layer-surface role.
 
-The Qt bridge is one deliberately narrow exception to the workspace's
-`unsafe_code = forbid` policy. CXX generates the unavoidable Rust/C++ FFI in
-`keymap-overlay-qt-bridge`; the crate exposes one safe function, while the HID
-protocol and transition state remain in forbid-unsafe Rust crates. Qt is a
-renderer helper and has no access to HID or the asset directory.
+The Qt client is a standalone CMake application with no Rust/C++ boundary. The
+Rust daemon retains HID access, protocol handling, transition state, and model
+composition; Qt receives only the final semantic model over D-Bus and has no
+access to HID or the asset directory.
 
 The model uses platform-independent point geometry. On macOS those values are
 AppKit points, on Linux they are Qt logical pixels, and on Windows they are WPF
