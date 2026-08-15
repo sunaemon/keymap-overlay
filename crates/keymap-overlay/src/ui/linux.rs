@@ -130,7 +130,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     spawn_raw_hid_listener(ChannelSink(sender));
     let mut pending = PendingTransition::default();
 
-    for event in receiver {
+    for event in &receiver {
         let transition = reduce_queued_events(event, &receiver, &mut pending);
         let outcome = state.update(&transition, &models)?;
         if outcome.missing_model

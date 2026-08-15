@@ -848,7 +848,7 @@ ifdef KEYBOARD_ID
 	@echo "Merging QMK keymap into Vitaly configuration..."
 	@# The renderer resolves KC_TRNS only in memory. This source JSON remains raw,
 	@# so writing it to EEPROM preserves transparent-key inheritance.
-	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)")
+	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)")
 	@echo "Loading new configuration to device..."
 	$(VITALY) -i $(DEVICE_PID) load -f $(BUILD_DIR)/vitaly_ready.json
 else
@@ -930,7 +930,7 @@ $(BUILD_DIR):
 $(ASSET_BUILD_DIR):
 	mkdir -p $(ASSET_BUILD_DIR)
 
-RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) scripts/generate_overlay_asset.py src/types.py src/util.py
+RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) scripts/encoder_map.py scripts/generate_overlay_asset.py src/types.py src/util.py
 ifeq ($(VIAL),true)
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)" --vitaly-json "$(VITALY_JSON)"
 else

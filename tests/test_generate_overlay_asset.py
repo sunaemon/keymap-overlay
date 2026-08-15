@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from scripts.encoder_map import parse_encoder_map
 from scripts.generate_overlay_asset import (
     _parse_display_labels,
-    _parse_encoder_map,
     _resolve_layer,
     build_overlay_model,
 )
@@ -98,7 +98,7 @@ def test_encoder_parser_preserves_nested_keycode_arguments(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
-    assert _parse_encoder_map(keymap_c) == [[["LCTL(KC_Z)", "LT(1, KC_X)"]]]
+    assert parse_encoder_map(keymap_c) == [[["LCTL(KC_Z)", "LT(1, KC_X)"]]]
 
 
 def test_parses_unicode_display_labels_from_keymap_comment(tmp_path: Path) -> None:

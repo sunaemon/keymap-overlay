@@ -31,7 +31,6 @@ pub fn transition_for(held_keys: &mut Vec<(u8, u8)>, event: RawLayerEvent) -> Ac
     let previous = active_layer_state(held_keys);
     let key = (event.keyboard_id, event.layer);
     if event.pressed {
-        held_keys.retain(|held_key| *held_key != key);
         held_keys.push(key);
     } else {
         let Some(index) = held_keys.iter().position(|held_key| *held_key == key) else {
@@ -204,6 +203,31 @@ mod tests {
             ActiveLayerChange::Changed(state(1, &[3]))
         );
         assert_eq!(held_keys, vec![(1, 3)]);
+    }
+
+    #[test]
+    fn duplicate_layer_keys_stay_active_until_both_are_released() {
+        let mut held_keys = vec![];
+
+        assert_eq!(
+            transition_for(&mut held_keys, event(1, 2, true)),
+            ActiveLayerChange::Changed(state(1, &[2]))
+        );
+        assert_eq!(
+            transition_for(&mut held_keys, event(1, 2, true)),
+            ActiveLayerChange::Unchanged
+        );
+        assert_eq!(held_keys, vec![(1, 2), (1, 2)]);
+
+        assert_eq!(
+            transition_for(&mut held_keys, event(1, 2, false)),
+            ActiveLayerChange::Unchanged
+        );
+        assert_eq!(held_keys, vec![(1, 2)]);
+        assert_eq!(
+            transition_for(&mut held_keys, event(1, 2, false)),
+            ActiveLayerChange::Changed(None)
+        );
     }
 
     #[test]

@@ -468,11 +468,9 @@ fn receive_from_device(
             return Ok(());
         }
     }
-    if keyboard_id.is_some() {
-        // Another reader ended the session. Closing this device can lose its
-        // matching release report, so clear any layer it may still hold.
-        sink.send(ListenerEvent::Disconnected { keyboard_id });
-    }
+    // Another reader ended the session or a device arrived. This device is
+    // still healthy, so keep its held layers while it is reopened; QMK does not
+    // resend presses that remain held across re-enumeration.
     Ok(())
 }
 

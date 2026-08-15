@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from scripts.encoder_map import parse_encoder_map
 from src.types import (
     KeyboardJson,
     KeycodesJson,
@@ -32,6 +33,7 @@ def main(
         Path,
         typer.Option(help="Path to custom-keycodes.json for reverse mapping"),
     ],
+    keymap_c: Annotated[Path, typer.Option(help="keymap.c containing encoder_map")],
     layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
 ) -> None:
     """Update Vitaly JSON layout from QMK JSON and emit it to stdout."""
@@ -42,6 +44,7 @@ def main(
             vitaly_json,
             keyboard_json,
             custom_keycodes_json,
+            keymap_c,
             layout_name,
         )
         print_json(vitaly_data)
@@ -56,6 +59,7 @@ def generate_vitaly_layout(
     vitaly_json: Path,
     keyboard_json: Path,
     custom_keycodes_json: Path,
+    keymap_c: Path,
     layout_name: str,
 ) -> VitalyJson:
     """Update Vitaly layout data from a QMK keymap JSON."""
@@ -85,6 +89,15 @@ def generate_vitaly_layout(
     ]
 
     vitaly_data.layout = new_vitaly_layout
+    encoder_layers = parse_encoder_map(keymap_c)
+    encoder_count = keyboard_data.encoder_count()
+    if encoder_layers or encoder_count:
+        vitaly_data.encoder_layout = _build_encoder_layout(
+            encoder_layers,
+            encoder_count,
+            len(qmk_layers),
+            custom_map,
+        )
     return vitaly_data
 
 
@@ -113,6 +126,33 @@ def _build_layer_grid(
 
 def _init_layer_grid(rows: int, cols: int) -> list[list[str]]:
     return [["KC_NO" for _ in range(cols)] for _ in range(rows)]
+
+
+def _build_encoder_layout(
+    encoder_layers: list[list[list[str]]],
+    encoder_count: int,
+    layer_count: int,
+    custom_map: dict[str, str],
+) -> list[list[list[str]]]:
+    output: list[list[list[str]]] = []
+    for layer_index in range(layer_count):
+        pairs = encoder_layers[layer_index] if layer_index < len(encoder_layers) else []
+        if len(pairs) > encoder_count:
+            raise ValueError(
+                f"Layer {layer_index} defines {len(pairs)} encoders, expected at most {encoder_count}"
+            )
+        if any(len(pair) != 2 for pair in pairs):
+            raise ValueError(
+                f"Layer {layer_index} encoder bindings must have two directions"
+            )
+        converted = [
+            [custom_map.get(keycode, keycode) for keycode in pair] for pair in pairs
+        ]
+        converted.extend(
+            [["KC_NO", "KC_NO"] for _ in range(encoder_count - len(converted))]
+        )
+        output.append(converted)
+    return output
 
 
 if __name__ == "__main__":
