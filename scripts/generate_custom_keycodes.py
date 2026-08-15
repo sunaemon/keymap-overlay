@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
+SAFE_RANGE_NAMES = {"SAFE_RANGE", "QK_USER_0"}
+
 
 @app.command()
 def main(
@@ -44,12 +46,14 @@ def _get_safe_range_start(keycodes_json: Path) -> int:
     keycodes_data = parse_json(KeycodesJson, keycodes_json)
 
     for code, name in keycodes_data.root.items():
-        if name == "SAFE_RANGE":
+        if name in SAFE_RANGE_NAMES:
             parsed = parse_hex_keycode(code)
             if parsed is None:
                 raise ValueError(f"Invalid SAFE_RANGE keycode: {code}")
             return parsed
-    raise ValueError(f"SAFE_RANGE not found in {keycodes_json}")
+    raise ValueError(
+        f"SAFE_RANGE not found in {keycodes_json}; QK_USER_0 is also absent"
+    )
 
 
 def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> KeycodesJson:
