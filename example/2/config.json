@@ -1,1 +1,4 @@
-{ "qmk_keyboard": "doio/kb16/rev2" }
+{
+  "qmk_keyboard": "doio/kb16/rev2",
+  "encoders": [{ "matrix": [0, 4] }, { "matrix": [1, 4] }, { "matrix": [2, 4] }]
+}

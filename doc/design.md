@@ -1,29 +1,28 @@
 # Keymap Overlay Design
 
-This project generates images for QMK keymap layers and displays the active
+This project generates display assets for QMK keymap layers and displays the active
 momentary layer in a native overlay, on macOS, Linux and Windows.
 
-## Image Generation
+## Display Asset Generation
 
 ```text
 keymap.c (or VIAL EEPROM with VIAL=true)
   ↓ QMK c2json / Vitaly export
 build/<keyboard>/qmk-keymap.json
-  ↓ postprocess_qmk_keymap.py
-build/<keyboard>/keymap-drawer.yaml
-  ↓ keymap-drawer (one SVG per layer)
-build/<keyboard>/<keyboard>_L<n>.svg
-  ↓ resvg
-build/<keyboard>/<keyboard>_L<n>.png
+  + keyboard.json + config.json + encoder map
+  ↓ first-party display-model generator
+platform-neutral geometry, labels, and state (one model per layer)
+  ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
+  ├─ Linux: Pillow → build/<keyboard>/assets/linux/<keyboard>_L<n>.png
+  └─ Windows: Pillow → build/<keyboard>/assets/windows/<keyboard>_L<n>.png
   ↓ make install-assets
-platform configuration directory/<keyboard>_L<n>.png
+platform configuration directory/<keyboard>_L<n>.<json|png>
 ```
 
-`make install-assets` is the platform-independent image-generation and copy
-target. On macOS and Linux, `make install-overlay` invokes it before installing
-the application. On Windows, generate assets from WSL with `make
-install-assets`, then run the native `make install-overlay`; WSL writes the
-PNGs directly to `%USERPROFILE%/.config/keymap-overlay/`.
+`make install-assets` is the platform-independent model-generation and copy
+target. It installs JSON on macOS and PNG on Linux. On Windows, generate PNGs
+from WSL with `make install-assets`, then run the native `make install-overlay`;
+WSL writes them directly to `%USERPROFILE%/.config/keymap-overlay/`.
 
 ## Runtime Data Flow
 
@@ -35,11 +34,11 @@ QMK Raw HID report (KMO protocol)
 Rust HID listener (hidapi)
   ↓
 native transparent window
-  macOS: eframe/egui
+  macOS: AppKit NSGlassEffectView + NSBox + NSTextField
   Windows: eframe/egui
   Linux: wlr-layer-shell surface, or an override-redirect X11 window
   ↓
-matching <keyboard>_L<layer>.png is displayed
+matching <keyboard>_L<layer> asset is displayed
   ↓
 matching layer key released
   ↓
@@ -77,18 +76,16 @@ keyboard available even when another keyboard kept the previous session alive.
 ## Native Overlay
 
 `crates/keymap-overlay` is one Rust application with four windows. Reading the
-keyboard, deciding what a report means, loading the image, and writing the log
+keyboard, deciding what a report means, loading the asset, and writing the log
 are shared; only the window differs, behind `src/ui/`.
 
-On **macOS** (`src/ui/eframe_window.rs`) the window is an eframe/egui window
-that is undecorated, transparent, always-on-top and click-through. It stays
-mapped as a fully transparent window and hiding drops its image instead of
-unmapping it. This avoids both the native window-show animation and a flash of
-eframe's backing clear colour on every key hold. It is resized to the PNG
-dimensions immediately before the image is drawn, and back to a single pixel
-when it hides: mouse passthrough is all that stops a full-size invisible window
-from taking clicks across its whole rectangle, so a hidden overlay is kept as
-small as a mapped window can be.
+On **macOS** (`src/ui/appkit.rs`) AppKit owns the complete view hierarchy. The
+undecorated, always-on-top, click-through window uses an `NSGlassEffectView` as
+its content. It parses the installed JSON at startup and builds each layer from
+native `NSBox` and `NSTextField` views inside the glass view's `contentView`.
+There is no rasterized key or label foreground on macOS. Hiding swaps in an
+empty content view and shrinks the still-mapped window to one pixel, avoiding
+native show animations on every layer-key press.
 
 The application replaces the former Hammerspoon and Lua integration entirely.
 No synthetic function-key events or Hammerspoon configuration are required.
@@ -153,10 +150,11 @@ is unmapped between key holds, so a hidden Linux overlay is not a window at all.
 macOS and Windows instead keep a transparent, click-through window mapped to
 avoid platform show behaviour that is inappropriate for the overlay.
 
-The image is presented at its own pixel size on all three systems rather than
-being scaled to the display; `DPI` in the Makefile is where an image is sized
-for a screen. Windows reports a scale factor that egui would otherwise apply on
-top, so that backend pins `pixels_per_point` to 1.
+The model uses platform-independent point geometry. On macOS those values are
+AppKit points; on Linux and Windows the generated image is presented at its own
+pixel size. `PIXELS_PER_UNIT` controls the size of one QMK layout unit. Windows
+reports a scale factor that egui would otherwise apply on top, so that backend
+pins `pixels_per_point` to 1.
 
 ### Requirements on Linux
 
@@ -184,8 +182,8 @@ top, so that backend pins `pixels_per_point` to 1.
 ## Installation and Autostart
 
 The normal installation path separates generated assets from the native
-application. `make install-assets` builds keyboard-specific PNGs from the
-source checkout. The platform installer then downloads the latest versioned
+application. `make install-assets` builds keyboard-specific JSON or PNG assets
+from the source checkout. The platform installer then downloads the latest versioned
 release archive, requires a matching entry in `SHA256SUMS`, and, when the
 optional GitHub CLI is present, verifies GitHub artifact attestations. Release
 archives carry the MIT license and generated third-party license notices beside
@@ -194,7 +192,7 @@ the executable.
 The installers stop the running service before replacing its binary, preserve
 the previous binary, notices and service definition until the new service
 starts, and restore them if installation fails. Their uninstall modes remove
-the executable, notices and login entry while retaining generated PNGs and logs.
+the executable, notices and login entry while retaining generated assets and logs.
 
 Developers can instead use `make install-overlay`, which performs the following
 source-build workflow:
@@ -202,8 +200,9 @@ source-build workflow:
 `make install-overlay` performs the following steps:
 
 1. On macOS and Linux, uses the `install-assets` target to generate and
-   install all layer PNG assets. On Windows, verifies that WSL has already
-   generated them under `%USERPROFILE%/.config/keymap-overlay/`.
+   install all layer assets (JSON on macOS, PNG on Linux). On Windows, verifies
+   that WSL has already generated PNGs under
+   `%USERPROFILE%/.config/keymap-overlay/`.
 2. Builds a release binary and installs it as
    `~/.config/keymap-overlay/keymap-overlay` on macOS and Linux, and as
    `%USERPROFILE%/.config/keymap-overlay/keymap-overlay.exe` on Windows.
@@ -238,7 +237,7 @@ The overlay writes logs to:
 Logs rotate at 1 MiB and retain the current file plus three previous files.
 
 `make uninstall-overlay` stops and removes the login service, installed binary,
-and generated PNG assets. It keeps the logs for troubleshooting.
+and generated JSON or PNG assets. It keeps the logs for troubleshooting.
 
 ## Firmware Workflow
 
@@ -270,17 +269,37 @@ The project uses VIAL because `vitaly` can read and write VIAL keymap data for
 the EEPROM-based workflow. This is optional: the default image-generation
 path reads the keymap source compiled into the firmware.
 
-### PNG at Runtime
+### Shared Display Model
 
-The runtime loads PNG files rather than SVGs. Rendering happens during the
-build, and every installed layer PNG is decoded and cached at startup. Layer
-events therefore only select an in-memory image; they never leave the previous
-layer visible while disk I/O or PNG decoding completes.
+The Python generator converts QMK's keymap and keyboard JSON into one small,
+versioned display model per layer. The model contains only canvas geometry,
+labels, held-state flags, and encoder actions; it contains no toolkit-specific
+objects and does not pass through keymap-drawer, YAML, SVG, or another schema.
+macOS installs this model as JSON and renders it with AppKit. Linux and Windows
+use the same in-memory model as input to the first-party Pillow compatibility
+renderer, which supersamples and downsamples a transparent RGBA PNG for smooth
+edges. Keys use quiet, nearly opaque fills and a low-contrast hairline so they
+stay distinct over bright and dark backgrounds; the held layer key alone
+receives its pale tint. Display-only Unicode labels come from single-character
+comments on `custom_keycodes` entries or an explicit `keymap-overlay-labels`
+comment block in `keymap.c`. Platform blocks suffixed with `-macos`, `-linux`,
+or `-windows` override common labels; `OVERLAY_PLATFORM` selects the target and
+defaults to the current host. Encoder placement is the only project-specific geometry:
+QMK knows the encoder count and pins but not where knobs sit, so `config.json`
+maps each encoder to its push-switch matrix position or to explicit `x`/`y`
+layout coordinates. Matrix placement replaces the normal key drawing with one
+circular knob, places counter-clockwise and clockwise actions above it, and
+keeps its push action centred inside.
+
+The macOS runtime parses every installed JSON model and builds its native view
+tree at startup. Linux and Windows decode and cache every installed PNG at
+startup. Layer events therefore only select an in-memory view or image; they
+never leave the previous layer visible while disk I/O or decoding completes.
 
 Events already waiting when a UI loop wakes are reduced to their final active
 layer before the window changes. Intermediate restores and switches are not
-drawn on the way to a newer layer or a hide, and the macOS window clears its
-last texture while hiding so a later map cannot expose a stale frame.
+drawn on the way to a newer layer or a hide, and the macOS window swaps to an
+empty content view while hiding so a later map cannot expose stale content.
 
 ### Four Windows Rather Than One Toolkit
 
@@ -292,15 +311,13 @@ cannot ask for an override-redirect window, so what it produces is a managed
 window: measured taking focus every time it appeared, and never receiving the
 always-on-top state it asked for.
 
-So each system gets the window it can actually support. eframe covers macOS and
-Windows, where it works; keeping it off Linux also keeps egui, glutin and
+So each system gets the window it can actually support. AppKit covers macOS,
+eframe covers Windows, and keeping eframe off Linux also keeps egui, glutin and
 accesskit out of that dependency tree.
 
-Windows and macOS run the same toolkit but not the same file, because the one
-thing that matters most differs between them: macOS hides the window between
-key holds and Windows cannot, for the reasons above. Merging the two behind
-`cfg` attributes would put that difference in the middle of every method rather
-than in one place.
+Windows and macOS use different native-window implementations because macOS
+can compose Liquid Glass and native controls directly while Windows needs the mapped,
+non-activating behaviour described above.
 
 The cost is four windows to maintain, each exercised only by the CI job for its
 own system, and only one of the four — the layer surface — with real guarantees

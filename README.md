@@ -7,8 +7,10 @@
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#project-status)
 
 This project builds QMK firmware that reports momentary layer changes over Raw
-HID, generates one PNG for each keymap layer, and displays the active layer in
-a native overlay on macOS, Linux, and Windows.
+HID, generates one display asset for each keymap layer, and displays the active
+layer in a native overlay on macOS, Linux, and Windows. macOS installs semantic
+JSON and draws every key, encoder, and label with AppKit; Linux and Windows use
+PNGs generated from the same display model.
 
 ![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
 
@@ -28,7 +30,7 @@ platforms and stability guarantees.
 
 The normal workflow deliberately uses two distribution models:
 
-- **Firmware and layer images come from the source checkout.** Keep the
+- **Firmware and layer assets come from the source checkout.** Keep the
   checkout because `make flash`, `make flash-keymap`, and
   `make install-assets` depend on the keyboard-specific files in `example/`
   and the vendored `qmk_firmware` submodule.
@@ -38,23 +40,23 @@ The normal workflow deliberately uses two distribution models:
 
 Each release archive contains the overlay executable, the MIT license, and
 third-party license notices. It does not contain firmware or keyboard-specific
-PNGs.
+assets.
 
 This repository currently includes configurations for
 `salicylic_acid3/insixty_en` and `doio/kb16/rev2`. Each directory under
 `example/` is named with its `KEYBOARD_ID`. The ID is compiled into the
-firmware, sent in the Raw HID report, and used as the PNG filename prefix, so it
+firmware, sent in the Raw HID report, and used as the asset filename prefix, so it
 must be an integer from 0 through 255.
 
 ## Platform Support
 
-|                | macOS                       | Linux                                           | Windows                       |
-| -------------- | --------------------------- | ----------------------------------------------- | ----------------------------- |
-| Overlay window | eframe/egui                 | `zwlr_layer_shell_v1` surface, or an X11 window | eframe/egui                   |
-| Autostart      | launchd agent               | systemd user unit                               | current-user Run registry key |
-| Raw HID access | Input Monitoring permission | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant              |
-| Firmware tools | source checkout on macOS    | source checkout on Linux                        | source checkout in WSL        |
-| Overlay binary | GitHub Release              | GitHub Release                                  | GitHub Release                |
+|                | macOS                                   | Linux                                           | Windows                       |
+| -------------- | --------------------------------------- | ----------------------------------------------- | ----------------------------- |
+| Overlay window | Native AppKit glass, controls, and text | `zwlr_layer_shell_v1` surface, or an X11 window | eframe/egui                   |
+| Autostart      | launchd agent                           | systemd user unit                               | current-user Run registry key |
+| Raw HID access | Input Monitoring permission             | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant              |
+| Firmware tools | source checkout on macOS                | source checkout on Linux                        | source checkout in WSL        |
+| Overlay binary | GitHub Release                          | GitHub Release                                  | GitHub Release                |
 
 On Linux, the overlay uses `zwlr_layer_shell_v1` on COSMIC, sway, Hyprland,
 wayfire, and KDE Plasma. On GNOME, X11, and compositors without layer-shell, it
@@ -83,7 +85,7 @@ If the installed firmware cannot enter the bootloader:
 ## Install on macOS or Linux
 
 These steps build and flash the keyboard firmware from source, generate the
-layer PNGs, and install the latest released overlay binary.
+layer assets, and install the latest released overlay binary.
 
 ### 1. Clone the firmware and asset sources
 
@@ -127,14 +129,16 @@ On Linux, the Makefile mounts an rp2040 `RPI-RP2` volume at
 `/run/media/$USER/RPI-RP2` before QMK deploys the `.uf2`. Set `SUDO=` if the
 desktop already mounts it, or set `UF2_VOLUME_LABEL` for another volume label.
 
-### 3. Generate the layer images
+### 3. Generate the layer assets
 
 ```bash
 make install-assets
 ```
 
-Run this again after changing the keymap. It installs PNGs such as `1_L1.png`
-under `~/.config/keymap-overlay`.
+Run this again after changing the keymap. On macOS it installs JSON models such
+as `1_L1.json` under `~/.config/keymap-overlay`; the native overlay renders
+their keys, encoders, and text directly with AppKit. Linux installs PNGs made
+from the same model.
 
 On Linux, also grant the logged-in user access to the Raw HID interfaces and
 reconnect any keyboard that was already plugged in:
@@ -174,7 +178,7 @@ Run `sh ~/.config/keymap-overlay/install.sh` to upgrade to the latest release.
 The normal Windows workflow uses two environments:
 
 - **WSL `keymap-firmware`** holds the source checkout, builds and flashes QMK
-  firmware, and generates PNGs.
+  firmware, and generates PNGs from the shared display model.
 - **PowerShell** installs and runs the released native Windows overlay.
 
 MSYS2 and Visual Studio Build Tools are not required unless developing the
@@ -285,6 +289,7 @@ From the WSL checkout:
 WINDOWS_PROFILE="$(cd /mnt/c && cmd.exe /C echo %USERPROFILE% | tr -d '\r')"
 WINDOWS_HOME="$(wslpath "$WINDOWS_PROFILE")"
 make install-assets \
+  OVERLAY_PLATFORM=windows \
   KEYMAP_OVERLAY_DIR="$WINDOWS_HOME/.config/keymap-overlay"
 ```
 
@@ -335,12 +340,12 @@ powershell.exe -ExecutionPolicy Bypass -File "$env:USERPROFILE\.config\keymap-ov
 ```
 
 Uninstalling stops and removes the overlay executable, installed license
-notices, and login entry. Generated layer PNGs and rotated logs are retained so
+notices, and login entry. Generated layer assets and rotated logs are retained so
 they can be reused after reinstalling or inspected for troubleshooting.
 
 ## Updating a Keymap
 
-The source checkout remains the authority for firmware and images:
+The source checkout remains the authority for firmware and display assets:
 
 ```bash
 git pull --recurse-submodules
@@ -370,7 +375,7 @@ Start-Process "$overlay\keymap-overlay.exe" -ArgumentList "`"$overlay`""
 
 ## VIAL Keymaps
 
-For a keyboard running VIAL-enabled firmware, generate images from the keymap
+For a keyboard running VIAL-enabled firmware, generate display assets from the keymap
 currently stored in EEPROM:
 
 ```bash
@@ -410,7 +415,70 @@ mkdir -p keyboards
 cp -R keymap-overlay/example/. keyboards/
 ```
 
-Run source-based firmware and image commands with an absolute
+Each keyboard's `config.json` names its QMK keyboard. If it has rotary
+encoders, list them in QMK encoder order and place each at its push-switch
+matrix position:
+
+```json
+{
+  "qmk_keyboard": "doio/kb16/rev2",
+  "encoders": [{ "matrix": [0, 4] }, { "matrix": [1, 4] }, { "matrix": [2, 4] }]
+}
+```
+
+The display-model generator replaces those keys with circular knobs showing counter-clockwise,
+clockwise, and push actions. For an encoder without a push switch, use explicit
+QMK layout coordinates such as `{ "x": 4, "y": 0 }` instead.
+
+Display-only Unicode labels can live beside the keymap without changing the
+firmware. A one-character trailing comment on a `custom_keycodes` entry becomes
+that key's label:
+
+```c
+enum custom_keycodes {
+  KC_ALPHA = SAFE_RANGE, // α
+  KC_BETA,               // β
+};
+```
+
+Map standard or multi-character keycodes in a common comment block anywhere in
+`keymap.c`:
+
+```c
+/* keymap-overlay-labels
+KC_APP = ☰
+KC_LEFT = ←
+*/
+```
+
+Add `-macos`, `-linux`, or `-windows` to override labels for one target:
+
+```c
+/* keymap-overlay-labels-macos
+KC_LGUI = ⌘
+KC_LALT = ⌥
+*/
+
+/* keymap-overlay-labels-linux
+KC_LGUI = Super
+KC_LALT = Alt
+*/
+
+/* keymap-overlay-labels-windows
+KC_LGUI = ⊞
+KC_LALT = Alt
+*/
+```
+
+Asset generation targets the current host by default. Set
+`OVERLAY_PLATFORM=windows` when WSL is producing assets for the native Windows
+overlay; this selects the Windows label block as well as the platform asset
+format.
+
+These annotations are consumed only by `make install-assets`; the C compiler
+sees ordinary comments.
+
+Run source-based firmware and asset commands with an absolute
 `KEYBOARDS_DIR`, because `make -C` changes the working directory:
 
 ```bash
@@ -424,8 +492,8 @@ make -C keymap-overlay \
   install-assets
 ```
 
-The binary installer is unchanged; it reads the generated PNGs from the
-platform configuration directory.
+The binary installer is unchanged. The runtime reads platform assets from the
+configuration directory: JSON on macOS, PNG on Linux and Windows.
 
 ## Getting Started for Development
 

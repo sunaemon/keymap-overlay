@@ -19,8 +19,8 @@ targets that would do so stop with a message pointing at WSL, macOS or Linux.
 
 There are three parts:
 
-1. **Python scripts** (`scripts/`, `src/`) that turn a QMK keymap into the JSON
-   `keymap-drawer` needs, and that push keymaps to VIAL devices.
+1. **Python scripts** (`scripts/`, `src/`) that build the shared display model,
+   render compatibility PNGs, and push keymaps to VIAL devices.
 2. **Rust crates** (`crates/`) that implement the Raw HID protocol and the
    overlay window.
 3. **Firmware glue** (`firmware/`, `example/`) that sends the Raw HID reports.
@@ -33,8 +33,11 @@ There are three parts:
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
 - `generate_custom_keycodes.py`: Extracts the `custom_keycodes` enum from
   `keymap.c` and assigns each entry its numeric value.
-- `postprocess_qmk_keymap.py`: Prepares the QMK keymap JSON for **drawing**.
-  Applies custom keycode names and resolves `KC_TRNS`.
+- `generate_overlay_asset.py`: Builds the shared display model and emits macOS
+  JSON or a transparent PNG,
+  including encoder rotation and push actions. It resolves custom keycode names
+  and `KC_TRNS` in memory for display only, and reads Unicode label annotations
+  from common and platform-specific blocks in `keymap.c`.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
@@ -46,21 +49,27 @@ There are three parts:
 
 Transparency resolution is for **display only**. `KC_TRNS` must survive intact
 on the path that writes to the device, otherwise layers stop inheriting from
-layer 0 in EEPROM. `flash-keymap` therefore consumes the _raw_ keymap JSON,
-never `$(QMK_KEYMAP_JSON)`.
+layer 0 in EEPROM. `flash-keymap` and the renderer therefore consume the same
+raw QMK JSON; only the renderer resolves transparency, in memory.
 
-### 2. Visualization (`keymap-drawer`)
+### 2. Visualization
 
-The project uses [keymap-drawer](https://github.com/caksoylar/keymap-drawer) to
-turn QMK JSON into SVGs, then `resvg` to rasterize them to PNG.
+The first-party generator produces a platform-neutral model from QMK
+`keyboard.json`; encoder positions come from each keyboard's project
+`config.json`, because QMK describes encoder pins but not their physical layout.
+macOS installs JSON and draws the model with AppKit. Linux and Windows use the
+Pillow renderer to produce a transparent RGBA PNG from the same model. An
+encoder placed at a matrix position replaces that push key with one circular
+control showing counter-clockwise, clockwise, and push actions.
 
 ### 3. Rust Crates (`crates/`)
 
 - `keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and its
   tests. Pure logic, no I/O, so it stays unit-testable.
 - `keymap-overlay`: the overlay binary. Listens for Raw HID reports on a
-  background thread and shows `<keyboard_id>_L<layer>.png` in a transparent,
-  always-on-top, click-through window.
+  background thread and shows `<keyboard_id>_L<layer>.json` on macOS or the
+  corresponding PNG elsewhere in a transparent, always-on-top, click-through
+  window.
 
 `main.rs` holds everything the systems share — the listener, the transitions,
 image loading, the rotating log — and `src/ui/` holds the one thing they cannot
@@ -110,14 +119,15 @@ would leave it on screen indefinitely.
 
 `KEYBOARD_ID` identifies a keyboard end to end — it is a directory name under
 `$(KEYBOARDS_DIR)`, a `-DKEYBOARD_ID` macro in the firmware, one byte in the
-Raw HID report, and the prefix of the installed PNGs. It must be an integer
+Raw HID report, and the prefix of the installed layer assets. It must be an integer
 between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 
 ## Tech Stack
 
 - **Python**: keymap data extraction and processing.
   - `uv`: package manager. `pydantic` for validation, `typer` for CLIs.
-- **Rust**: the overlay (`eframe`/`egui`, `hidapi`).
+- **Rust**: the overlay (AppKit on macOS, `eframe`/`egui` on Windows, native
+  Wayland/X11 on Linux, and `hidapi`).
 - **Makefile**: orchestrates build, installation, and flashing.
 - **mise**: pins every tool version, including formatters and linters.
 - **lefthook**: manages the git hooks declared in `lefthook.yml`.
@@ -130,7 +140,7 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 ```bash
 make setup              # Install system dependencies and toolchains
 make install-udev-rules # Linux only: grant Raw HID access to the login user
-make install-assets     # Generate and copy layer PNG assets
+make install-assets     # Generate and copy platform layer assets
 make install-overlay    # Build and install the login service
 ```
 
@@ -328,7 +338,7 @@ Use one-line triple-quoted docstrings for functions and classes, e.g.:
 - `typings/`: Type stubs for Python libraries.
 - `tests/`: pytest suite and its JSON fixtures.
 - `doc/`: Design documentation and README images.
-- `build/`: Generated artifacts (JSON, SVG, PNG). Not checked in.
+- `build/`: Generated artifacts (JSON and PNG). Not checked in.
 - `qmk_firmware/`: The QMK firmware submodule.
 
 ## Important Files

@@ -45,6 +45,67 @@ enum custom_keycodes {
   KC_OMEGA               // ω
 };
 
+/* keymap-overlay-labels
+KC_UP = ↑
+KC_DOWN = ↓
+KC_LEFT = ←
+KC_RIGHT = →
+KC_HOME = ↖
+KC_END = ↘
+KC_PGUP = ⇞
+KC_PGDN = ⇟
+KC_ESC = ⎋
+KC_TAB = ⇥
+KC_BSPC = ⌫
+KC_DEL = ⌦
+KC_ENT = ↩
+KC_APP = ☰
+KC_MINS = -
+KC_EQL = =
+KC_BSLS = \
+KC_GRV = `
+KC_LBRC = [
+KC_RBRC = ]
+KC_SCLN = ;
+KC_QUOT = '
+KC_COMM = ,
+KC_DOT = .
+KC_SLSH = /
+*/
+
+/* keymap-overlay-labels-macos
+KC_LGUI = ⌘
+KC_RGUI = ⌘
+KC_LALT = ⌥
+KC_RALT = ⌥
+KC_LCTL = ⌃
+KC_RCTL = ⌃
+KC_LSFT = ⇧
+KC_RSFT = ⇧
+*/
+
+/* keymap-overlay-labels-linux
+KC_LGUI = Super
+KC_RGUI = Super
+KC_LALT = Alt
+KC_RALT = Alt
+KC_LCTL = Ctrl
+KC_RCTL = Ctrl
+KC_LSFT = Shift
+KC_RSFT = Shift
+*/
+
+/* keymap-overlay-labels-windows
+KC_LGUI = ⊞
+KC_RGUI = ⊞
+KC_LALT = Alt
+KC_RALT = Alt
+KC_LCTL = Ctrl
+KC_RCTL = Ctrl
+KC_LSFT = Shift
+KC_RSFT = Shift
+*/
+
 // clang-format off
 const uint16_t PROGMEM keymaps[DYNAMIC_KEYMAP_LAYER_COUNT][MATRIX_ROWS][MATRIX_COLS] = {
     [0] = LAYOUT(

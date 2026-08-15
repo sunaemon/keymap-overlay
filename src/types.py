@@ -35,6 +35,9 @@ class LayoutKey(BaseModelAllow):
     w: float = 1.0
     h: float = 1.0
     label: str | None = None
+    r: float = 0.0
+    rx: float | None = None
+    ry: float | None = None
 
 
 class Layout(BaseModelAllow):
@@ -77,6 +80,30 @@ class EncoderConfig(BaseModelAllow):
     """Configures the keyboard's rotary encoders."""
 
     rotary: list[RotaryEncoder]
+
+
+class EncoderPlacement(BaseModel):
+    """Places one encoder at a key matrix position or explicit coordinates."""
+
+    matrix: tuple[int, int] | None = None
+    x: float | None = None
+    y: float | None = None
+
+    @model_validator(mode="after")
+    def _validate_position(self) -> "EncoderPlacement":
+        has_coordinates = self.x is not None or self.y is not None
+        if self.matrix is not None and has_coordinates:
+            raise ValueError("encoder placement cannot mix matrix and coordinates")
+        if self.matrix is None and (self.x is None or self.y is None):
+            raise ValueError("encoder placement requires matrix or both x and y")
+        return self
+
+
+class KeyboardConfig(BaseModel):
+    """Project-specific keyboard settings outside QMK's schema."""
+
+    qmk_keyboard: str
+    encoders: list[EncoderPlacement] = Field(default_factory=list)
 
 
 class KeyboardJson(BaseModelAllow):
@@ -240,6 +267,8 @@ class VitalyJson(BaseModelAllow):
     # dimension: layer -> row -> col
     # cf. https://github.com/bskaplou/vitaly/blob/93f08de4b6022007f4e3e655b6d76682e275f4cc/src/protocol.rs#L454
     layout: list[list[list[str]]]
+    # dimension: layer -> encoder -> direction (counter-clockwise, clockwise)
+    encoder_layout: list[list[list[str]]] | None = None
 
 
 class JSONReadError(RuntimeError):

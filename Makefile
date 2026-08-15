@@ -24,6 +24,13 @@ else
 $(error keymap-overlay supports macOS, Linux and Windows, not '$(UNAME_S)')
 endif
 
+# Asset generation normally targets the current host. WSL must override this
+# to `windows` because it generates files for the native Windows overlay.
+OVERLAY_PLATFORM ?= $(OS_FAMILY)
+ifeq (,$(filter $(OVERLAY_PLATFORM),macos linux windows))
+$(error OVERLAY_PLATFORM must be macos, linux or windows, got '$(OVERLAY_PLATFORM)')
+endif
+
 # Cargo names the binary after the target, and the login service needs the name
 # that exists on disk.
 ifeq ($(OS_FAMILY),windows)
@@ -45,7 +52,6 @@ WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WS
 VIAL ?= false
 
 # ================= TOOLS CONFIGURATION =================
-RSVG ?= $(MISE) exec -- resvg
 MISE ?= mise
 # Format and lint tools are pinned in mise.dev.toml, which mise only loads when
 # MISE_ENV=dev is set.
@@ -75,7 +81,6 @@ CARGO_AUDIT ?= $(MISE_DEV) exec -- cargo-audit
 CARGO_ABOUT ?= $(MISE_DEV) exec -- cargo-about
 LEFTHOOK ?= $(MISE) exec -- lefthook
 QMK ?= $(QMK_ENV) $(MISE) exec -- qmk
-KEYMAP ?= $(MISE) exec -- keymap
 UV ?= $(MISE) exec -- uv
 CARGO ?= $(MISE) exec -- cargo
 VITALY ?= $(MISE) exec cargo:vitaly@$(VITALY_VERSION) -- vitaly
@@ -184,6 +189,7 @@ KEYMAP_PREFIX := $(KEYBOARD_ID)_
 # Type: src/types.py:KeyboardJson
 KEYBOARD_JSON := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json
 QMK_KEYMAP_C := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/keymap.c
+KEYBOARD_CONFIG := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json
 
 # Evaluated on first use and then cached, so that targets which never need it
 # (clean, compile, flash, print-vars) do not pay for a Python startup.
@@ -191,7 +197,7 @@ DEVICE_PID = $(eval DEVICE_PID := $(shell $(UV) run python -c "import json; prin
 
 LAYOUT_NAME := LAYOUT
 
-DPI ?= 144
+PIXELS_PER_UNIT ?= 64
 
 # ================= BUILD CONFIGURATION =================
 BUILD_DIR := build/$(KEYBOARD_ID)
@@ -199,31 +205,22 @@ ABS_BUILD_DIR := $(abspath $(BUILD_DIR))
 
 QMK_FLAGS += -e BUILD_DIR=$(ABS_BUILD_DIR)/qmk_build
 
-# Contains the full keymap definition (layers, keycodes) in QMK format.
+# Contains the full, unmodified keymap definition (layers, keycodes) in QMK format.
 # Type: src/types.py:QmkKeymapJson
 # Generated from: 'qmk c2json' (source) or 'generate_qmk_keymap_from_vitaly.py' (VIAL).
-# Used by: 'keymap-drawer' (visuals), 'generate_vitaly_layout.py' (flashing).
+# Used by: the overlay asset generator, 'generate_vitaly_layout.py' (flashing).
 QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
-
-# Unprocessed QMK JSON used as input for postprocessing.
-QMK_KEYMAP_JSON_RAW := $(BUILD_DIR)/qmk-keymap.raw.json
-
-# Intermediate representation for keymap-drawer.
-# Type: keymap-drawer schema (not in src/types.py)
-# Generated from: 'keymap parse' using $(QMK_KEYMAP_JSON).
-# Used by: 'keymap draw' to generate SVG images.
-KEYMAP_DRAWER_YAML := $(BUILD_DIR)/keymap-drawer.yaml
 
 # Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_keycodes.py' scanning QMK firmware.
-# Used by: 'postprocess_qmk_keymap.py' for name resolution.
+# Used by: the overlay asset generator for name resolution.
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
 # Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from keymap.c.
 # Type: src/types.py:KeycodesJson
 # Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c'.
-# Used by: 'postprocess_qmk_keymap.py', 'generate_vitaly_layout.py' to preserve custom codes.
+# Used by: the overlay asset generator and 'generate_vitaly_layout.py'.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 
 # VIAL-compatible keyboard definition (matrix, layout, VID/PID).
@@ -240,9 +237,19 @@ VITALY_JSON := $(BUILD_DIR)/vitaly.json
 
 # Same lazy-and-cached treatment as DEVICE_PID. These are only meaningful once
 # $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
-# first pass and then re-enter make to expand $(PNG).
+# first pass and then re-enter make to expand $(ASSETS).
 LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
-PNG = $(eval PNG := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(BUILD_DIR)/$(KEYMAP_PREFIX)L%g.png" 0 $$(( $(LAYERS) - 1 )); fi))$(PNG)
+ifeq ($(OVERLAY_PLATFORM),macos)
+ASSET_EXTENSION := json
+ASSET_FORMAT := json
+STALE_ASSET_EXTENSION := png
+else
+ASSET_EXTENSION := png
+ASSET_FORMAT := png
+STALE_ASSET_EXTENSION := json
+endif
+ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)
+ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%g.$(ASSET_EXTENSION)" 0 $$(( $(LAYERS) - 1 )); fi))$(ASSETS)
 
 endif
 
@@ -362,13 +369,13 @@ doctor:
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
 # Because LAYERS depends on $(QMK_KEYMAP_JSON), install-assets and draw-layers
-# build the JSON in a first make invocation, then re-enter make to expand PNG.
+# build the QMK JSON in a first make invocation, then re-enter make to expand assets.
 .PHONY: install-assets
 ifeq ($(OS_FAMILY),windows)
 install-assets:
 	@echo "ERROR: install-assets must run in WSL, not MSYS2."; \
 		echo "Run it from the shared checkout with:"; \
-		echo "  make install-assets KEYMAP_OVERLAY_DIR=\"\$$WINDOWS_HOME/.config/keymap-overlay\""; \
+		echo "  make install-assets OVERLAY_PLATFORM=windows KEYMAP_OVERLAY_DIR=\"\$$WINDOWS_HOME/.config/keymap-overlay\""; \
 		exit 1
 else
 install-assets:
@@ -601,6 +608,7 @@ uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_BINARY)"
 	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.png
+	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.json
 	@echo "✔ Overlay service and installed assets removed; logs remain at $(KEYMAP_OVERLAY_LOG_DIR)"
 
 .PHONY: _uninstall_service_macos
@@ -743,14 +751,14 @@ ifeq ($(VIAL),true)
 	$(error flash-keymap writes keymap.c to the device; VIAL=true would read the device and write it straight back)
 endif
 ifdef KEYBOARD_ID
-	@$(MAKE) $(QMK_KEYMAP_JSON_RAW) $(CUSTOM_KEYCODES_JSON)
+	@$(MAKE) $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 	@echo "Fetching current configuration from device..."
 	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
 	@echo "Merging QMK keymap into Vitaly configuration..."
-	@# Uses the raw keymap, not $(QMK_KEYMAP_JSON): postprocessing resolves KC_TRNS
-	@# for drawing, and writing those resolved keys to EEPROM would break inheritance.
-	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON_RAW)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)")
+	@# The renderer resolves KC_TRNS only in memory. This source JSON remains raw,
+	@# so writing it to EEPROM preserves transparent-key inheritance.
+	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)")
 	@echo "Loading new configuration to device..."
 	$(VITALY) -i $(DEVICE_PID) load -f $(BUILD_DIR)/vitaly_ready.json
 else
@@ -773,10 +781,8 @@ endif
 print-vars:
 	@echo "VIAL=$(VIAL)"
 	@echo ""
-	@echo "RSVG=$(RSVG)"
 	@echo "MISE=$(MISE)"
 	@echo "QMK=$(QMK)"
-	@echo "KEYMAP=$(KEYMAP)"
 	@echo "UV=$(UV)"
 	@echo "VITALY=$(VITALY)"
 	@echo ""
@@ -785,20 +791,22 @@ print-vars:
 	@echo "KEYMAP_PREFIX=$(KEYMAP_PREFIX)"
 	@echo "QMK_KEYMAP=$(QMK_KEYMAP)"
 	@echo "KEYBOARD_JSON=$(KEYBOARD_JSON)"
+	@echo "KEYBOARD_CONFIG=$(KEYBOARD_CONFIG)"
 	@echo "QMK_KEYMAP_C=$(QMK_KEYMAP_C)"
 	@echo "DEVICE_PID=$(DEVICE_PID)"
 	@echo "LAYOUT_NAME=$(LAYOUT_NAME)"
-	@echo "DPI=$(DPI)"
+	@echo "PIXELS_PER_UNIT=$(PIXELS_PER_UNIT)"
 	@echo ""
 	@echo "BUILD_DIR=$(BUILD_DIR)"
+	@echo "ASSET_BUILD_DIR=$(ASSET_BUILD_DIR)"
 	@echo "QMK_KEYMAP_JSON=$(QMK_KEYMAP_JSON)"
-	@echo "KEYMAP_DRAWER_YAML=$(KEYMAP_DRAWER_YAML)"
 	@echo "KEYCODES_JSON=$(KEYCODES_JSON)"
 	@echo "CUSTOM_KEYCODES_JSON=$(CUSTOM_KEYCODES_JSON)"
 	@echo "VIAL_JSON=$(VIAL_JSON)"
 	@echo "VITALY_JSON=$(VITALY_JSON)"
 	@echo "LAYERS=$(LAYERS)"
-	@echo "PNG=$(PNG)"
+	@echo "ASSETS=$(ASSETS)"
+	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
 	@echo ""
 	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
 	@echo "KEYBOARDS_DIR=$(KEYBOARDS_DIR)"
@@ -806,32 +814,37 @@ print-vars:
 # ================= INTERNAL TARGETS =================
 
 .PHONY: _internal_install
-_internal_install: $(PNG)
+_internal_install: $(ASSETS)
 	@if [ "$(LAYERS)" -eq "0" ]; then \
 		echo "ERROR: No layers found even after generation."; \
 		exit 1; \
 	fi
 	@echo "Installing keymap overlay assets..."
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)"
-	@cp $(BUILD_DIR)/$(KEYMAP_PREFIX)L*.png "$(KEYMAP_OVERLAY_DIR)/"
+	@cp $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION) "$(KEYMAP_OVERLAY_DIR)/"
+	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(STALE_ASSET_EXTENSION)
 	@echo "✔ Overlay assets installed; run 'make run-overlay' to start the native app"
 
 .PHONY: _internal_draw_layers
-_internal_draw_layers: $(PNG)
+_internal_draw_layers: $(ASSETS)
 
 # ================= FILE RULES =================
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/%.png: $(BUILD_DIR)/%.svg
-	$(RSVG) --dpi $(DPI) "$<" "$@"
+$(ASSET_BUILD_DIR):
+	mkdir -p $(ASSET_BUILD_DIR)
 
-$(BUILD_DIR)/$(KEYMAP_PREFIX)L%.svg: $(KEYMAP_DRAWER_YAML) | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(KEYMAP) draw "$(KEYMAP_DRAWER_YAML)" -j "$(KEYBOARD_JSON)" -l "$(LAYOUT_NAME)" -s "L$*")
+RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) scripts/generate_overlay_asset.py src/types.py src/util.py
+ifeq ($(VIAL),true)
+RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)" --vitaly-json "$(VITALY_JSON)"
+else
+RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
+endif
 
-$(KEYMAP_DRAWER_YAML): $(QMK_KEYMAP_JSON) | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(KEYMAP) parse -q $(QMK_KEYMAP_JSON))
+$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(ASSET_BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --output-format "$(ASSET_FORMAT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
 
 .PHONY: _force_build
 _force_build:
@@ -842,27 +855,25 @@ _force_build:
 # reach the compiler, never this JSON, so listing them would rebuild the assets
 # for changes that cannot alter them. sort also dedupes keymap.c out of the
 # wildcard; the explicit entry stays so a missing keymap.c is still an error.
-QMK_KEYMAP_JSON_RAW_DEPS := $(sort $(QMK_KEYMAP_C) $(KEYBOARD_JSON) \
+QMK_KEYMAP_JSON_DEPS := $(sort $(QMK_KEYMAP_C) $(KEYBOARD_JSON) \
 	$(wildcard $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/*))
-QMK_KEYMAP_JSON_RAW_ORDER_DEPS := $(BUILD_DIR)
+QMK_KEYMAP_JSON_ORDER_DEPS := $(BUILD_DIR)
 ifeq ($(VIAL),true)
-QMK_KEYMAP_JSON_RAW_DEPS += _force_build
+QMK_KEYMAP_JSON_DEPS += _force_build
 else
 # The example's keyboard definition and keymap live outside QMK's vendored
 # tree. Install them before c2json validates -kb, including on a fresh clone.
 #
 # Order-only, unlike _force_build above, which is phony on purpose. A phony
 # normal prerequisite is always out of date, so it would remake the raw JSON on
-# every invocation and cascade through the YAML, every SVG and every PNG —
-# re-running keymap draw and resvg per layer per keyboard with nothing changed.
+# every invocation and cascade through every asset, re-running the renderer per
+# layer per keyboard with nothing changed.
 # This only has to have run before c2json validates -kb, which is what
 # order-only means. The files it copies are tracked above, as themselves.
-QMK_KEYMAP_JSON_RAW_ORDER_DEPS += _copy_firmware
+QMK_KEYMAP_JSON_ORDER_DEPS += _copy_firmware
 endif
 
-QMK_KEYMAP_JSON_DEPS := scripts/postprocess_qmk_keymap.py $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_JSON_RAW)
-
-$(QMK_KEYMAP_JSON_RAW): $(QMK_KEYMAP_JSON_RAW_DEPS) | $(QMK_KEYMAP_JSON_RAW_ORDER_DEPS)
+$(QMK_KEYMAP_JSON): $(QMK_KEYMAP_JSON_DEPS) | $(QMK_KEYMAP_JSON_ORDER_DEPS)
 ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)
@@ -872,9 +883,6 @@ else
 	@echo "Compiling QMK JSON from source..."
 	$(call WRITE_OUTPUT,$@,$(QMK) c2json --no-cpp -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) "$(QMK_KEYMAP_C)")
 endif
-
-$(QMK_KEYMAP_JSON): $(QMK_KEYMAP_JSON_DEPS) | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.postprocess_qmk_keymap "$(QMK_KEYMAP_JSON_RAW)" --custom-keycodes-json $(CUSTOM_KEYCODES_JSON))
 
 $(KEYCODES_JSON): scripts/generate_keycodes.py | $(BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_keycodes --qmk-dir "$(QMK_HOME)")

@@ -8,8 +8,6 @@ rust = { version = "1.97.1", components = "rustfmt,clippy", profile = "default" 
 python = "3.14.7"
 uv = "0.12.3"
 "pipx:qmk" = "1.2.0"
-"pipx:keymap-drawer" = "0.23.0"
-"cargo:resvg" = "0.48.1"
 
 [env]
 # vitaly is only needed for the VIAL flashing workflow and is an expensive
