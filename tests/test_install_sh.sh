@@ -147,7 +147,7 @@ test_linux_install_and_uninstall() {
   home="$TEST_DIRECTORY/linux home"
   assets="$home/.config/keymap-overlay"
   mkdir -p "$assets"
-  : >"$assets/1_L0.png"
+  : >"$assets/1_L0.json"
   : >"$home/commands.log"
 
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
@@ -164,7 +164,7 @@ test_linux_install_and_uninstall() {
   test ! -e "$assets/keymap-overlay"
   test ! -e "$assets/install.sh"
   test ! -e "$unit"
-  test -f "$assets/1_L0.png"
+  test -f "$assets/1_L0.json"
   test -d "$home/.local/var/log/keymap-overlay"
 }
 
@@ -172,11 +172,12 @@ test_macos_stops_service_before_replacing_binary() {
   home="$TEST_DIRECTORY/macos home"
   assets="$home/.config/keymap-overlay"
   mkdir -p "$assets"
-  : >"$assets/1_L0.png"
+  : >"$assets/1_L0.json"
   : >"$home/commands.log"
 
   run_installer "$home" Darwin arm64 keymap-overlay-macos-arm64.tar.gz
 
+  test -d "$home/.local/var/log/keymap-overlay"
   stop_line=$(grep -n 'launchctl bootout' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   install_line=$(grep -n 'install .*keymap-overlay' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   test "$stop_line" -lt "$install_line"
@@ -187,7 +188,7 @@ test_failed_service_install_rolls_back() {
   assets="$home/.config/keymap-overlay"
   unit="$home/.config/systemd/user/keymap-overlay.service"
   mkdir -p "$assets" "$(dirname "$unit")"
-  : >"$assets/1_L0.png"
+  : >"$assets/1_L0.json"
   printf 'old binary\n' >"$assets/keymap-overlay"
   printf 'old license\n' >"$assets/LICENSE"
   printf 'old notices\n' >"$assets/THIRD-PARTY-LICENSES.html"

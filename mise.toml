@@ -43,4 +43,7 @@ ruff check --fix .
 ty check --extra-search-path typings .
 shellcheck install.sh tests/test_install_sh.sh
 cargo clippy --workspace --all-targets -- -D warnings
+if [ "$(uname -s)" = Linux ]; then
+  cargo clippy --manifest-path crates/keymap-overlay-qt-bridge/Cargo.toml --all-targets -- -D warnings
+fi
 """

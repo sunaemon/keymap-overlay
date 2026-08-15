@@ -25,11 +25,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # libudev backs hidapi's hidraw enumeration, libwayland-client the
-      # layer-shell window and libX11 the fallback one, so all three are needed
-      # to compile the overlay at all, not just to link the release binary.
+      # libudev backs hidapi's hidraw enumeration. Qt Quick draws the Linux
+      # model, and LayerShellQt gives its window KDE's Wayland overlay role.
       - name: Install Rust system dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libudev-dev libwayland-dev libx11-dev
+        run: sudo apt-get update && sudo apt-get install --yes libudev-dev qt6-base-dev qt6-declarative-dev
 
       - name: Install mise
         uses: jdx/mise-action@v4
@@ -68,8 +67,8 @@ jobs:
         run: git diff --exit-code
 
   # The macOS half of the overlay: hidapi talks to IOKit, the window comes from
-  # eframe, and the binary is installed as a launchd agent. None of that is
-  # compiled by the Linux job, which builds the layer-shell backend instead.
+  # AppKit, and the binary is installed as a launchd agent. None of that is
+  # compiled by the Linux job, which builds the Qt backend instead.
   macos-build-and-test:
     runs-on: macos-latest
 

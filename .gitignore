@@ -17,6 +17,7 @@ __pycache__/
 
 # Rust
 target/
+crates/keymap-overlay-qt-bridge/Cargo.lock
 # WSL builds against a shared Windows-home checkout use CARGO_TARGET_DIR to
 # keep their output away from the MSYS2 one; see README's Setup on Windows.
 target-wsl/

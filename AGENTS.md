@@ -9,10 +9,10 @@ how to work in the repository, not how the system is designed.
 
 ## Project Overview
 
-The project renders one image per QMK keymap layer and displays the matching
-image in a native overlay while a momentary layer key is held, on macOS, Linux
-and Windows. The keyboard reports layer presses over Raw HID; a Rust
-application listens for those reports and shows the image.
+The project renders one display model per QMK keymap layer and displays the
+matching model in a native overlay while a momentary layer key is held, on
+macOS, Linux and Windows. The keyboard reports layer presses over Raw HID; a
+Rust application listens for those reports and updates the window.
 
 Firmware is the exception: it is not compiled or flashed on Windows, and the
 targets that would do so stop with a message pointing at WSL, macOS or Linux.
@@ -33,8 +33,8 @@ There are three parts:
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
 - `generate_custom_keycodes.py`: Extracts the `custom_keycodes` enum from
   `keymap.c` and assigns each entry its numeric value.
-- `generate_overlay_asset.py`: Builds the shared display model and emits macOS
-  JSON or a transparent PNG,
+- `generate_overlay_asset.py`: Builds the shared display model and emits native
+  JSON for macOS/Linux or a transparent Windows PNG,
   including encoder rotation and push actions. It resolves custom keycode names
   and `KC_TRNS` in memory for display only, and reads Unicode label annotations
   from common and platform-specific blocks in `keymap.c`.
@@ -57,8 +57,8 @@ raw QMK JSON; only the renderer resolves transparency, in memory.
 The first-party generator produces a platform-neutral model from QMK
 `keyboard.json`; encoder positions come from each keyboard's project
 `config.json`, because QMK describes encoder pins but not their physical layout.
-macOS installs JSON and draws the model with AppKit. Linux and Windows use the
-Pillow renderer to produce a transparent RGBA PNG from the same model. An
+macOS and Linux install JSON and draw the model with AppKit or Qt Quick.
+Windows uses the Pillow renderer to produce a transparent RGBA PNG. An
 encoder placed at a matrix position replaces that push key with one circular
 control showing counter-clockwise, clockwise, and push actions.
 
@@ -67,41 +67,36 @@ control showing counter-clockwise, clockwise, and push actions.
 - `keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and its
   tests. Pure logic, no I/O, so it stays unit-testable.
 - `keymap-overlay`: the overlay binary. Listens for Raw HID reports on a
-  background thread and shows `<keyboard_id>_L<layer>.json` on macOS or the
-  corresponding PNG elsewhere in a transparent, always-on-top, click-through
-  window.
+  background thread and shows `<keyboard_id>_L<layer>.json` on macOS/Linux or
+  the corresponding Windows PNG in a transparent, always-on-top,
+  click-through window.
+- `keymap-overlay-qt-bridge`: the audited Linux-only CXX boundary. This is the
+  sole crate allowed to contain generated unsafe FFI; its public API is safe,
+  and protocol/application logic remains in crates that forbid unsafe code.
 
 `main.rs` holds everything the systems share — the listener, the transitions,
 image loading, the rotating log — and `src/ui/` holds the one thing they cannot
 share:
 
-- `ui/eframe_window.rs`: the macOS window, an eframe/egui window. Layer events
-  are drained in `App::logic`, not `App::ui`: eframe runs no egui pass while the
-  viewport is hidden, which is where this overlay sits between key holds, so
-  work put in `ui` would never run when the press that shows it arrives.
+- `ui/appkit.rs`: the native macOS AppKit window and semantic JSON renderer.
 - `ui/windows.rs`: the Windows window, also eframe/egui, but mapped once and
   never hidden. Hiding it would take focus — winit gives a window only one
   non-activating show — so "hidden" there means drawing nothing, and the clear
   colour has to be fully transparent rather than eframe's translucent default.
   Read the module comment before changing anything about when it shows.
-- `ui/wayland.rs`: a `zwlr_layer_shell_v1` surface drawn into a `wl_shm` buffer.
-  A plain Wayland window cannot stay on top or pass clicks through, so this is
-  not a portability nicety; it is the only way the overlay works there.
-- `ui/x11.rs`: an override-redirect winit window drawn directly over X11, for
-  compositors with no layer shell (GNOME) and for X11 sessions. Override-redirect
-  rather than `_NET_WM_STATE_ABOVE` because a managed window takes focus when it
-  is mapped, which would swallow the keystrokes the layer key was held for; see
-  `doc/design.md`.
-- `ui/linux.rs`: picks between the last two, honouring `KEYMAP_OVERLAY_BACKEND`.
+- `ui/qt.rs`: reduces HID events in Rust and wakes the native Qt main loop over
+  a Unix datagram socket. The bridge's C++ side builds a Qt Quick window from
+  semantic JSON; KDE LayerShellQt supplies the Wayland overlay surface.
 
-Cargo gates the dependencies per target, which is why eframe is kept off Linux
-and hidapi uses hidraw there rather than its default libusb backend, and its
-own `windows-native` backend on Windows. Keep new dependencies on the same side
-of that line as the code using them.
+Cargo gates the dependencies per target, which is why Qt/CXX is kept on Linux,
+eframe is kept on Windows, and hidapi uses hidraw on Linux rather than its
+default libusb backend. Keep new dependencies on the same side of that line as
+the code using them.
 
-The overlay is event-driven. Delivering an event also wakes the UI thread —
-`request_repaint()` on macOS, a calloop channel on Linux, behind the
-`LayerEventSink` trait — so there is no polling loop and no periodic repaint.
+The overlay is event-driven. Delivering an event also wakes the UI thread — an
+AppKit channel on macOS, a Unix datagram watched by `QSocketNotifier` on Linux,
+or `request_repaint()` on Windows, behind the `LayerEventSink` trait — so there
+is no polling loop and no periodic repaint.
 Do not reintroduce one: this process runs from login to logout, so idle cost
 matters.
 
@@ -126,8 +121,8 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 
 - **Python**: keymap data extraction and processing.
   - `uv`: package manager. `pydantic` for validation, `typer` for CLIs.
-- **Rust**: the overlay (AppKit on macOS, `eframe`/`egui` on Windows, native
-  Wayland/X11 on Linux, and `hidapi`).
+- **Rust/C++**: the overlay (AppKit on macOS, `eframe`/`egui` on Windows, Qt
+  Quick plus KDE LayerShellQt on Linux, and `hidapi`).
 - **Makefile**: orchestrates build, installation, and flashing.
 - **mise**: pins every tool version, including formatters and linters.
 - **lefthook**: manages the git hooks declared in `lefthook.yml`.
@@ -183,7 +178,7 @@ make lint         # ruff check, ty, cargo clippy -D warnings
 make test         # pytest
 make test-rust    # cargo test --workspace
 make test-installer-sh # release installer integration tests with stubbed services
-make build-overlay # cargo build --release -p keymap-overlay
+make build-overlay # build the release overlay for the current platform
 make audit        # cargo-audit against the RustSec advisory database
 make licenses     # regenerate release third-party license notices
 ```
@@ -197,9 +192,9 @@ third-party notices, then fails if any of that produced a diff. On macOS it
 runs `test`, `test-installer-sh`, `test-rust` and `build-overlay`. On Windows it
 runs `test`, the `install.ps1` Pester suite, `test-rust` and `build-overlay`; the
 other Windows steps set `shell: bash` so the Makefile runs under Git Bash. Each
-job builds only its own windows, so a change to `ui/eframe_window.rs` is
-compiled by the macOS job alone, `ui/windows.rs` by the Windows job alone, and
-`ui/wayland.rs` or `ui/x11.rs` by the Linux job. A fourth job runs `make audit`.
+job builds only its own window, so `ui/appkit.rs` is compiled by the macOS job,
+`ui/windows.rs` by the Windows job, and the Qt bridge by the Linux job. A
+fourth job runs `make audit`.
 
 Only the Linux job lints, so Windows-only code is never seen by clippy in CI.
 Run `cargo clippy --target x86_64-pc-windows-msvc -p keymap-overlay -- -D warnings`
@@ -320,7 +315,9 @@ Use one-line triple-quoted docstrings for functions and classes, e.g.:
 
 ### Rust
 
-- The workspace forbids `unsafe_code` and denies clippy warnings; keep it that way.
+- Application crates forbid `unsafe_code` and deny clippy warnings. The sole
+  exception is `keymap-overlay-qt-bridge`, whose CXX-generated FFI is allowed
+  to be unsafe behind one safe public function; do not expand that boundary.
 - Keep protocol and other pure logic in `keymap-core` where it can be tested
   without hardware, and confine I/O to `keymap-overlay`.
 - Use `anyhow::Context` to attach the path or device to an error rather than

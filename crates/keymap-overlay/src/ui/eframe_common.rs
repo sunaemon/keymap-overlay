@@ -12,8 +12,7 @@ use crate::{
     spawn_raw_hid_listener,
 };
 
-/// The size of a hidden overlay: one transparent pixel. Neither window can be
-/// unmapped, so this is as absent as a mapped window gets.
+/// The size of the hidden Windows overlay: one transparent pixel.
 pub(crate) const IDLE_SIZE: f32 = 1.0;
 
 pub(crate) struct PlatformHooks {
@@ -22,7 +21,7 @@ pub(crate) struct PlatformHooks {
     pub(crate) before_logic: fn(&egui::Context),
 }
 
-/// The viewport properties an overlay needs on either system.
+/// The viewport properties the Windows overlay needs.
 ///
 /// Undecorated, transparent, above everything and invisible to the pointer, and
 /// built inactive so that the first show does not take focus.
@@ -155,7 +154,7 @@ impl OverlayApp {
 
     /// Drops the image and shrinks the window back to [`IDLE_SIZE`].
     ///
-    /// Neither system can unmap this window, so hiding is drawing nothing. The
+    /// Windows cannot safely remap this window, so hiding is drawing nothing. The
     /// shrink is what keeps that from leaving a full-size invisible window on
     /// top of everything: mouse passthrough is the only thing stopping such a
     /// window from taking clicks across its whole rectangle, and a single pixel
@@ -178,8 +177,7 @@ impl OverlayApp {
 /// previous layer's size — the resize above has not been applied yet. The size
 /// is known here, so the position is computed from it directly.
 ///
-/// Unlike `x11.rs::centered_position`, which adds `MonitorHandle::position()`,
-/// this cannot centre on the monitor the window happens to be on: `ViewportInfo`
+/// This cannot centre on the monitor the window happens to be on: `ViewportInfo`
 /// carries `monitor_size` but no monitor origin, while `OuterPosition` is in
 /// virtual-desktop coordinates. On a multi-monitor desktop the overlay therefore
 /// lands on the primary monitor. Fixing it needs the current monitor's rect from
@@ -198,17 +196,16 @@ fn center_on_monitor(context: &egui::Context, size: Vec2) {
 }
 
 impl eframe::App for OverlayApp {
-    /// Fully transparent, unlike eframe's translucent-grey default, because both
-    /// windows stay mapped while idle: anything opaque here would sit on screen
+    /// Fully transparent, unlike eframe's translucent-grey default, because the
+    /// window stays mapped while idle: anything opaque here would sit on screen
     /// for the whole session.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
     }
 
     /// Events are drained in the logic pass, not in `ui`: eframe runs no egui
-    /// pass while a viewport is hidden, which is where the macOS overlay sits
-    /// between key holds, so work put in `ui` would never run when the press
-    /// that shows it arrives.
+    /// pass while a viewport is hidden. Keeping this out of `ui` also makes the
+    /// event reduction independent of whether a texture is currently drawn.
     fn logic(&mut self, context: &egui::Context, _: &mut eframe::Frame) {
         (self.hooks.before_logic)(context);
         self.process_events(context);

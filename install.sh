@@ -62,7 +62,7 @@ uninstall_release() {
   echo "  licenses: ${LICENSE_PATH}, ${THIRD_PARTY_LICENSES_PATH}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
-  echo "Kept layer PNGs: ${ASSET_DIRECTORY}"
+  echo "Kept layer assets: ${ASSET_DIRECTORY}"
   echo "Kept logs: ${LOG_DIRECTORY}"
 }
 
@@ -70,6 +70,7 @@ configure_platform() {
   case "$(uname -s):$(uname -m)" in
     Darwin:arm64)
       asset_name='keymap-overlay-macos-arm64.tar.gz'
+      asset_extension='json'
       checksum_command='shasum'
       service_path="${HOME}/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist"
       service_installer=install_macos_service
@@ -79,6 +80,7 @@ configure_platform() {
       ;;
     Linux:x86_64)
       asset_name='keymap-overlay-linux-x86_64.tar.gz'
+      asset_extension='json'
       checksum_command='sha256sum'
       service_path="${HOME}/.config/systemd/user/keymap-overlay.service"
       service_installer=install_linux_service
@@ -102,8 +104,8 @@ require_command() {
 
 require_layer_assets() {
   if [ ! -d "$ASSET_DIRECTORY" ] ||
-    ! find "$ASSET_DIRECTORY" -maxdepth 1 -type f -name '*.png' -print -quit | grep -q .; then
-    echo "ERROR: no layer PNGs found in ${ASSET_DIRECTORY}." >&2
+    ! find "$ASSET_DIRECTORY" -maxdepth 1 -type f -name "*.${asset_extension}" -print -quit | grep -q .; then
+    echo "ERROR: no layer ${asset_extension} assets found in ${ASSET_DIRECTORY}." >&2
     echo 'Generate assets from a source checkout before installing the binary.' >&2
     exit 1
   fi
@@ -330,7 +332,7 @@ print_installed_files() {
   echo "  third-party licenses: ${THIRD_PARTY_LICENSES_PATH}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
-  echo "Using existing layer PNGs: ${ASSET_DIRECTORY}"
+  echo "Using existing layer assets: ${ASSET_DIRECTORY}"
   echo "Logs: ${LOG_DIRECTORY}"
   echo "Verified release: ${release_tag}"
 }
