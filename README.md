@@ -9,8 +9,8 @@
 This project builds QMK firmware that reports momentary layer changes over Raw
 HID, generates one display asset for each keymap layer, and displays the active
 layer in a native overlay on macOS, Linux, and Windows. All three systems
-install semantic JSON and draw every key, encoder, and label with AppKit, Qt
-Quick, or WPF.
+install semantic JSON, compose held layers with QMK precedence, and draw every
+key, encoder, and label with AppKit, Qt Quick, or WPF.
 
 ![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
 
@@ -140,9 +140,9 @@ desktop already mounts it, or set `UF2_VOLUME_LABEL` for another volume label.
 make install-assets
 ```
 
-Run this again after changing the keymap. On macOS and Linux it installs JSON
-models such as `1_L1.json` under `~/.config/keymap-overlay`; the native overlay
-renders their keys, encoders, and text directly with AppKit or Qt Quick.
+Run this again after changing the keymap. It installs JSON models such as
+`1_L1.json` under `~/.config/keymap-overlay`; the native overlay renders their
+keys, encoders, and text directly with AppKit, Qt Quick, or WPF.
 
 On Linux, also grant the logged-in user access to the Raw HID interfaces and
 reconnect any keyboard that was already plugged in:

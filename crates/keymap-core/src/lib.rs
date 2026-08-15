@@ -14,31 +14,32 @@ pub struct RawLayerEvent {
     pub pressed: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ActiveLayerChange {
     Unchanged,
-    Changed(Option<(u8, u8)>),
+    Changed(Option<ActiveLayerState>),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActiveLayerState {
+    pub keyboard_id: u8,
+    pub layers: Vec<u8>,
 }
 
 /// Updates held momentary layers and reports whether the active layer changed.
 pub fn transition_for(held_keys: &mut Vec<(u8, u8)>, event: RawLayerEvent) -> ActiveLayerChange {
+    let previous = active_layer_state(held_keys);
     let key = (event.keyboard_id, event.layer);
     if event.pressed {
         held_keys.retain(|held_key| *held_key != key);
         held_keys.push(key);
-        ActiveLayerChange::Changed(Some(key))
     } else {
         let Some(index) = held_keys.iter().position(|held_key| *held_key == key) else {
             return ActiveLayerChange::Unchanged;
         };
-        let was_active = index == held_keys.len() - 1;
         held_keys.remove(index);
-        if was_active {
-            ActiveLayerChange::Changed(held_keys.last().copied())
-        } else {
-            ActiveLayerChange::Unchanged
-        }
     }
+    change_between(previous, active_layer_state(held_keys))
 }
 
 /// Removes held layers belonging to a disconnected keyboard.
@@ -49,14 +50,35 @@ pub fn transition_for_disconnect(
     let Some(keyboard_id) = keyboard_id else {
         return ActiveLayerChange::Unchanged;
     };
-    let was_active = held_keys
-        .last()
-        .is_some_and(|(held_keyboard_id, _)| *held_keyboard_id == keyboard_id);
+    let previous = active_layer_state(held_keys);
     held_keys.retain(|(held_keyboard_id, _)| *held_keyboard_id != keyboard_id);
-    if was_active {
-        ActiveLayerChange::Changed(held_keys.last().copied())
-    } else {
+    change_between(previous, active_layer_state(held_keys))
+}
+
+fn active_layer_state(held_keys: &[(u8, u8)]) -> Option<ActiveLayerState> {
+    let keyboard_id = held_keys.last()?.0;
+    let mut layers = held_keys
+        .iter()
+        .filter_map(|(held_keyboard_id, layer)| {
+            (*held_keyboard_id == keyboard_id).then_some(*layer)
+        })
+        .collect::<Vec<_>>();
+    layers.sort_unstable();
+    layers.dedup();
+    Some(ActiveLayerState {
+        keyboard_id,
+        layers,
+    })
+}
+
+fn change_between(
+    previous: Option<ActiveLayerState>,
+    current: Option<ActiveLayerState>,
+) -> ActiveLayerChange {
+    if previous == current {
         ActiveLayerChange::Unchanged
+    } else {
+        ActiveLayerChange::Changed(current)
     }
 }
 
@@ -137,11 +159,18 @@ mod tests {
         }
     }
 
+    fn state(keyboard_id: u8, layers: &[u8]) -> Option<ActiveLayerState> {
+        Some(ActiveLayerState {
+            keyboard_id,
+            layers: layers.to_vec(),
+        })
+    }
+
     #[test]
     fn pressing_a_layer_makes_it_active() {
         assert_eq!(
             transition_for(&mut vec![], event(1, 2, true)),
-            ActiveLayerChange::Changed(Some((1, 2)))
+            ActiveLayerChange::Changed(state(1, &[2]))
         );
     }
 
@@ -151,18 +180,28 @@ mod tests {
 
         assert_eq!(
             transition_for(&mut held_keys, event(1, 3, false)),
-            ActiveLayerChange::Changed(Some((1, 2)))
+            ActiveLayerChange::Changed(state(1, &[2]))
         );
         assert_eq!(held_keys, vec![(1, 2)]);
     }
 
     #[test]
-    fn releasing_an_inactive_layer_does_not_change_the_active_layer() {
+    fn pressing_a_lower_layer_keeps_layers_in_qmk_precedence_order() {
+        let mut held_keys = vec![(1, 3)];
+
+        assert_eq!(
+            transition_for(&mut held_keys, event(1, 1, true)),
+            ActiveLayerChange::Changed(state(1, &[1, 3]))
+        );
+    }
+
+    #[test]
+    fn releasing_a_lower_layer_updates_transparency_state() {
         let mut held_keys = vec![(1, 2), (1, 3)];
 
         assert_eq!(
             transition_for(&mut held_keys, event(1, 2, false)),
-            ActiveLayerChange::Unchanged
+            ActiveLayerChange::Changed(state(1, &[3]))
         );
         assert_eq!(held_keys, vec![(1, 3)]);
     }
@@ -173,7 +212,7 @@ mod tests {
 
         assert_eq!(
             transition_for_disconnect(&mut held_keys, Some(1)),
-            ActiveLayerChange::Changed(Some((2, 3)))
+            ActiveLayerChange::Changed(state(2, &[3]))
         );
         assert_eq!(held_keys, vec![(2, 3)]);
     }

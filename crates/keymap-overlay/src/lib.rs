@@ -5,12 +5,14 @@ mod ui;
 use anyhow::{Context, Result};
 use hidapi::{HidApi, HidDevice};
 use keymap_core::{
-    ActiveLayerChange, RawLayerEvent, carries_report_magic, parse_raw_layer_event, transition_for,
-    transition_for_disconnect,
+    ActiveLayerChange, ActiveLayerState, RawLayerEvent, carries_report_magic,
+    parse_raw_layer_event, transition_for, transition_for_disconnect,
 };
 #[cfg(not(target_os = "windows"))]
 use log::error;
 use log::{info, warn};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
@@ -64,6 +66,54 @@ pub enum ListenerEvent {
     Disconnected { keyboard_id: Option<u8> },
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct OverlayModel {
+    pub(crate) version: u8,
+    pub(crate) layer: u8,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) header_font_size: f64,
+    pub(crate) key_font_size: f64,
+    pub(crate) encoder_font_size: f64,
+    pub(crate) keys: Vec<DisplayKey>,
+    pub(crate) encoders: Vec<DisplayEncoder>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct DisplayKey {
+    pub(crate) x: u32,
+    pub(crate) y: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) label: Vec<String>,
+    pub(crate) held: bool,
+    #[serde(default)]
+    pub(crate) transparent: bool,
+    #[serde(default)]
+    pub(crate) momentary_layer: Option<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct DisplayEncoder {
+    pub(crate) x: u32,
+    pub(crate) y: u32,
+    pub(crate) size: u32,
+    pub(crate) counter_clockwise: Vec<String>,
+    pub(crate) clockwise: Vec<String>,
+    pub(crate) press: String,
+    pub(crate) held: bool,
+    #[serde(default)]
+    pub(crate) counter_clockwise_transparent: bool,
+    #[serde(default)]
+    pub(crate) clockwise_transparent: bool,
+    #[serde(default)]
+    pub(crate) press_transparent: bool,
+    #[serde(default)]
+    pub(crate) momentary_layer: Option<u8>,
+}
+
+pub(crate) type ModelCache = HashMap<(u8, u8), OverlayModel>;
+
 pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
     let session = hotplug::RunningSession::default();
     hotplug::spawn_watcher(session.clone());
@@ -80,11 +130,11 @@ pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
 }
 
 /// What a report should do to the overlay, given the held momentary layers.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum Transition {
     Show {
         keyboard_id: u8,
-        layer: u8,
+        layers: Vec<u8>,
     },
     Hide,
     #[default]
@@ -130,11 +180,106 @@ pub fn transition_for_event(held_keys: &mut Vec<(u8, u8)>, event: ListenerEvent)
     };
     match change {
         ActiveLayerChange::Unchanged => Transition::Ignore,
-        ActiveLayerChange::Changed(Some((keyboard_id, layer))) => {
-            Transition::Show { keyboard_id, layer }
-        }
+        ActiveLayerChange::Changed(Some(ActiveLayerState {
+            keyboard_id,
+            layers,
+        })) => Transition::Show {
+            keyboard_id,
+            layers,
+        },
         ActiveLayerChange::Changed(None) => Transition::Hide,
     }
+}
+
+/// Loads every installed semantic layer model before the listener can show one.
+pub(crate) fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
+    let mut models = HashMap::new();
+    for entry in fs::read_dir(assets_dir)
+        .with_context(|| format!("Failed to read asset directory {}", assets_dir.display()))?
+    {
+        let entry = entry
+            .with_context(|| format!("Failed to read an entry in {}", assets_dir.display()))?;
+        let path = entry.path();
+        let Some(key) = model_key(&path) else {
+            continue;
+        };
+        let model: OverlayModel = serde_json::from_reader(
+            File::open(&path).with_context(|| format!("Failed to open {}", path.display()))?,
+        )
+        .with_context(|| format!("Failed to parse {}", path.display()))?;
+        if !matches!(model.version, 1 | 2) {
+            anyhow::bail!(
+                "Unsupported overlay model version {} in {}",
+                model.version,
+                path.display()
+            );
+        }
+        if model.layer != key.1 {
+            anyhow::bail!("Layer in {} does not match its filename", path.display());
+        }
+        models.insert(key, model);
+    }
+    Ok(models)
+}
+
+fn model_key(path: &Path) -> Option<(u8, u8)> {
+    if !path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+    {
+        return None;
+    }
+    let (keyboard_id, layer) = path.file_stem()?.to_str()?.split_once("_L")?;
+    Some((keyboard_id.parse().ok()?, layer.parse().ok()?))
+}
+
+pub(crate) fn compose_model(
+    models: &ModelCache,
+    keyboard_id: u8,
+    layers: &[u8],
+) -> Option<OverlayModel> {
+    let mut model = models.get(&(keyboard_id, 0))?.clone();
+    for layer in layers {
+        let overlay = models.get(&(keyboard_id, *layer))?;
+        apply_overlay(&mut model, overlay)?;
+        model.layer = *layer;
+    }
+    for key in &mut model.keys {
+        key.held = key
+            .momentary_layer
+            .is_some_and(|layer| layers.contains(&layer));
+    }
+    for encoder in &mut model.encoders {
+        encoder.held = encoder
+            .momentary_layer
+            .is_some_and(|layer| layers.contains(&layer));
+    }
+    model.version = 2;
+    Some(model)
+}
+
+fn apply_overlay(model: &mut OverlayModel, overlay: &OverlayModel) -> Option<()> {
+    if overlay.keys.len() != model.keys.len() || overlay.encoders.len() != model.encoders.len() {
+        return None;
+    }
+    for (key, overlay_key) in model.keys.iter_mut().zip(&overlay.keys) {
+        if !overlay_key.transparent {
+            *key = overlay_key.clone();
+        }
+    }
+    for (encoder, overlay_encoder) in model.encoders.iter_mut().zip(&overlay.encoders) {
+        if !overlay_encoder.counter_clockwise_transparent {
+            encoder.counter_clockwise = overlay_encoder.counter_clockwise.clone();
+        }
+        if !overlay_encoder.clockwise_transparent {
+            encoder.clockwise = overlay_encoder.clockwise.clone();
+        }
+        if !overlay_encoder.press_transparent {
+            encoder.press = overlay_encoder.press.clone();
+            encoder.momentary_layer = overlay_encoder.momentary_layer;
+        }
+    }
+    Some(())
 }
 
 /// Initializes the rotating file logger used by every platform frontend.
@@ -398,6 +543,33 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn display_key(label: &str, transparent: bool, momentary_layer: Option<u8>) -> DisplayKey {
+        DisplayKey {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+            label: vec![label.to_owned()],
+            held: false,
+            transparent,
+            momentary_layer,
+        }
+    }
+
+    fn overlay_model(layer: u8, keys: Vec<DisplayKey>) -> OverlayModel {
+        OverlayModel {
+            version: 2,
+            layer,
+            width: 10,
+            height: 10,
+            header_font_size: 14.0,
+            key_font_size: 10.0,
+            encoder_font_size: 10.0,
+            keys,
+            encoders: vec![],
+        }
+    }
+
     #[test]
     fn active_layer_changes_are_translated_for_the_ui() {
         assert_eq!(
@@ -411,7 +583,7 @@ mod tests {
             ),
             Transition::Show {
                 keyboard_id: 1,
-                layer: 2,
+                layers: vec![2],
             }
         );
         assert_eq!(
@@ -432,6 +604,50 @@ mod tests {
             ),
             Transition::Ignore
         );
+    }
+
+    #[test]
+    fn models_follow_qmk_precedence_and_transparency() {
+        let mut models = ModelCache::new();
+        models.insert(
+            (1, 0),
+            overlay_model(
+                0,
+                vec![
+                    display_key("BASE A", false, None),
+                    display_key("L3", false, Some(3)),
+                ],
+            ),
+        );
+        models.insert(
+            (1, 1),
+            overlay_model(
+                1,
+                vec![
+                    display_key("LAYER 1", false, None),
+                    display_key("", true, None),
+                ],
+            ),
+        );
+        models.insert(
+            (1, 3),
+            overlay_model(
+                3,
+                vec![
+                    display_key("", true, None),
+                    display_key("LAYER 3", false, None),
+                ],
+            ),
+        );
+
+        let composed = compose_model(&models, 1, &[1, 3]).expect("composed model");
+
+        assert_eq!(composed.layer, 3);
+        assert_eq!(composed.keys[0].label, ["LAYER 1"]);
+        assert_eq!(composed.keys[1].label, ["LAYER 3"]);
+
+        let without_layer_one = compose_model(&models, 1, &[3]).expect("composed model");
+        assert_eq!(without_layer_one.keys[0].label, ["BASE A"]);
     }
 
     #[test]
@@ -479,7 +695,7 @@ mod tests {
             pending.take(),
             Transition::Show {
                 keyboard_id: 1,
-                layer: 2,
+                layers: vec![2],
             }
         );
         assert_eq!(pending.take(), Transition::Ignore);
@@ -503,7 +719,7 @@ mod tests {
             pending.take(),
             Transition::Show {
                 keyboard_id: 1,
-                layer: 2,
+                layers: vec![2],
             }
         );
     }

@@ -1,25 +1,21 @@
 #include "src/qt_backend.h"
 
+#include <QByteArray>
 #include <QDebug>
-#include <QDir>
-#include <QFile>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickWindow>
-#include <QRegularExpression>
 #include <QSocketNotifier>
 #include <QString>
 #include <QUrl>
 
-#include <array>
 #include <cerrno>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <fcntl.h>
-#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -30,8 +26,8 @@
 
 namespace {
 
-constexpr std::uint8_t Show = 1;
 constexpr std::uint8_t Hide = 2;
+constexpr std::size_t MaxPacketSize = 1024 * 1024;
 
 constexpr auto overlay_qml = R"QML(
 import QtQuick
@@ -162,9 +158,6 @@ private:
   int descriptor_;
 };
 
-using ModelKey = std::pair<std::uint8_t, std::uint8_t>;
-using Models = std::map<ModelKey, QJsonObject>;
-
 std::runtime_error qml_error(const QQmlComponent &component) {
   QStringList errors;
   for (const auto &error : component.errors()) {
@@ -173,98 +166,39 @@ std::runtime_error qml_error(const QQmlComponent &component) {
   return std::runtime_error(errors.join('\n').toStdString());
 }
 
-Models load_models(const QString &assets_dir) {
-  const QDir directory(assets_dir);
-  if (!directory.exists()) {
-    throw std::runtime_error("Overlay asset directory does not exist: " +
-                             assets_dir.toStdString());
-  }
-
-  const QRegularExpression filename_pattern(
-      QStringLiteral(R"(^(\d+)_L(\d+)\.json$)"));
-  Models models;
-  for (const auto &filename :
-       directory.entryList({QStringLiteral("*_L*.json")}, QDir::Files)) {
-    const auto match = filename_pattern.match(filename);
-    if (!match.hasMatch()) {
-      continue;
-    }
-    bool keyboard_ok = false;
-    bool layer_ok = false;
-    const auto keyboard_id = match.captured(1).toUInt(&keyboard_ok);
-    const auto layer = match.captured(2).toUInt(&layer_ok);
-    if (!keyboard_ok || !layer_ok || keyboard_id > 255 || layer > 255) {
-      continue;
-    }
-
-    QFile file(directory.filePath(filename));
-    if (!file.open(QIODevice::ReadOnly)) {
-      throw std::runtime_error("Failed to open overlay model: " +
-                               file.fileName().toStdString());
-    }
-    QJsonParseError parse_error;
-    const auto document = QJsonDocument::fromJson(file.readAll(), &parse_error);
-    if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
-      throw std::runtime_error("Failed to parse overlay model " +
-                               file.fileName().toStdString() + ": " +
-                               parse_error.errorString().toStdString());
-    }
-    const auto model = document.object();
-    if (model.value(QStringLiteral("version")).toInt() != 1) {
-      throw std::runtime_error("Unsupported overlay model version in " +
-                               file.fileName().toStdString());
-    }
-    if (model.value(QStringLiteral("layer")).toInt(-1) !=
-        static_cast<int>(layer)) {
-      throw std::runtime_error(
-          "Overlay model layer does not match its filename: " +
-          file.fileName().toStdString());
-    }
-    const auto width = model.value(QStringLiteral("width")).toInt();
-    const auto height = model.value(QStringLiteral("height")).toInt();
-    if (width <= 0 || height <= 0) {
-      throw std::runtime_error("Overlay model has invalid dimensions: " +
-                               file.fileName().toStdString());
-    }
-    models.emplace(ModelKey{static_cast<std::uint8_t>(keyboard_id),
-                            static_cast<std::uint8_t>(layer)},
-                   model);
-  }
-  return models;
-}
-
-void apply_packet(QQuickWindow &window, const Models &models,
-                  const std::array<std::uint8_t, 3> &packet) {
-  if (packet[0] == Hide) {
+void apply_packet(QQuickWindow &window, const QByteArray &packet) {
+  if (packet.size() == 1 &&
+      static_cast<std::uint8_t>(packet.front()) == Hide) {
     window.hide();
     return;
   }
-  if (packet[0] != Show) {
-    return;
+  QJsonParseError parse_error;
+  const auto document = QJsonDocument::fromJson(packet, &parse_error);
+  if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+    throw std::runtime_error("Failed to parse an overlay model event: " +
+                             parse_error.errorString().toStdString());
   }
-  const auto model = models.find({packet[1], packet[2]});
-  if (model == models.end()) {
-    qWarning() << "Overlay model is unavailable for keyboard"
-               << static_cast<int>(packet[1]) << "layer"
-               << static_cast<int>(packet[2]);
-    window.hide();
-    return;
+  const auto model = document.object();
+  const auto width = model.value(QStringLiteral("width")).toInt();
+  const auto height = model.value(QStringLiteral("height")).toInt();
+  if (model.value(QStringLiteral("version")).toInt() != 2 || width <= 0 ||
+      height <= 0) {
+    throw std::runtime_error("The overlay model event is invalid");
   }
-  window.setProperty("overlayModel", model->second.toVariantMap());
-  window.resize(model->second.value(QStringLiteral("width")).toInt(),
-                model->second.value(QStringLiteral("height")).toInt());
+  window.setProperty("overlayModel", model.toVariantMap());
+  window.resize(width, height);
   window.show();
 }
 
-void drain_packets(OwnedFileDescriptor &descriptor, QQuickWindow &window,
-                   const Models &models) {
-  std::array<std::uint8_t, 3> packet{};
-  std::optional<std::array<std::uint8_t, 3>> latest;
+void drain_packets(OwnedFileDescriptor &descriptor, QQuickWindow &window) {
+  QByteArray packet;
+  packet.resize(static_cast<qsizetype>(MaxPacketSize));
+  std::optional<QByteArray> latest;
   while (true) {
-    const auto count =
-        ::recv(descriptor.get(), packet.data(), packet.size(), 0);
-    if (count == static_cast<ssize_t>(packet.size())) {
-      latest = packet;
+    const auto count = ::recv(descriptor.get(), packet.data(),
+                              static_cast<std::size_t>(packet.size()), 0);
+    if (count > 0) {
+      latest = packet.left(static_cast<qsizetype>(count));
       continue;
     }
     if (count == -1 && errno == EINTR) {
@@ -281,26 +215,21 @@ void drain_packets(OwnedFileDescriptor &descriptor, QQuickWindow &window,
       throw std::system_error(errno, std::generic_category(),
                               "Failed to receive Qt events");
     }
-    throw std::runtime_error(
-        "The Qt event socket returned a malformed datagram");
   }
   if (latest) {
-    apply_packet(window, models, *latest);
+    apply_packet(window, *latest);
   }
 }
 
 } // namespace
 
-void run_qt_overlay(rust::Str assets_dir, std::int32_t event_fd) {
+void run_qt_overlay(std::int32_t event_fd) {
   OwnedFileDescriptor descriptor(event_fd);
   int argc = 1;
   char program_name[] = "keymap-overlay";
   char *argv[] = {program_name, nullptr};
   QGuiApplication application(argc, argv);
 
-  const auto path = QString::fromUtf8(
-      assets_dir.data(), static_cast<qsizetype>(assets_dir.size()));
-  const auto models = load_models(path);
   QQmlEngine engine;
   QQmlComponent component(&engine);
   component.setData(overlay_qml,
@@ -325,9 +254,9 @@ void run_qt_overlay(rust::Str assets_dir, std::int32_t event_fd) {
   }
   QSocketNotifier notifier(descriptor.get(), QSocketNotifier::Read);
   QObject::connect(&notifier, &QSocketNotifier::activated,
-                   [&descriptor, window, &models] {
+                   [&descriptor, window] {
                      try {
-                       drain_packets(descriptor, *window, models);
+                       drain_packets(descriptor, *window);
                      } catch (const std::exception &error) {
                        qCritical() << error.what();
                        QGuiApplication::exit(1);
