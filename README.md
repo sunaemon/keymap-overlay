@@ -195,6 +195,19 @@ systemctl --user restart keymap-overlay.service
 The overlay appears while a QMK `MO(...)` layer key is held. The separate Qt
 renderer is used automatically outside GNOME.
 
+### 6. Enable the overlay on KDE Plasma
+
+The installer normally enables the Qt renderer automatically. To enable it
+manually and start it immediately, run:
+
+```bash
+systemctl --user enable --now keymap-overlay-qt.service
+```
+
+The Qt service starts the shared HID daemon through its systemd dependency.
+Qt is the preferred KDE renderer on both Wayland and X11; the GNOME extension
+does not need to be enabled.
+
 ## Install on Windows
 
 The normal Windows workflow uses two environments:
