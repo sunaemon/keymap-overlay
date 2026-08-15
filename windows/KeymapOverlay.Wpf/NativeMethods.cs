@@ -18,6 +18,9 @@ internal static class NativeMethods
     [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_start")]
     internal static extern int Start(WakeCallback wake);
 
+    [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_device_arrived")]
+    internal static extern void DeviceArrived();
+
     [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_take_transition")]
     internal static extern uint TakeTransition();
 

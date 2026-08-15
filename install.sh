@@ -229,6 +229,23 @@ backup_linux_files() {
   backup_file "$QT_BINARY_PATH" qt-binary
   backup_file "$QT_SERVICE_PATH" qt-service
   backup_directory "$GNOME_EXTENSION_PATH" gnome-extension
+  backup_linux_unit_state "$service_path" keymap-overlay.service service
+  backup_linux_unit_state "$QT_SERVICE_PATH" keymap-overlay-qt.service qt-service
+}
+
+backup_linux_unit_state() {
+  unit_path=$1
+  unit_name=$2
+  backup_name=$3
+  if [ ! -f "$unit_path" ]; then
+    return
+  fi
+  if systemctl --user is-enabled --quiet "$unit_name"; then
+    : >"${temporary_directory}/was-${backup_name}-enabled"
+  fi
+  if systemctl --user is-active --quiet "$unit_name"; then
+    : >"${temporary_directory}/was-${backup_name}-active"
+  fi
 }
 
 backup_file() {
@@ -326,8 +343,20 @@ restart_previous_service() {
   fi
 }
 
+xml_escape() {
+  printf '%s\n' "$1" | awk '{
+    gsub(/&/, "\\&amp;")
+    gsub(/</, "\\&lt;")
+    gsub(/>/, "\\&gt;")
+    print
+  }'
+}
+
 install_macos_service() {
   label='com.sunaemon.keymap-overlay'
+  binary_xml="$(xml_escape "$BINARY_PATH")"
+  assets_xml="$(xml_escape "$ASSET_DIRECTORY")"
+  log_xml="$(xml_escape "$LOG_DIRECTORY")"
   mkdir -p "$(dirname "$service_path")" || return
   cat >"${service_path}.tmp" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -338,8 +367,8 @@ install_macos_service() {
   <string>${label}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${BINARY_PATH}</string>
-    <string>${ASSET_DIRECTORY}</string>
+    <string>${binary_xml}</string>
+    <string>${assets_xml}</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -350,7 +379,7 @@ install_macos_service() {
   <key>EnvironmentVariables</key>
   <dict>
     <key>KEYMAP_OVERLAY_LOG_DIR</key>
-    <string>${LOG_DIRECTORY}</string>
+    <string>${log_xml}</string>
   </dict>
 </dict>
 </plist>
@@ -443,12 +472,25 @@ uninstall_linux_service() {
 }
 
 restart_previous_linux_service() {
-  systemctl --user daemon-reload &&
-    systemctl --user enable keymap-overlay.service &&
-    systemctl --user restart keymap-overlay.service || return
+  systemctl --user daemon-reload || return
+  restore_linux_unit_state keymap-overlay.service service || return
   if [ -f "$QT_SERVICE_PATH" ]; then
-    systemctl --user enable keymap-overlay-qt.service &&
-      systemctl --user restart keymap-overlay-qt.service
+    restore_linux_unit_state keymap-overlay-qt.service qt-service
+  fi
+}
+
+restore_linux_unit_state() {
+  unit_name=$1
+  backup_name=$2
+  if [ -f "${temporary_directory}/was-${backup_name}-enabled" ]; then
+    systemctl --user enable "$unit_name" || return
+  else
+    systemctl --user disable "$unit_name" || return
+  fi
+  if [ -f "${temporary_directory}/was-${backup_name}-active" ]; then
+    systemctl --user restart "$unit_name"
+  else
+    systemctl --user stop "$unit_name"
   fi
 }
 

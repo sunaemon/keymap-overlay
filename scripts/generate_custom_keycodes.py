@@ -81,7 +81,7 @@ def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> KeycodesJson:
             parts: list[str] = [x.strip() for x in entry.split("=", 1)]
             name = parts[0]
             value: str = parts[1]
-            if value == "SAFE_RANGE":
+            if value in SAFE_RANGE_NAMES:
                 current_code = safe_range_start
             else:
                 raise ValueError(

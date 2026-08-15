@@ -71,10 +71,12 @@ The Rust listener selects the QMK Raw HID usage page (`0xFF60`) and usage
 (`0x61`), then ignores every report that does not match this protocol. VIAL
 uses the same HID interface, so unrelated VIAL traffic is ignored.
 
-Device arrival notifications also select that usage. Linux receives them from
-udev and macOS from `IOHIDManager`; either ends the current reader session so
-all connected keyboards are enumerated again. This makes a reconnected
-keyboard available even when another keyboard kept the previous session alive.
+Device arrival notifications request another enumeration without interrupting
+healthy readers, so a release cannot be lost while the new device becomes
+openable. Linux receives `hidraw` add notifications from udev, macOS receives
+usage-filtered notifications from `IOHIDManager`, and Windows forwards
+`WM_DEVICECHANGE` from the mapped WPF window. This makes a reconnected keyboard
+available even while another keyboard remains active.
 
 ## Native Overlay
 
@@ -125,11 +127,10 @@ click-through, and non-activating without asking Wayland for a privileged
 foreign window role.
 
 Other desktops start the `keymap-overlay-qt` client. It subscribes to the same
-D-Bus interface and forwards only the latest state over a local datagram to
-the Qt event loop. `QSocketNotifier` wakes the loop without polling; the C++
-side builds keys, encoders, and labels as Qt Quick items. The client exits
-cleanly under GNOME unless `KEYMAP_OVERLAY_FORCE_QT` is set, preventing two
-renderers from drawing the same layer.
+D-Bus interface through QtDBus, whose signal delivery wakes the Qt event loop
+without polling. The C++ side builds keys, encoders, and labels as Qt Quick
+items. The client exits cleanly under GNOME unless `KEYMAP_OVERLAY_FORCE_QT` is
+set, preventing two renderers from drawing the same layer.
 
 The QML window uses KDE LayerShellQt's attached `Window` API. It requests the
 overlay layer, no keyboard interaction, no exclusive zone, and placement on the
@@ -137,11 +138,10 @@ active screen. `Qt::WindowTransparentForInput` makes the surface click-through.
 No plain Wayland application window can supply those semantics: the compositor
 must grant the layer-surface role.
 
-The Qt bridge is one deliberately narrow exception to the workspace's
-`unsafe_code = forbid` policy. CXX generates the unavoidable Rust/C++ FFI in
-`keymap-overlay-qt-bridge`; the crate exposes one safe function, while the HID
-protocol and transition state remain in forbid-unsafe Rust crates. Qt is a
-renderer helper and has no access to HID or the asset directory.
+The Qt client is a standalone CMake application with no Rust/C++ boundary. The
+Rust daemon retains HID access, protocol handling, transition state, and model
+composition; Qt receives only the final semantic model over D-Bus and has no
+access to HID or the asset directory.
 
 The model uses platform-independent point geometry. On macOS those values are
 AppKit points, on Linux they are Qt logical pixels, and on Windows they are WPF

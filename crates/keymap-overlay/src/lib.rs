@@ -15,13 +15,13 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 #[cfg(any(not(target_os = "windows"), test))]
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -30,8 +30,7 @@ pub(crate) const RAW_USAGE_ID: u16 = 0x61;
 const LOG_DIRECTORY_ENV: &str = "KEYMAP_OVERLAY_LOG_DIR";
 const MAX_LOG_BYTES: u64 = 1_048_576;
 const MAX_LOG_FILES: u8 = 3;
-/// How long a reader blocks before checking whether its session was cancelled.
-/// Reads are otherwise blocking, so this is the only idle wakeup the app has.
+/// How long a reader blocks before checking for disconnects or UI shutdown.
 const READ_TIMEOUT: i32 = 1_000;
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -120,19 +119,41 @@ pub(crate) struct DisplayEncoder {
 #[cfg(any(not(target_os = "windows"), test))]
 pub(crate) type ModelCache = HashMap<(u8, u8), OverlayModel>;
 
-pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
-    let session = hotplug::RunningSession::default();
-    hotplug::spawn_watcher(session.clone());
+/// A running listener that platform device notifications can ask to re-enumerate.
+#[derive(Clone)]
+pub struct RawHidListenerHandle {
+    requester: hotplug::EnumerationRequester,
+}
+
+impl RawHidListenerHandle {
+    /// Enumerates new Raw HID interfaces after the platform reports an arrival.
+    pub fn device_arrived(&self) {
+        self.requester.request();
+    }
+}
+
+pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) -> RawHidListenerHandle {
+    let (wake, requests) = mpsc::channel();
+    let requester = hotplug::EnumerationRequester::new(wake);
+    hotplug::spawn_watcher(requester.clone());
+    let handle = RawHidListenerHandle {
+        requester: requester.clone(),
+    };
     thread::spawn(move || {
+        let active_paths = Arc::new(Mutex::new(HashSet::new()));
+        enumerate_raw_hid_devices(&sink, &active_paths, &requester);
         loop {
-            if let Err(error) = run_raw_hid_session(&sink, &session) {
-                warn!("Raw HID listener stopped: {error:#}");
+            if requests.recv().is_err() {
+                return;
             }
-            // Also the grace period a keyboard needs between announcing itself
-            // and being openable, which is why an arrival is not raced.
+            // Give a newly announced keyboard time to become openable. Existing
+            // readers remain alive and cannot lose releases during this grace.
             thread::sleep(RECONNECT_INTERVAL);
+            requester.begin_enumeration();
+            enumerate_raw_hid_devices(&sink, &active_paths, &requester);
         }
     });
+    handle
 }
 
 /// What a report should do to the overlay, given the held momentary layers.
@@ -356,72 +377,78 @@ fn resolve_assets_dir(argument: Option<OsString>, home: Option<OsString>) -> Res
     Ok(PathBuf::from(home).join(".config/keymap-overlay"))
 }
 
-/// Reads from every connected Raw HID device until one of them disconnects, or
-/// another one appears, then returns so the caller can enumerate again.
-fn run_raw_hid_session(
-    sink: &impl LayerEventSink,
-    session: &hotplug::RunningSession,
-) -> Result<()> {
-    let api = HidApi::new().context("Failed to enumerate HID devices")?;
-    let devices: Vec<(HidDevice, String)> = api
+/// Opens newly discovered Raw HID devices without interrupting active readers.
+fn enumerate_raw_hid_devices<S: LayerEventSink + 'static>(
+    sink: &S,
+    active_paths: &Arc<Mutex<HashSet<String>>>,
+    requester: &hotplug::EnumerationRequester,
+) {
+    let api = match HidApi::new().context("Failed to enumerate HID devices") {
+        Ok(api) => api,
+        Err(error) => {
+            warn!("Raw HID enumeration failed: {error:#}");
+            requester.request();
+            return;
+        }
+    };
+    let mut opened = 0;
+    let mut retry_needed = false;
+    for device_info in api
         .device_list()
         .filter(|device| device.usage_page() == RAW_USAGE_PAGE && device.usage() == RAW_USAGE_ID)
-        .filter_map(|device_info| match device_info.open_device(&api) {
-            Ok(device) => Some((device, device_info.path().to_string_lossy().into_owned())),
+    {
+        let path = device_info.path().to_string_lossy().into_owned();
+        if active_paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains(&path)
+        {
+            continue;
+        }
+        let device = match device_info.open_device(&api) {
+            Ok(device) => device,
             Err(error) => {
                 warn!(
                     "Failed to open Raw HID device {:04x}:{:04x}: {error}",
                     device_info.vendor_id(),
                     device_info.product_id()
                 );
-                None
+                retry_needed = true;
+                continue;
             }
-        })
-        .collect();
-
-    if devices.is_empty() {
-        return Ok(());
-    }
-
-    info!("Listening on {} Raw HID device(s)", devices.len());
-    // One reader per device: hidapi cannot wait on several devices at once, so
-    // sharing a thread would mean polling and adding latency for each keyboard.
-    let cancelled = Arc::new(AtomicBool::new(false));
-    session.attach(&cancelled);
-    let result = thread::scope(|scope| -> Result<()> {
+        };
+        active_paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(path.clone());
+        opened += 1;
+        let sink = sink.clone();
+        let active_paths = Arc::clone(active_paths);
+        let requester = requester.clone();
         // HidDevice is Send but not Sync, so each reader owns its device.
-        let mut readers = Vec::new();
-        for (device, path) in devices {
-            let sink = sink.clone();
-            let cancelled = Arc::clone(&cancelled);
-            readers.push(scope.spawn(move || {
-                let result = receive_from_device(&device, &path, &sink, &cancelled);
-                // Any disconnect ends the session so all devices are reopened.
-                cancelled.store(true, Ordering::Relaxed);
-                result
-            }));
-        }
-        for reader in readers {
-            match reader.join() {
-                Ok(result) => result?,
-                Err(panic) => std::panic::resume_unwind(panic),
+        thread::spawn(move || {
+            if let Err(error) = receive_from_device(&device, &path, &sink) {
+                warn!("Raw HID reader stopped: {error:#}");
             }
-        }
-        Ok(())
-    });
-    session.detach();
-    result
+            active_paths
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&path);
+            requester.request();
+        });
+    }
+    if opened > 0 {
+        info!("Listening on {opened} new Raw HID device(s)");
+    }
+    if retry_needed {
+        requester.request();
+    }
 }
 
-fn receive_from_device(
-    device: &HidDevice,
-    path: &str,
-    sink: &impl LayerEventSink,
-    cancelled: &AtomicBool,
-) -> Result<()> {
+fn receive_from_device(device: &HidDevice, path: &str, sink: &impl LayerEventSink) -> Result<()> {
     let mut report = [0_u8; 33];
     let mut keyboard_id = None;
-    while !cancelled.load(Ordering::Relaxed) {
+    loop {
         let length = match device.read_timeout(&mut report, READ_TIMEOUT) {
             Ok(length) => length,
             Err(error) => {
@@ -451,12 +478,6 @@ fn receive_from_device(
             return Ok(());
         }
     }
-    if keyboard_id.is_some() {
-        // Another reader ended the session. Closing this device can lose its
-        // matching release report, so clear any layer it may still hold.
-        sink.send(ListenerEvent::Disconnected { keyboard_id });
-    }
-    Ok(())
 }
 
 struct RotatingLogWriter {

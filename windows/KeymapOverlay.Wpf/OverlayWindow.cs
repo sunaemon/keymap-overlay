@@ -16,6 +16,8 @@ internal sealed class OverlayWindow : Window
     private const uint MonitorDefaultToNearest = 2;
     private const uint TransitionKindMask = 0xff000000;
     private const uint TransitionShow = 2 << 24;
+    private const int DeviceNodesChanged = 0x0007;
+    private const int WindowMessageDeviceChange = 0x0219;
     private static readonly Brush KeyFill = Brush("#F6DCE0E7");
     private static readonly Brush HeldFill = Brush("#FFFFDDDD");
     private static readonly Brush KeyBorder = Brush("#1F20242C");
@@ -92,9 +94,24 @@ internal sealed class OverlayWindow : Window
     private void ConfigureNativeWindow(object? sender, EventArgs args)
     {
         handle = new WindowInteropHelper(this).Handle;
+        HwndSource.FromHwnd(handle)?.AddHook(ProcessWindowMessage);
         var styles = NativeMethods.GetWindowLongPtr(handle, NativeMethods.GwlExStyle).ToInt64();
         styles |= NativeMethods.WsExTransparent | NativeMethods.WsExToolWindow | NativeMethods.WsExNoActivate;
         NativeMethods.SetWindowLongPtr(handle, NativeMethods.GwlExStyle, new nint(styles));
+    }
+
+    private static nint ProcessWindowMessage(
+        nint window,
+        int message,
+        nint parameter,
+        nint data,
+        ref bool handled)
+    {
+        if (message == WindowMessageDeviceChange && parameter == DeviceNodesChanged)
+        {
+            NativeMethods.DeviceArrived();
+        }
+        return 0;
     }
 
     private void WakeUi()

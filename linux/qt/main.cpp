@@ -1,36 +1,42 @@
-#include "src/qt_backend.h"
-
 #include <QByteArray>
 #include <QCursor>
+#include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusMessage>
+#include <QDBusServiceWatcher>
 #include <QDebug>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QObject>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickWindow>
 #include <QScreen>
-#include <QSocketNotifier>
 #include <QString>
 #include <QUrl>
+#include <QVariant>
+#include <QtGlobal>
 
-#include <cerrno>
-#include <cstddef>
-#include <cstdint>
-#include <fcntl.h>
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <string>
-#include <sys/socket.h>
-#include <system_error>
-#include <unistd.h>
 
 namespace {
 
-constexpr std::uint8_t Hide = 2;
-constexpr std::uint8_t RelayFailed = 3;
-constexpr std::size_t MaxPacketSize = 1024 * 1024;
+constexpr auto BusName = "com.sunaemon.KeymapOverlay";
+constexpr auto ObjectPath = "/com/sunaemon/KeymapOverlay";
+constexpr auto RendererInterface = "com.sunaemon.KeymapOverlay.Renderer1";
+
+bool is_gnome_desktop() {
+  const auto desktop = qEnvironmentVariable("XDG_CURRENT_DESKTOP");
+  for (const auto &part : desktop.split(':')) {
+    if (part.compare(QStringLiteral("gnome"), Qt::CaseInsensitive) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
 
 constexpr auto overlay_qml = R"QML(
 import QtQuick
@@ -147,22 +153,6 @@ Window {
 }
 )QML";
 
-class OwnedFileDescriptor {
-public:
-  explicit OwnedFileDescriptor(int descriptor) : descriptor_(descriptor) {}
-  ~OwnedFileDescriptor() {
-    if (descriptor_ >= 0) {
-      ::close(descriptor_);
-    }
-  }
-  OwnedFileDescriptor(const OwnedFileDescriptor &) = delete;
-  OwnedFileDescriptor &operator=(const OwnedFileDescriptor &) = delete;
-  int get() const { return descriptor_; }
-
-private:
-  int descriptor_;
-};
-
 std::runtime_error qml_error(const QQmlComponent &component) {
   QStringList errors;
   for (const auto &error : component.errors()) {
@@ -171,17 +161,15 @@ std::runtime_error qml_error(const QQmlComponent &component) {
   return std::runtime_error(errors.join('\n').toStdString());
 }
 
-void apply_packet(QQuickWindow &window, const QByteArray &packet) {
-  if (packet.size() == 1 && static_cast<std::uint8_t>(packet.front()) == Hide) {
+void apply_state(QQuickWindow &window, bool visible,
+                 const QString &model_json) {
+  if (!visible) {
     window.hide();
     return;
   }
-  if (packet.size() == 1 &&
-      static_cast<std::uint8_t>(packet.front()) == RelayFailed) {
-    throw std::runtime_error("The renderer state relay stopped");
-  }
   QJsonParseError parse_error;
-  const auto document = QJsonDocument::fromJson(packet, &parse_error);
+  const auto document =
+      QJsonDocument::fromJson(model_json.toUtf8(), &parse_error);
   if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
     throw std::runtime_error("Failed to parse an overlay model event: " +
                              parse_error.errorString().toStdString());
@@ -209,85 +197,136 @@ void apply_packet(QQuickWindow &window, const QByteArray &packet) {
   window.show();
 }
 
-void drain_packets(OwnedFileDescriptor &descriptor, QQuickWindow &window) {
-  QByteArray packet;
-  packet.resize(static_cast<qsizetype>(MaxPacketSize));
-  std::optional<QByteArray> latest;
-  while (true) {
-    const auto count =
-        ::recv(descriptor.get(), packet.data(),
-               static_cast<std::size_t>(packet.size()), MSG_TRUNC);
-    if (count > 0) {
-      if (count > packet.size()) {
-        throw std::runtime_error("A Qt renderer event exceeded its size limit");
-      }
-      latest = packet.left(static_cast<qsizetype>(count));
-      continue;
+class RendererClient final : public QObject {
+  Q_OBJECT
+
+public:
+  explicit RendererClient(QQuickWindow &window)
+      : QObject(&window), window_(window),
+        connection_(QDBusConnection::sessionBus()),
+        owner_watcher_(QString::fromLatin1(BusName), connection_,
+                       QDBusServiceWatcher::WatchForOwnerChange, this) {
+    if (!connection_.isConnected()) {
+      throw std::runtime_error("Failed to connect to the user D-Bus session");
     }
-    if (count == 0) {
-      throw std::runtime_error("The Qt renderer event socket closed");
+    QObject::connect(&owner_watcher_, &QDBusServiceWatcher::serviceOwnerChanged,
+                     this, &RendererClient::service_owner_changed);
+    if (!connection_.connect(QString::fromLatin1(BusName),
+                             QString::fromLatin1(ObjectPath),
+                             QString::fromLatin1(RendererInterface),
+                             QStringLiteral("StateChanged"), this,
+                             SLOT(state_changed(qulonglong, bool, QString)))) {
+      throw std::runtime_error("Failed to subscribe to renderer state");
     }
-    if (count == -1 && errno == EINTR) {
-      continue;
-    }
-    if (count == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-      break;
-    }
-    if (count < 0) {
-      throw std::system_error(errno, std::generic_category(),
-                              "Failed to receive Qt events");
+    refresh_state();
+  }
+
+private slots:
+  void state_changed(qulonglong generation, bool visible,
+                     const QString &model_json) {
+    try {
+      apply_update(generation, visible, model_json);
+    } catch (const std::exception &error) {
+      fail(error);
     }
   }
-  if (latest) {
-    apply_packet(window, *latest);
+
+private:
+  void service_owner_changed(const QString &, const QString &,
+                             const QString &new_owner) {
+    generation_ = 0;
+    if (new_owner.isEmpty()) {
+      window_.hide();
+      return;
+    }
+    try {
+      refresh_state();
+    } catch (const std::exception &error) {
+      fail(error);
+    }
   }
-}
+
+  void refresh_state() {
+    QDBusInterface renderer(
+        QString::fromLatin1(BusName), QString::fromLatin1(ObjectPath),
+        QString::fromLatin1(RendererInterface), connection_);
+    if (!renderer.isValid()) {
+      throw std::runtime_error("The renderer D-Bus service is unavailable: " +
+                               renderer.lastError().message().toStdString());
+    }
+    const auto reply = renderer.call(QStringLiteral("GetState"));
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+      throw std::runtime_error("Failed to read renderer state: " +
+                               reply.errorMessage().toStdString());
+    }
+    const auto arguments = reply.arguments();
+    if (arguments.size() != 3) {
+      throw std::runtime_error("The renderer D-Bus state has an invalid shape");
+    }
+    bool generation_ok = false;
+    const auto generation = arguments.at(0).toULongLong(&generation_ok);
+    if (!generation_ok || !arguments.at(1).canConvert<bool>() ||
+        !arguments.at(2).canConvert<QString>()) {
+      throw std::runtime_error("The renderer D-Bus state has invalid types");
+    }
+    apply_update(generation, arguments.at(1).toBool(),
+                 arguments.at(2).toString());
+  }
+
+  void apply_update(qulonglong generation, bool visible,
+                    const QString &model_json) {
+    if (generation <= generation_) {
+      return;
+    }
+    generation_ = generation;
+    apply_state(window_, visible, model_json);
+  }
+
+  static void fail(const std::exception &error) {
+    qCritical() << error.what();
+    QGuiApplication::exit(1);
+  }
+
+  QQuickWindow &window_;
+  QDBusConnection connection_;
+  QDBusServiceWatcher owner_watcher_;
+  qulonglong generation_ = 0;
+};
 
 } // namespace
 
-void run_qt_overlay(std::int32_t event_fd) {
-  OwnedFileDescriptor descriptor(event_fd);
-  int argc = 1;
-  char program_name[] = "keymap-overlay";
-  char *argv[] = {program_name, nullptr};
+int main(int argc, char *argv[]) {
+  if (is_gnome_desktop() &&
+      !qEnvironmentVariableIsSet("KEYMAP_OVERLAY_FORCE_QT")) {
+    return 0;
+  }
+
   QGuiApplication application(argc, argv);
 
-  QQmlEngine engine;
-  QQmlComponent component(&engine);
-  component.setData(overlay_qml,
-                    QUrl(QStringLiteral("qrc:/keymap-overlay.qml")));
-  if (component.isError()) {
-    throw qml_error(component);
-  }
-  std::unique_ptr<QObject> root(component.create());
-  if (!root) {
-    throw qml_error(component);
-  }
-  auto *window = qobject_cast<QQuickWindow *>(root.get());
-  if (!window) {
-    throw std::runtime_error("The Qt overlay root is not a window");
-  }
+  try {
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(overlay_qml,
+                      QUrl(QStringLiteral("qrc:/keymap-overlay.qml")));
+    if (component.isError()) {
+      throw qml_error(component);
+    }
+    std::unique_ptr<QObject> root(component.create());
+    if (!root) {
+      throw qml_error(component);
+    }
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    if (!window) {
+      throw std::runtime_error("The Qt overlay root is not a window");
+    }
 
-  const auto old_flags = ::fcntl(descriptor.get(), F_GETFL);
-  if (old_flags < 0 ||
-      ::fcntl(descriptor.get(), F_SETFL, old_flags | O_NONBLOCK) < 0) {
-    throw std::system_error(errno, std::generic_category(),
-                            "Failed to make the Qt event socket non-blocking");
-  }
-  QSocketNotifier notifier(descriptor.get(), QSocketNotifier::Read);
-  QObject::connect(&notifier, &QSocketNotifier::activated,
-                   [&descriptor, window] {
-                     try {
-                       drain_packets(descriptor, *window);
-                     } catch (const std::exception &error) {
-                       qCritical() << error.what();
-                       QGuiApplication::exit(1);
-                     }
-                   });
+    RendererClient renderer(*window);
 
-  const auto result = application.exec();
-  if (result != 0) {
-    throw std::runtime_error("The Qt event loop exited with status " +
-                             std::to_string(result));
+    return application.exec();
+  } catch (const std::exception &error) {
+    qCritical() << error.what();
+    return 1;
   }
 }
+
+#include "main.moc"

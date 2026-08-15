@@ -1,8 +1,8 @@
 //! Narrow C ABI between the WPF frontend and the shared Rust HID runtime.
 
 use keymap_overlay::{
-    LayerEventSink, ListenerEvent, PendingTransition, Transition, initialize_logging,
-    spawn_raw_hid_listener,
+    LayerEventSink, ListenerEvent, PendingTransition, RawHidListenerHandle, Transition,
+    initialize_logging, spawn_raw_hid_listener,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -21,6 +21,7 @@ struct BridgeSink {
 }
 
 struct SharedState {
+    listener: OnceLock<RawHidListenerHandle>,
     pending: Mutex<PendingTransition>,
     published_layers: Mutex<Vec<u8>>,
     wake: extern "system" fn(),
@@ -44,6 +45,16 @@ pub extern "system" fn keymap_overlay_start(wake: extern "system" fn()) -> i32 {
     catch_unwind(AssertUnwindSafe(|| start(wake))).unwrap_or(-1)
 }
 
+/// Re-enumerates Raw HID interfaces after Windows reports a device arrival.
+#[unsafe(no_mangle)]
+pub extern "system" fn keymap_overlay_device_arrived() {
+    let _ = catch_unwind(|| {
+        if let Some(listener) = STATE.get().and_then(|state| state.listener.get()) {
+            listener.device_arrived();
+        }
+    });
+}
+
 fn start(wake: extern "system" fn()) -> i32 {
     if STATE.get().is_some() {
         return -2;
@@ -53,6 +64,7 @@ fn start(wake: extern "system" fn()) -> i32 {
     }
 
     let shared = Arc::new(SharedState {
+        listener: OnceLock::new(),
         pending: Mutex::new(PendingTransition::default()),
         published_layers: Mutex::new(Vec::new()),
         wake,
@@ -60,7 +72,12 @@ fn start(wake: extern "system" fn()) -> i32 {
     if STATE.set(Arc::clone(&shared)).is_err() {
         return -2;
     }
-    spawn_raw_hid_listener(BridgeSink { state: shared });
+    let listener = spawn_raw_hid_listener(BridgeSink {
+        state: Arc::clone(&shared),
+    });
+    if shared.listener.set(listener).is_err() {
+        return -2;
+    }
     0
 }
 

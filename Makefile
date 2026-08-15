@@ -89,10 +89,10 @@ QMK_TOOLCHAIN_PACKAGES := osx-cross/arm/arm-none-eabi-gcc@8 osx-cross/avr/avr-gc
 
 # The same set per distribution, plus libudev for Raw HID and the Qt 6 /
 # LayerShellQt stack used by the native KDE Plasma overlay.
-LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs qt6-base qt6-declarative layer-shell-qt ttf-liberation
-LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev qt6-base-dev qt6-declarative-dev qt6-wayland fonts-liberation
+LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs cmake qt6-base qt6-declarative layer-shell-qt ttf-liberation
+LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev cmake qt6-base-dev qt6-declarative-dev qt6-wayland fonts-liberation
 LINUX_LAYERSHELL_QML_APT := qml6-module-org-kde-layershell
-LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtwayland layer-shell-qt liberation-mono-fonts
+LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel cmake qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtwayland layer-shell-qt liberation-mono-fonts
 
 # Escape XML character data so that a HOME containing & or < still produces a
 # valid plist. Ampersands must be substituted first.
@@ -277,7 +277,8 @@ KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay-qt
 WPF_PROJECT := windows/KeymapOverlay.Wpf/KeymapOverlay.Wpf.csproj
 WPF_PUBLISH_DIR := target/wpf-publish
 WINDOWS_BRIDGE_MANIFEST := crates/keymap-overlay-windows-bridge/Cargo.toml
-QT_BRIDGE_MANIFEST := crates/keymap-overlay-qt-bridge/Cargo.toml
+QT_RENDERER_SOURCE := linux/qt
+QT_RENDERER_BUILD_DIR := target/qt-release
 ifeq ($(OS_FAMILY),windows)
 OVERLAY_BUILD_BINARY := $(WPF_PUBLISH_DIR)/keymap-overlay.exe
 else
@@ -301,6 +302,7 @@ KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
 KEYMAP_OVERLAY_UDEV_RULES := /etc/udev/rules.d/50-keymap-overlay.rules
 KEYMAP_OVERLAY ?= $(CARGO) run -p keymap-overlay --
 DOTNET ?= $(MISE) exec -- dotnet
+CMAKE ?= cmake
 
 # ================= TARGETS =================
 
@@ -339,8 +341,8 @@ _setup_toolchain_macos:
 	$(BREW) install $(QMK_TOOLCHAIN_PACKAGES)
 
 # Distributions ship the compilers QMK wants, so there is no equivalent of the
-# osx-cross taps here. libudev, Qt Quick, and LayerShellQt are the overlay's own
-# build and runtime dependencies, not QMK's.
+# osx-cross taps here. libudev, Qt Quick, Qt D-Bus, and LayerShellQt are the
+# overlay's own build and runtime dependencies, not QMK's.
 .PHONY: _setup_toolchain_linux
 _setup_toolchain_linux:
 	@if command -v pacman >/dev/null; then \
@@ -498,7 +500,10 @@ ifeq ($(OS_FAMILY),windows)
 else
 	$(CARGO) build --release -p keymap-overlay
 ifeq ($(OS_FAMILY),linux)
-	$(CARGO) build --release --manifest-path "$(QT_BRIDGE_MANIFEST)" --target-dir target
+	$(CMAKE) -S "$(QT_RENDERER_SOURCE)" -B "$(QT_RENDERER_BUILD_DIR)" \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$(abspath target/release)"
+	$(CMAKE) --build "$(QT_RENDERER_BUILD_DIR)" --config Release
 endif
 endif
 
@@ -848,7 +853,7 @@ ifdef KEYBOARD_ID
 	@echo "Merging QMK keymap into Vitaly configuration..."
 	@# The renderer resolves KC_TRNS only in memory. This source JSON remains raw,
 	@# so writing it to EEPROM preserves transparent-key inheritance.
-	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)")
+	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)")
 	@echo "Loading new configuration to device..."
 	$(VITALY) -i $(DEVICE_PID) load -f $(BUILD_DIR)/vitaly_ready.json
 else
@@ -930,7 +935,7 @@ $(BUILD_DIR):
 $(ASSET_BUILD_DIR):
 	mkdir -p $(ASSET_BUILD_DIR)
 
-RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) scripts/generate_overlay_asset.py src/types.py src/util.py
+RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) scripts/encoder_map.py scripts/generate_overlay_asset.py src/types.py src/util.py
 ifeq ($(VIAL),true)
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)" --vitaly-json "$(VITALY_JSON)"
 else
