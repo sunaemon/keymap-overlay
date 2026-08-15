@@ -22,6 +22,7 @@ internal sealed class OverlayWindow : Window
     private static readonly Brush TextFill = Brush("#FF20242C");
 
     private readonly Dictionary<(byte Keyboard, byte Layer), OverlayModel> models;
+    private readonly Dictionary<(byte Keyboard, string Layers), OverlayModel> composedModels = [];
     private readonly NativeMethods.WakeCallback wakeCallback;
     private nint handle;
 
@@ -72,7 +73,7 @@ internal sealed class OverlayWindow : Window
                 var model = JsonSerializer.Deserialize<OverlayModel>(File.ReadAllText(path));
                 var stem = IOPath.GetFileNameWithoutExtension(path);
                 var parts = stem.Split("_L", StringSplitOptions.None);
-                if (model is not null && model.Version == 1 && parts.Length == 2 &&
+                if (model is not null && (model.Version == 1 || model.Version == 2) && parts.Length == 2 &&
                     byte.TryParse(parts[0], out var keyboard) && byte.TryParse(parts[1], out var layer) &&
                     model.Layer == layer)
                 {
@@ -114,14 +115,28 @@ internal sealed class OverlayWindow : Window
         else if ((transition & TransitionKindMask) == TransitionShow)
         {
             var keyboard = (byte)((transition >> 8) & 0xff);
-            var layer = (byte)(transition & 0xff);
-            ShowOverlay(keyboard, layer);
+            var layerCount = (byte)((transition >> 16) & 0xff);
+            var layers = layerCount == 0
+                ? [(byte)(transition & 0xff)]
+                : Enumerable.Range(0, layerCount)
+                    .Select(index => NativeMethods.TransitionLayer((byte)index))
+                    .ToArray();
+            ShowOverlay(keyboard, layers);
         }
     }
 
-    private void ShowOverlay(byte keyboard, byte layer)
+    private void ShowOverlay(byte keyboard, byte[] layers)
     {
-        if (!models.TryGetValue((keyboard, layer), out var model))
+        var key = (keyboard, string.Join(',', layers));
+        if (!composedModels.TryGetValue(key, out var model))
+        {
+            model = ComposeModel(keyboard, layers);
+            if (model is not null)
+            {
+                composedModels[key] = model;
+            }
+        }
+        if (model is null)
         {
             HideOverlay();
             return;
@@ -132,6 +147,105 @@ internal sealed class OverlayWindow : Window
         Height = model.Height;
         PositionOnCursorMonitor(model.Width, model.Height);
     }
+
+    private OverlayModel? ComposeModel(byte keyboard, byte[] layers)
+    {
+        if (!models.TryGetValue((keyboard, 0), out var baseModel))
+        {
+            return null;
+        }
+        var model = CloneModel(baseModel);
+        foreach (var layer in layers)
+        {
+            if (!models.TryGetValue((keyboard, layer), out var overlay) ||
+                overlay.Keys.Count != model.Keys.Count ||
+                overlay.Encoders.Count != model.Encoders.Count)
+            {
+                return null;
+            }
+            ApplyOverlay(model, overlay);
+            model.Layer = layer;
+        }
+        foreach (var displayKey in model.Keys)
+        {
+            displayKey.Held = displayKey.MomentaryLayer is byte layer && layers.Contains(layer);
+        }
+        foreach (var encoder in model.Encoders)
+        {
+            encoder.Held = encoder.MomentaryLayer is byte layer && layers.Contains(layer);
+        }
+        model.Version = 2;
+        return model;
+    }
+
+    private static void ApplyOverlay(OverlayModel model, OverlayModel overlay)
+    {
+        for (var index = 0; index < model.Keys.Count; index++)
+        {
+            if (!overlay.Keys[index].Transparent)
+            {
+                model.Keys[index] = CloneKey(overlay.Keys[index]);
+            }
+        }
+        for (var index = 0; index < model.Encoders.Count; index++)
+        {
+            var target = model.Encoders[index];
+            var source = overlay.Encoders[index];
+            if (!source.CounterClockwiseTransparent)
+            {
+                target.CounterClockwise = [.. source.CounterClockwise];
+            }
+            if (!source.ClockwiseTransparent)
+            {
+                target.Clockwise = [.. source.Clockwise];
+            }
+            if (!source.PressTransparent)
+            {
+                target.Press = source.Press;
+                target.MomentaryLayer = source.MomentaryLayer;
+            }
+        }
+    }
+
+    private static OverlayModel CloneModel(OverlayModel model) => new()
+    {
+        Version = model.Version,
+        Layer = model.Layer,
+        Width = model.Width,
+        Height = model.Height,
+        HeaderFontSize = model.HeaderFontSize,
+        KeyFontSize = model.KeyFontSize,
+        EncoderFontSize = model.EncoderFontSize,
+        Keys = model.Keys.Select(CloneKey).ToList(),
+        Encoders = model.Encoders.Select(CloneEncoder).ToList(),
+    };
+
+    private static DisplayKey CloneKey(DisplayKey key) => new()
+    {
+        X = key.X,
+        Y = key.Y,
+        Width = key.Width,
+        Height = key.Height,
+        Label = [.. key.Label],
+        Held = key.Held,
+        Transparent = key.Transparent,
+        MomentaryLayer = key.MomentaryLayer,
+    };
+
+    private static DisplayEncoder CloneEncoder(DisplayEncoder encoder) => new()
+    {
+        X = encoder.X,
+        Y = encoder.Y,
+        Size = encoder.Size,
+        CounterClockwise = [.. encoder.CounterClockwise],
+        Clockwise = [.. encoder.Clockwise],
+        Press = encoder.Press,
+        Held = encoder.Held,
+        CounterClockwiseTransparent = encoder.CounterClockwiseTransparent,
+        ClockwiseTransparent = encoder.ClockwiseTransparent,
+        PressTransparent = encoder.PressTransparent,
+        MomentaryLayer = encoder.MomentaryLayer,
+    };
 
     private void HideOverlay()
     {

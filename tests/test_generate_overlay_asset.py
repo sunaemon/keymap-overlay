@@ -76,11 +76,14 @@ def test_builds_keys_and_an_encoder_into_the_shared_model(tmp_path: Path) -> Non
     )
     model = build_overlay_model(*args, keymap_c=keymap_c)
 
-    assert model.version == 1
+    assert model.version == 2
     assert (model.width, model.height) == (168, 142)
     assert model.keys[0].label == ["α"]
+    assert not model.keys[0].transparent
     assert model.encoders[0].counter_clockwise == ["VOL -"]
     assert model.encoders[0].clockwise == ["VOL +"]
+    assert model.encoders[0].counter_clockwise_transparent
+    assert model.encoders[0].clockwise_transparent
     assert model.encoders[0].press == "MUTE"
 
 

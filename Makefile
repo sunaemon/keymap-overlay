@@ -835,7 +835,11 @@ _internal_install: $(ASSETS)
 	fi
 	@echo "Installing keymap overlay assets..."
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)"
-	@cp $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION) "$(KEYMAP_OVERLAY_DIR)/"
+	@for asset in "$(ASSET_BUILD_DIR)"/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION); do \
+		case " $(ASSETS) " in *" $$asset "*) ;; *) rm -f "$$asset" ;; esac; \
+		done
+	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION)
+	@cp $(ASSETS) "$(KEYMAP_OVERLAY_DIR)/"
 	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(STALE_ASSET_EXTENSION)
 	@echo "✔ Overlay assets installed; run 'make run-overlay' to start the native app"
 

@@ -11,7 +11,7 @@ keymap.c (or VIAL EEPROM with VIAL=true)
 build/<keyboard>/qmk-keymap.json
   + keyboard.json + config.json + encoder map
   ↓ first-party display-model generator
-platform-neutral geometry, labels, and state (one model per layer)
+platform-neutral geometry, labels, transparency, and state (one model per layer)
   ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
   ├─ Linux: build/<keyboard>/assets/linux/<keyboard>_L<n>.json
   └─ Windows: build/<keyboard>/assets/windows/<keyboard>_L<n>.json
@@ -38,16 +38,17 @@ native transparent window
   Linux: Qt Quick + KDE LayerShellQt
   Windows: WPF
   ↓
-matching <keyboard>_L<layer> asset is displayed
+active <keyboard>_L<layer> assets are composed and displayed
   ↓
 matching layer key released
   ↓
 previous held layer is restored, or the overlay is hidden when none remain
 ```
 
-The overlay remains visible for the complete key hold. If momentary layers are
-held together, it shows the most recently pressed one and restores the next
-most-recent one still held on release; it hides once none remain.
+The overlay remains visible for the complete key hold. Within one keyboard,
+held layers use QMK's numeric precedence and transparent keys fall through the
+other active layers before the base layer. Between keyboards, the most recently
+used keyboard owns the overlay. It hides once no momentary layers remain held.
 
 ## Raw HID Protocol
 
@@ -81,8 +82,8 @@ log are shared; only the window differs behind `src/ui/` and the Linux bridge.
 
 On **macOS** (`src/ui/appkit.rs`) AppKit owns the complete view hierarchy. The
 undecorated, always-on-top, click-through window uses an `NSGlassEffectView` as
-its content. It parses the installed JSON at startup and builds each layer from
-native `NSBox` and `NSTextField` views inside the glass view's `contentView`.
+its content. It parses the installed JSON at startup and caches composed layers
+as native `NSBox` and `NSTextField` views inside the glass view's `contentView`.
 There is no rasterized key or label foreground on macOS. Hiding swaps in an
 empty content view and shrinks the still-mapped window to one pixel, avoiding
 native show animations on every layer-key press.
@@ -127,8 +128,8 @@ than run as a helper process.
 The model uses platform-independent point geometry. On macOS those values are
 AppKit points, on Linux they are Qt logical pixels, and on Windows they are WPF
 device-independent units. `PIXELS_PER_UNIT` controls the size of
-one QMK layout unit. Windows reports a scale factor that egui would otherwise
-apply on top, so that backend pins `pixels_per_point` to 1.
+one QMK layout unit. WPF interprets them as device-independent units and applies
+the active monitor's DPI scale when positioning the native window.
 
 ### Requirements on Linux
 
@@ -247,10 +248,11 @@ path reads the keymap source compiled into the firmware.
 
 The Python generator converts QMK's keymap and keyboard JSON into one small,
 versioned display model per layer. The model contains only canvas geometry,
-labels, held-state flags, and encoder actions; it contains no toolkit-specific
-objects and does not pass through keymap-drawer, YAML, SVG, or another schema.
-All three platforms install this model as JSON and render it with AppKit, Qt
-Quick, or WPF. Keys use quiet, nearly opaque fills and a low-contrast
+labels, transparency metadata, held-state metadata, and encoder actions; it
+contains no toolkit-specific objects and does not pass through keymap-drawer,
+YAML, SVG, or another schema. All three platforms install these models as JSON,
+compose the held layers in memory using QMK precedence, and render the result
+with AppKit, Qt Quick, or WPF. Keys use quiet, nearly opaque fills and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
 key alone receives its pale tint. Display-only Unicode labels come from single-character
 comments on `custom_keycodes` entries or an explicit `keymap-overlay-labels`
@@ -263,10 +265,9 @@ layout coordinates. Matrix placement replaces the normal key drawing with one
 circular knob, places counter-clockwise and clockwise actions above it, and
 keeps its push action centred inside.
 
-All runtimes parse every installed JSON model and build or cache their native
-representation at startup. Layer events therefore only select an in-memory view;
-they never leave the previous layer visible while disk I/O or decoding
-completes.
+All runtimes parse every installed JSON model at startup. Layer events compose
+only those in-memory models, so they never leave the previous layer visible
+while disk I/O completes.
 
 Events already waiting when a UI loop wakes are reduced to their final active
 layer before the window changes. Intermediate restores and switches are not

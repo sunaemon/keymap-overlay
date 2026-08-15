@@ -13,11 +13,14 @@ anyhow = "1.0"
 keymap-core = { path = "../keymap-core" }
 log = "0.4.33"
 env_logger = "0.11.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 # The window is the one part that cannot be shared: macOS gets native AppKit,
 # Linux links the audited CXX bridge to native Qt Quick / LayerShellQt, and the
 # Windows WPF process loads this crate through its own audited C ABI bridge.
 [target.'cfg(target_os = "macos")'.dependencies]
+dispatch = "0.2.0"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
   "objc2-core-foundation",
@@ -42,12 +45,11 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
   "NSDate",
   "NSGeometry",
+  "NSObjCRuntime",
   "NSRunLoop",
   "NSString",
   "NSThread",
 ] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 # macOS opens the same device from several processes; VIAL tools and the
 # overlay share the keyboard's Raw HID interface.
 hidapi = { version = "2.6.6", features = ["macos-shared-device"] }

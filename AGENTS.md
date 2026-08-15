@@ -34,9 +34,9 @@ There are three parts:
 - `generate_custom_keycodes.py`: Extracts the `custom_keycodes` enum from
   `keymap.c` and assigns each entry its numeric value.
 - `generate_overlay_asset.py`: Builds the shared display model and emits JSON
-  for all three native renderers,
-  including encoder rotation and push actions. It resolves custom keycode names
-  and `KC_TRNS` in memory for display only, and reads Unicode label annotations
+  for all three native renderers, including encoder rotation and push actions.
+  It resolves custom keycode names, preserves `KC_TRNS` as display-only
+  transparency metadata, and reads Unicode label annotations
   from common and platform-specific blocks in `keymap.c`.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
@@ -50,7 +50,7 @@ There are three parts:
 Transparency resolution is for **display only**. `KC_TRNS` must survive intact
 on the path that writes to the device, otherwise layers stop inheriting from
 layer 0 in EEPROM. `flash-keymap` and the renderer therefore consume the same
-raw QMK JSON; only the renderer resolves transparency, in memory.
+raw QMK JSON; only the overlay resolves transparency, in memory.
 
 ### 2. Visualization
 
@@ -66,16 +66,16 @@ control showing counter-clockwise, clockwise, and push actions.
 
 - `keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and its
   tests. Pure logic, no I/O, so it stays unit-testable.
-- `keymap-overlay`: the shared listener, transition reducer, logging code, and
-  native macOS/Linux executable.
+- `keymap-overlay`: the shared listener, transition reducer, model composition,
+  logging code, and native macOS/Linux executable.
 - `keymap-overlay-qt-bridge`: the audited Linux-only CXX boundary. This is the
   sole crate allowed to contain generated unsafe FFI; its public API is safe,
   and protocol/application logic remains in crates that forbid unsafe code.
 - `keymap-overlay-windows-bridge`: the audited Windows C ABI boundary. WPF
   supplies a wake callback and takes the final reduced show/hide transition.
 
-`lib.rs` holds everything the systems share — the listener, transitions, and
-rotating log — while each native frontend owns its window:
+`lib.rs` holds everything the systems share — the listener, transitions, model
+composition, and rotating log — while each native frontend owns its window:
 
 - `ui/appkit.rs`: the native macOS AppKit window and semantic JSON renderer.
 - `windows/KeymapOverlay.Wpf`: the native WPF window. Win32 styles make it

@@ -70,6 +70,8 @@ class DisplayKey:
     height: int
     label: list[str]
     held: bool
+    transparent: bool
+    momentary_layer: int | None
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,10 @@ class DisplayEncoder:
     clockwise: list[str]
     press: str
     held: bool
+    counter_clockwise_transparent: bool
+    clockwise_transparent: bool
+    press_transparent: bool
+    momentary_layer: int | None
 
 
 @dataclass(frozen=True)
@@ -179,12 +185,19 @@ def build_overlay_model(
         layer_index,
         custom_keycodes,
     )
+    raw_encoder_pairs = _padded_encoder_pairs(
+        encoder_layers,
+        len(placements),
+        layer_index,
+    )
     layer = _resolve_layer(keymap, layer_index, custom_keycodes)
     return _build_layer_model(
         layout,
         layer,
+        keymap.layers[layer_index],
         placements,
         encoder_pairs,
+        raw_encoder_pairs,
         display_labels,
         layer_index,
         pixels_per_unit,
@@ -319,8 +332,10 @@ def _padded_encoder_pairs(
 def _build_layer_model(
     layout: list[LayoutKey],
     layer: list[str],
+    raw_layer: list[str],
     placements: list[tuple[int | None, float, float, float, float]],
     encoder_pairs: list[list[str]],
+    raw_encoder_pairs: list[list[str]],
     display_labels: dict[str, str],
     layer_index: int,
     pixels_per_unit: int,
@@ -356,6 +371,7 @@ def _build_layer_model(
         )
         left, top, right, bottom = box
         keycode = layer[key_index]
+        raw_keycode = raw_layer[key_index]
         keys.append(
             DisplayKey(
                 x=left,
@@ -364,6 +380,8 @@ def _build_layer_model(
                 height=bottom - top,
                 label=_wrap_label(_format_keycode(keycode, display_labels), 3, 10),
                 held=_momentary_layer(keycode) == layer_index,
+                transparent=raw_keycode in TRANSPARENT_KEYS,
+                momentary_layer=_momentary_layer(raw_keycode),
             )
         )
 
@@ -380,6 +398,7 @@ def _build_layer_model(
             1,
         )
         press = layer[key_index] if key_index is not None else "KC_NO"
+        raw_press = raw_layer[key_index] if key_index is not None else "KC_NO"
         left, top, right, bottom = _inset_box(_square_box(box), 2)
         directions = [
             _format_keycode(code, display_labels)
@@ -394,10 +413,18 @@ def _build_layer_model(
                 clockwise=_wrap_label(directions[1], 2, 5),
                 press=_format_keycode(press, display_labels),
                 held=_momentary_layer(press) == layer_index,
+                counter_clockwise_transparent=(
+                    raw_encoder_pairs[encoder_index][0] in TRANSPARENT_KEYS
+                ),
+                clockwise_transparent=(
+                    raw_encoder_pairs[encoder_index][1] in TRANSPARENT_KEYS
+                ),
+                press_transparent=raw_press in TRANSPARENT_KEYS,
+                momentary_layer=_momentary_layer(raw_press),
             )
         )
     return OverlayModel(
-        version=1,
+        version=2,
         layer=layer_index,
         width=width,
         height=height,

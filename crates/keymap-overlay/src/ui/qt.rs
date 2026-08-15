@@ -1,9 +1,10 @@
 //! Native Qt Quick overlay for KDE Plasma.
 //!
-//! The Raw HID readers stay in Rust. A Unix socket pair carries only reduced
-//! show/hide transitions to Qt's main loop, where a `QSocketNotifier` wakes the
-//! window without polling. LayerShellQt gives the `QQuickWindow` its overlay
-//! layer, active-screen placement, and no-input semantics on Wayland.
+//! The Raw HID readers and model composition stay in Rust. A Unix socket pair
+//! carries the final model or hide transition to Qt's main loop, where a
+//! `QSocketNotifier` wakes the window without polling. LayerShellQt gives the
+//! `QQuickWindow` its overlay layer, active-screen placement, and no-input
+//! semantics on Wayland.
 
 use anyhow::{Context as _, Result};
 use std::os::fd::IntoRawFd as _;
@@ -11,24 +12,25 @@ use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use crate::{LayerEventSink, ListenerEvent, PendingTransition, Transition, spawn_raw_hid_listener};
+use crate::{
+    LayerEventSink, ListenerEvent, ModelCache, PendingTransition, Transition, compose_model,
+    load_model_cache, spawn_raw_hid_listener,
+};
 
-const SHOW: u8 = 1;
 const HIDE: u8 = 2;
 
 pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     let (reader, writer) = UnixDatagram::pair().context("Failed to create the Qt event socket")?;
+    let models = load_model_cache(&assets_dir)?;
     spawn_raw_hid_listener(SocketSink {
         state: Arc::new(Mutex::new(SocketState {
             socket: writer,
             pending: PendingTransition::default(),
+            models,
         })),
     });
 
-    let assets_dir = assets_dir
-        .to_str()
-        .context("The Qt asset directory is not valid UTF-8")?;
-    keymap_overlay_qt_bridge::run_qt_overlay(assets_dir, reader.into_raw_fd())
+    keymap_overlay_qt_bridge::run_qt_overlay(reader.into_raw_fd())
         .context("The Qt overlay event loop failed")
 }
 
@@ -40,6 +42,7 @@ struct SocketSink {
 struct SocketState {
     socket: UnixDatagram,
     pending: PendingTransition,
+    models: ModelCache,
 }
 
 impl LayerEventSink for SocketSink {
@@ -49,8 +52,17 @@ impl LayerEventSink for SocketSink {
         };
         state.pending.push(event);
         let packet = match state.pending.take() {
-            Transition::Show { keyboard_id, layer } => [SHOW, keyboard_id, layer],
-            Transition::Hide => [HIDE, 0, 0],
+            Transition::Show {
+                keyboard_id,
+                layers,
+            } => match compose_model(&state.models, keyboard_id, &layers) {
+                Some(model) => match serde_json::to_vec(&model) {
+                    Ok(packet) => packet,
+                    Err(_) => return false,
+                },
+                None => vec![HIDE],
+            },
+            Transition::Hide => vec![HIDE],
             Transition::Ignore => return true,
         };
         state.socket.send(&packet).is_ok()
@@ -71,22 +83,23 @@ mod tests {
     }
 
     #[test]
-    fn qt_receives_reduced_show_and_hide_datagrams() {
+    fn qt_hides_for_an_unavailable_model_and_a_release() {
         let (reader, writer) = UnixDatagram::pair().expect("socket pair");
         let sink = SocketSink {
             state: Arc::new(Mutex::new(SocketState {
                 socket: writer,
                 pending: PendingTransition::default(),
+                models: ModelCache::new(),
             })),
         };
         let mut packet = [0; 3];
 
         assert!(sink.send(layer(true)));
-        assert_eq!(reader.recv(&mut packet).expect("show packet"), 3);
-        assert_eq!(packet, [SHOW, 2, 3]);
+        assert_eq!(reader.recv(&mut packet).expect("show packet"), 1);
+        assert_eq!(packet[0], HIDE);
 
         assert!(sink.send(layer(false)));
-        assert_eq!(reader.recv(&mut packet).expect("hide packet"), 3);
-        assert_eq!(packet, [HIDE, 0, 0]);
+        assert_eq!(reader.recv(&mut packet).expect("hide packet"), 1);
+        assert_eq!(packet[0], HIDE);
     }
 }

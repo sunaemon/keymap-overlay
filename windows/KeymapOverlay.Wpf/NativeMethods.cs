@@ -21,6 +21,9 @@ internal static class NativeMethods
     [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_take_transition")]
     internal static extern uint TakeTransition();
 
+    [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_transition_layer")]
+    internal static extern byte TransitionLayer(byte index);
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     internal static extern nint GetWindowLongPtr(nint window, int index);
 

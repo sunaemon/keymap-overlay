@@ -5,7 +5,8 @@
 //! fields described by the installed JSON model. No key label is rasterized
 //! into an intermediate image.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
+use dispatch::Queue;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
@@ -15,13 +16,14 @@ use objc2_app_kit::{
     NSWindowStyleMask,
 };
 use objc2_foundation::{NSDate, NSPoint, NSRect, NSRunLoop, NSSize, NSString};
-use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use crate::{LayerEventSink, ListenerEvent, PendingTransition, Transition, spawn_raw_hid_listener};
+use crate::{
+    DisplayEncoder, LayerEventSink, ListenerEvent, ModelCache, OverlayModel, PendingTransition,
+    Transition, compose_model, load_model_cache, spawn_raw_hid_listener,
+};
 
 const IDLE_SIZE: f64 = 1.0;
 const GLASS_RADIUS: f64 = 22.0;
@@ -32,42 +34,12 @@ struct ChannelSink(Sender<ListenerEvent>);
 
 impl LayerEventSink for ChannelSink {
     fn send(&self, event: ListenerEvent) -> bool {
-        self.0.send(event).is_ok()
+        if self.0.send(event).is_err() {
+            return false;
+        }
+        Queue::main().exec_async(|| {});
+        true
     }
-}
-
-#[derive(Deserialize)]
-struct OverlayModel {
-    version: u8,
-    layer: u8,
-    width: u32,
-    height: u32,
-    header_font_size: f64,
-    key_font_size: f64,
-    encoder_font_size: f64,
-    keys: Vec<DisplayKey>,
-    encoders: Vec<DisplayEncoder>,
-}
-
-#[derive(Deserialize)]
-struct DisplayKey {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-    label: Vec<String>,
-    held: bool,
-}
-
-#[derive(Deserialize)]
-struct DisplayEncoder {
-    x: u32,
-    y: u32,
-    size: u32,
-    counter_clockwise: Vec<String>,
-    clockwise: Vec<String>,
-    press: String,
-    held: bool,
 }
 
 struct NativeLayer {
@@ -76,10 +48,10 @@ struct NativeLayer {
 }
 
 struct OverlayApp {
-    assets_dir: PathBuf,
     receiver: Receiver<ListenerEvent>,
     pending: PendingTransition,
-    layers: HashMap<(u8, u8), NativeLayer>,
+    models: ModelCache,
+    layers: HashMap<(u8, Vec<u8>), NativeLayer>,
     window: Retained<NSWindow>,
     glass: Retained<NSGlassEffectView>,
     empty_view: Retained<NSView>,
@@ -101,15 +73,15 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     let window = NSWindow::windowWithContentViewController(&controller);
     configure_window(&window);
 
-    let layers = load_native_layers(&assets_dir, mtm)?;
+    let models = load_model_cache(&assets_dir)?;
     let (sender, receiver) = mpsc::channel();
     spawn_raw_hid_listener(ChannelSink(sender));
 
     let mut overlay = OverlayApp {
-        assets_dir,
         receiver,
         pending: PendingTransition::default(),
-        layers,
+        models,
+        layers: HashMap::new(),
         window,
         glass,
         empty_view,
@@ -135,46 +107,6 @@ fn configure_window(window: &NSWindow) {
             | NSWindowCollectionBehavior::Stationary,
     );
     window.setFrame_display(idle_rect(), false);
-}
-
-fn load_native_layers(
-    assets_dir: &Path,
-    mtm: MainThreadMarker,
-) -> Result<HashMap<(u8, u8), NativeLayer>> {
-    let mut layers = HashMap::new();
-    for entry in fs::read_dir(assets_dir)
-        .with_context(|| format!("Failed to read asset directory {}", assets_dir.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        let Some(key) = model_key(&path) else {
-            continue;
-        };
-        let model: OverlayModel = serde_json::from_reader(
-            fs::File::open(&path).with_context(|| format!("Failed to open {}", path.display()))?,
-        )
-        .with_context(|| format!("Failed to parse {}", path.display()))?;
-        if model.version != 1 {
-            bail!(
-                "Unsupported overlay model version {} in {}",
-                model.version,
-                path.display()
-            );
-        }
-        if model.layer != key.1 {
-            bail!("Layer in {} does not match its filename", path.display());
-        }
-        layers.insert(key, build_native_layer(&model, mtm));
-    }
-    Ok(layers)
-}
-
-fn model_key(path: &Path) -> Option<(u8, u8)> {
-    if path.extension()?.to_str()? != "json" {
-        return None;
-    }
-    let (keyboard_id, layer) = path.file_stem()?.to_str()?.split_once("_L")?;
-    Some((keyboard_id.parse().ok()?, layer.parse().ok()?))
 }
 
 fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLayer {
@@ -369,28 +301,44 @@ fn text_color() -> Retained<NSColor> {
 impl OverlayApp {
     fn run_event_loop(&mut self) -> Result<()> {
         let run_loop = NSRunLoop::mainRunLoop();
+        let distant_future = NSDate::distantFuture();
+        let default_mode = NSString::from_str("kCFRunLoopDefaultMode");
         loop {
-            let deadline = NSDate::dateWithTimeIntervalSinceNow(0.01);
-            run_loop.runUntilDate(&deadline);
+            run_loop.runMode_beforeDate(&default_mode, &distant_future);
 
             for event in self.receiver.try_iter() {
                 self.pending.push(event);
             }
             match self.pending.take() {
-                Transition::Show { keyboard_id, layer } => self.show(keyboard_id, layer),
+                Transition::Show {
+                    keyboard_id,
+                    layers,
+                } => self.show(keyboard_id, &layers),
                 Transition::Hide => self.hide(),
                 Transition::Ignore => {}
             }
         }
     }
 
-    fn show(&self, keyboard_id: u8, layer: u8) {
-        let Some(native) = self.layers.get(&(keyboard_id, layer)) else {
+    fn show(&mut self, keyboard_id: u8, layers: &[u8]) {
+        let key = (keyboard_id, layers.to_vec());
+        if !self.layers.contains_key(&key) {
+            let Some(model) = compose_model(&self.models, keyboard_id, layers) else {
+                log::warn!(
+                    "Overlay model is unavailable for keyboard {keyboard_id}, layers {layers:?}"
+                );
+                self.hide();
+                return;
+            };
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            self.layers
+                .insert(key.clone(), build_native_layer(&model, mtm));
+        }
+        let Some(native) = self.layers.get(&key) else {
             log::warn!(
-                "Overlay model is unavailable: {}",
-                self.assets_dir
-                    .join(format!("{keyboard_id}_L{layer}.json"))
-                    .display()
+                "Overlay model is unavailable for keyboard {keyboard_id}, layers {layers:?}"
             );
             self.hide();
             return;
