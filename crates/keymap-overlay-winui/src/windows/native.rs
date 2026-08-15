@@ -11,10 +11,9 @@
 mod island_bindings;
 
 use super::OverlayComponent;
-use island_bindings::DesktopWindowXamlSource;
+use island_bindings::{DesktopWindowXamlSource, RectInt32, WindowId};
 use keymap_overlay::RawHidListenerHandle;
 use std::cell::{Cell, RefCell};
-use std::ffi::c_void;
 use std::mem::size_of;
 use std::sync::OnceLock;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -28,11 +27,11 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GWL_EXSTYLE, GetCursorPos, GetWindowLongPtrW, HWND_TOPMOST,
     LWA_ALPHA, LWA_COLORKEY, RegisterClassExW, SET_WINDOW_POS_FLAGS, SW_HIDE, SW_SHOWNOACTIVATE,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER, SetLayeredWindowAttributes, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WM_DESTROY, WM_DEVICECHANGE, WNDCLASSEXW,
-    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, WINDOW_EX_STYLE, WM_DESTROY, WM_DEVICECHANGE, WNDCLASSEXW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
 };
-use windows_core::{HRESULT, IUnknown, IUnknown_Vtbl, Interface};
+use windows_core::HRESULT;
 use windows_reactor::{App, Component, RenderHost, WinUIBackend, WinUIDispatcher, WindowSize};
 
 const DBT_DEVNODES_CHANGED: usize = 0x0007;
@@ -93,11 +92,24 @@ struct IslandHost {
 impl IslandHost {
     fn new(root: Box<dyn Component>) -> windows_core::Result<Self> {
         let window = create_overlay_window()?;
-        let source = DesktopWindowXamlSource::new()?;
-        let source_native = source.cast::<IDesktopWindowXamlSourceNative>()?;
-        unsafe { source_native.attach_to_window(window).ok()? };
-        let island_window = unsafe { source_native.window_handle()? };
+        let source = DesktopWindowXamlSource::new()
+            .map_err(|error| island_error("Failed to create DesktopWindowXamlSource", error))?;
+        source
+            .initialize(WindowId {
+                value: window.0 as usize as u64,
+            })
+            .map_err(|error| island_error("Failed to initialize the XAML Island host", error))?;
+        let site_bridge = source
+            .site_bridge()
+            .map_err(|error| island_error("Failed to get the XAML Island site bridge", error))?;
+        let island_id = site_bridge
+            .window_id()
+            .map_err(|error| island_error("Failed to get the XAML Island window ID", error))?;
+        let island_window = HWND(island_id.value as usize as *mut _);
         configure_island_window(island_window);
+        site_bridge
+            .show()
+            .map_err(|error| island_error("Failed to show the XAML Island site bridge", error))?;
 
         let dispatcher = WinUIDispatcher::for_current_thread()?;
         let render_host = RenderHost::new(WinUIBackend::new(), root, dispatcher);
@@ -121,7 +133,7 @@ impl IslandHost {
             }
         });
 
-        render_host.set_render_complete(move |_| present_window(window, island_window));
+        render_host.set_render_complete(move |_| present_window(window, &site_bridge));
         render_host.kick();
 
         Ok(Self {
@@ -130,6 +142,10 @@ impl IslandHost {
             _window: window,
         })
     }
+}
+
+fn island_error(message: &str, error: windows_core::Error) -> windows_core::Error {
+    windows_core::Error::new(error.code(), format!("{message}: {error}"))
 }
 
 fn configure_island_window(window: HWND) {
@@ -186,7 +202,7 @@ fn map_windows_error(error: windows::core::Error) -> windows_core::Error {
     windows_core::Error::from_hresult(HRESULT(error.code().0))
 }
 
-fn present_window(window: HWND, island_window: HWND) {
+fn present_window(window: HWND, site_bridge: &island_bindings::DesktopChildSiteBridge) {
     let size = REQUESTED_SIZE.get();
     if size.width <= 1.0 || size.height <= 1.0 {
         unsafe {
@@ -197,7 +213,6 @@ fn present_window(window: HWND, island_window: HWND) {
 
     let (x, y, width, height) = visible_window_bounds(size);
     let hidden_flags = SET_WINDOW_POS_FLAGS(SWP_NOACTIVATE.0 | SWP_FRAMECHANGED.0);
-    let child_flags = SET_WINDOW_POS_FLAGS(SWP_NOACTIVATE.0 | SWP_NOZORDER.0);
     unsafe {
         let _ = SetLayeredWindowAttributes(window, COLORREF(0), 0, LWA_COLORKEY | LWA_ALPHA);
         let _ = SetWindowPos(
@@ -209,7 +224,14 @@ fn present_window(window: HWND, island_window: HWND) {
             height,
             hidden_flags,
         );
-        let _ = SetWindowPos(island_window, None, 0, 0, width, height, child_flags);
+        if let Err(error) = site_bridge.move_and_resize(RectInt32 {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        }) {
+            log::error!("Failed to resize the XAML Island: {error}");
+        }
         let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
         let _ = DwmFlush();
         let _ = SetLayeredWindowAttributes(window, COLORREF(0), 255, LWA_COLORKEY | LWA_ALPHA);
@@ -265,32 +287,4 @@ unsafe extern "system" fn window_proc(
         std::process::exit(0);
     }
     unsafe { DefWindowProcW(window, message, parameter, data) }
-}
-
-windows_core::imp::define_interface!(
-    IDesktopWindowXamlSourceNative,
-    IDesktopWindowXamlSourceNative_Vtbl,
-    0x3cbcf1bf_2f76_4e9c_96ab_e84b37972554
-);
-windows_core::imp::interface_hierarchy!(IDesktopWindowXamlSourceNative, IUnknown);
-
-impl IDesktopWindowXamlSourceNative {
-    unsafe fn attach_to_window(&self, window: HWND) -> HRESULT {
-        unsafe { (Interface::vtable(self).attach_to_window)(Interface::as_raw(self), window.0) }
-    }
-
-    unsafe fn window_handle(&self) -> windows_core::Result<HWND> {
-        let mut window = std::ptr::null_mut();
-        unsafe {
-            (Interface::vtable(self).window_handle)(Interface::as_raw(self), &mut window).ok()?;
-        }
-        Ok(HWND(window))
-    }
-}
-
-#[repr(C)]
-pub struct IDesktopWindowXamlSourceNative_Vtbl {
-    base__: IUnknown_Vtbl,
-    attach_to_window: unsafe extern "system" fn(*mut c_void, *mut c_void) -> HRESULT,
-    window_handle: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
 }

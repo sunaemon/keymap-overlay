@@ -34,6 +34,18 @@ impl DesktopWindowXamlSource {
         }
     }
 
+    pub(super) fn initialize(&self, parent: WindowId) -> windows_core::Result<()> {
+        unsafe { (Interface::vtable(self).initialize)(Interface::as_raw(self), parent).ok() }
+    }
+
+    pub(super) fn site_bridge(&self) -> windows_core::Result<DesktopChildSiteBridge> {
+        unsafe {
+            let mut result = std::ptr::null_mut();
+            (Interface::vtable(self).site_bridge)(Interface::as_raw(self), &mut result).ok()?;
+            windows_core::Type::from_abi(result)
+        }
+    }
+
     fn factory<R>(
         callback: impl FnOnce(&IDesktopWindowXamlSourceFactory) -> windows_core::Result<R>,
     ) -> windows_core::Result<R> {
@@ -81,12 +93,13 @@ pub struct IDesktopWindowXamlSource_Vtbl {
     has_focus: usize,
     system_backdrop: usize,
     set_system_backdrop: usize,
-    site_bridge: usize,
+    site_bridge: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
     take_focus_requested: usize,
     remove_take_focus_requested: usize,
     got_focus: usize,
     remove_got_focus: usize,
     navigate_focus: usize,
+    initialize: unsafe extern "system" fn(*mut c_void, WindowId) -> HRESULT,
 }
 
 windows_core::imp::define_interface!(
@@ -104,4 +117,89 @@ pub struct IDesktopWindowXamlSourceFactory_Vtbl {
         *mut *mut c_void,
         *mut *mut c_void,
     ) -> HRESULT,
+}
+
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct DesktopChildSiteBridge(IUnknown);
+
+windows_core::imp::interface_hierarchy!(DesktopChildSiteBridge, IUnknown, IInspectable);
+
+unsafe impl Interface for DesktopChildSiteBridge {
+    type Vtable = IDesktopChildSiteBridge_Vtbl;
+    const IID: windows_core::GUID = IDesktopChildSiteBridge::IID;
+}
+
+impl DesktopChildSiteBridge {
+    pub(super) fn window_id(&self) -> windows_core::Result<WindowId> {
+        let bridge = self.cast::<IDesktopSiteBridge>()?;
+        unsafe {
+            let mut result = WindowId::default();
+            (Interface::vtable(&bridge).window_id)(Interface::as_raw(&bridge), &mut result).ok()?;
+            Ok(result)
+        }
+    }
+
+    pub(super) fn move_and_resize(&self, rect: RectInt32) -> windows_core::Result<()> {
+        let bridge = self.cast::<IDesktopSiteBridge>()?;
+        unsafe {
+            (Interface::vtable(&bridge).move_and_resize)(Interface::as_raw(&bridge), rect).ok()
+        }
+    }
+
+    pub(super) fn show(&self) -> windows_core::Result<()> {
+        let bridge = self.cast::<IDesktopSiteBridge>()?;
+        unsafe { (Interface::vtable(&bridge).show)(Interface::as_raw(&bridge)).ok() }
+    }
+}
+
+windows_core::imp::define_interface!(
+    IDesktopChildSiteBridge,
+    IDesktopChildSiteBridge_Vtbl,
+    0xb2f2ff7b_1825_51b0_b80b_7599889c569f
+);
+
+#[repr(C)]
+pub struct IDesktopChildSiteBridge_Vtbl {
+    base__: IInspectable_Vtbl,
+    resize_policy: usize,
+    set_resize_policy: usize,
+}
+
+windows_core::imp::define_interface!(
+    IDesktopSiteBridge,
+    IDesktopSiteBridge_Vtbl,
+    0xf0ae8750_905c_50a2_8a12_4545c6245bb4
+);
+
+#[repr(C)]
+pub struct IDesktopSiteBridge_Vtbl {
+    base__: IInspectable_Vtbl,
+    is_enabled: usize,
+    is_visible: usize,
+    window_id: unsafe extern "system" fn(*mut c_void, *mut WindowId) -> HRESULT,
+    connect: usize,
+    disable: usize,
+    enable: usize,
+    hide: usize,
+    move_and_resize: unsafe extern "system" fn(*mut c_void, RectInt32) -> HRESULT,
+    move_in_z_order_at_bottom: usize,
+    move_in_z_order_at_top: usize,
+    move_in_z_order_below: usize,
+    show: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct RectInt32 {
+    pub(super) x: i32,
+    pub(super) y: i32,
+    pub(super) width: i32,
+    pub(super) height: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct WindowId {
+    pub(super) value: u64,
 }
