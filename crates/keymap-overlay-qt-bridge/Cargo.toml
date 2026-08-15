@@ -14,8 +14,6 @@ unsafe_code = "allow"
 [target.'cfg(target_os = "linux")'.dependencies]
 anyhow = "1.0"
 cxx = "1.0"
-keymap-overlay-linux-protocol = { path = "../keymap-overlay-linux-protocol" }
-zbus.workspace = true
 
 [[bin]]
 name = "keymap-overlay-qt"

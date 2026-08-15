@@ -789,9 +789,7 @@ dependencies = [
  "anyhow",
  "cxx",
  "cxx-build",
- "keymap-overlay-linux-protocol",
  "pkg-config",
- "zbus",
 ]
 
 [[package]]

@@ -127,11 +127,10 @@ click-through, and non-activating without asking Wayland for a privileged
 foreign window role.
 
 Other desktops start the `keymap-overlay-qt` client. It subscribes to the same
-D-Bus interface and forwards only the latest state over a local datagram to
-the Qt event loop. `QSocketNotifier` wakes the loop without polling; the C++
-side builds keys, encoders, and labels as Qt Quick items. The client exits
-cleanly under GNOME unless `KEYMAP_OVERLAY_FORCE_QT` is set, preventing two
-renderers from drawing the same layer.
+D-Bus interface through QtDBus, whose signal delivery wakes the Qt event loop
+without polling. The C++ side builds keys, encoders, and labels as Qt Quick
+items. The client exits cleanly under GNOME unless `KEYMAP_OVERLAY_FORCE_QT` is
+set, preventing two renderers from drawing the same layer.
 
 The QML window uses KDE LayerShellQt's attached `Window` API. It requests the
 overlay layer, no keyboard interaction, no exclusive zone, and placement on the

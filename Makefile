@@ -339,8 +339,8 @@ _setup_toolchain_macos:
 	$(BREW) install $(QMK_TOOLCHAIN_PACKAGES)
 
 # Distributions ship the compilers QMK wants, so there is no equivalent of the
-# osx-cross taps here. libudev, Qt Quick, and LayerShellQt are the overlay's own
-# build and runtime dependencies, not QMK's.
+# osx-cross taps here. libudev, Qt Quick, Qt D-Bus, and LayerShellQt are the
+# overlay's own build and runtime dependencies, not QMK's.
 .PHONY: _setup_toolchain_linux
 _setup_toolchain_linux:
 	@if command -v pacman >/dev/null; then \

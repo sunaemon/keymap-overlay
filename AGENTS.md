@@ -85,9 +85,9 @@ composition, and rotating log — while each native frontend owns its window:
   single-file publish embeds the Rust bridge DLL for automatic extraction.
 - `ui/linux.rs`: reduces HID events, loads the final semantic model, and
   publishes renderer state over session D-Bus. The GNOME Shell extension
-  consumes it directly; the separate `keymap-overlay-qt` client forwards it to
-  the Qt event loop over a Unix datagram. KDE LayerShellQt supplies the Wayland
-  overlay surface outside GNOME.
+  consumes it directly; the separate `keymap-overlay-qt` client receives it
+  through QtDBus. KDE LayerShellQt supplies the Wayland overlay surface outside
+  GNOME.
 
 Cargo gates the dependencies per target, which is why Qt/CXX is kept on Linux,
 the C ABI bridge is kept on Windows, and hidapi uses hidraw on Linux rather than its
@@ -95,8 +95,7 @@ default libusb backend. Keep new dependencies on the same side of that line as
 the code using them.
 
 The overlay is event-driven. Delivering an event also wakes the UI thread — an
-AppKit channel on macOS, a D-Bus signal followed by a Unix datagram watched by
-`QSocketNotifier` for Linux Qt, a Shell signal callback on GNOME, or a WPF
+AppKit channel on macOS, a QtDBus or Shell signal callback on Linux, or a WPF
 dispatcher callback on Windows, behind the `LayerEventSink` trait — so there is
 no polling loop and no periodic repaint.
 Do not reintroduce one: this process runs from login to logout, so idle cost
