@@ -8,11 +8,15 @@ import pytest
 from scripts.generate_custom_keycodes import generate_custom_keycodes
 
 
-def _write_keycodes(tmp_path: Path, safe_range: str | None = "0x7E40") -> Path:
+def _write_keycodes(
+    tmp_path: Path,
+    safe_range: str | None = "0x7E40",
+    safe_range_name: str = "SAFE_RANGE",
+) -> Path:
     """Writes a keycodes.json holding SAFE_RANGE, or omitting it when None."""
     keycodes = {"0x0004": "KC_A"}
     if safe_range is not None:
-        keycodes[safe_range] = "SAFE_RANGE"
+        keycodes[safe_range] = safe_range_name
     path = tmp_path / "keycodes.json"
     path.write_text(json.dumps(keycodes), encoding="utf-8")
     return path
@@ -35,6 +39,19 @@ def test_keycodes_are_numbered_upward_from_safe_range(tmp_path: Path) -> None:
     keycodes = generate_custom_keycodes(keymap_c, _write_keycodes(tmp_path))
 
     assert keycodes.root == {"0x7E40": "KC_ALPHA", "0x7E41": "KC_BETA"}
+
+
+def test_qk_user_0_is_accepted_as_the_current_safe_range_name(
+    tmp_path: Path,
+) -> None:
+    keymap_c = _write_keymap(tmp_path, " KC_ALPHA = SAFE_RANGE ")
+
+    keycodes = generate_custom_keycodes(
+        keymap_c,
+        _write_keycodes(tmp_path, safe_range_name="QK_USER_0"),
+    )
+
+    assert keycodes.root == {"0x7E40": "KC_ALPHA"}
 
 
 def test_comments_do_not_become_keycodes(tmp_path: Path) -> None:

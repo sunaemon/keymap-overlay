@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts import generate_keycodes as generate_keycodes_module
-from scripts.generate_keycodes import generate_keycodes
+from scripts.generate_keycodes import _latest_qmk_version, generate_keycodes
 from src.types import KeycodesJson, QmkKeycodesSpec
 
 GenerateWithSpec = Callable[[dict[str, dict[str, object]]], KeycodesJson]
@@ -96,3 +96,15 @@ def test_unparsable_codes_are_skipped(
     keycodes = generate_with_spec({"KC_A": {"key": "KC_A"}, "0x0005": {"key": "KC_B"}})
 
     assert keycodes.root == {"0x0005": "KC_B"}
+
+
+def test_the_first_qmk_keycode_spec_version_is_the_latest() -> None:
+    assert _latest_qmk_version(["0.0.7", "0.0.6", "0.0.1"]) == "0.0.7"
+
+
+@pytest.mark.parametrize("versions", [None, []])
+def test_missing_qmk_keycode_spec_versions_are_rejected(
+    versions: list[str] | None,
+) -> None:
+    with pytest.raises(ValueError, match="No QMK keycodes versions found"):
+        _latest_qmk_version(versions)

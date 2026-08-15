@@ -138,9 +138,7 @@ def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
 
     try:
         versions = qmk_keycodes.list_versions()
-        if versions is None or not versions:
-            raise ValueError("No QMK keycodes versions found")
-        raw_spec = qmk_keycodes.load_spec(versions[-1])
+        raw_spec = qmk_keycodes.load_spec(_latest_qmk_version(versions))
 
         spec = QmkKeycodesSpec.model_validate(raw_spec)
         return spec
@@ -155,6 +153,13 @@ def _read_latest_qmk_spec(qmk_dir: Path) -> QmkKeycodesSpec:
             sys.modules.pop("milc.cli", None)
         else:
             sys.modules["milc.cli"] = original_milc_cli
+
+
+def _latest_qmk_version(versions: list[str] | None) -> str:
+    """Returns the newest version from QMK's descending version list."""
+    if not versions:
+        raise ValueError("No QMK keycodes versions found")
+    return versions[0]
 
 
 def _name_rank(name: str) -> tuple[int, int]:
