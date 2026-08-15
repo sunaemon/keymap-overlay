@@ -116,6 +116,11 @@ export default class KeymapOverlayExtension extends Extension {
 
   _render(model) {
     this._destroyOverlay();
+    const horizontalPadding = model.encoders.length
+      ? Math.ceil(
+          Math.max(...model.encoders.map((encoder) => encoder.size)) * 0.25
+        )
+      : 0;
     const overlay = new St.Widget({
       style_class: this._overlayStyleClass(),
       reactive: false,
@@ -123,13 +128,17 @@ export default class KeymapOverlayExtension extends Extension {
       clip_to_allocation: true,
       visible: false,
     });
-    overlay.set_size(model.width, model.height);
-    overlay.add_child(
+    overlay.set_size(model.width + horizontalPadding * 2, model.height);
+    const content = new St.Widget({ reactive: false, can_focus: false });
+    content.set_position(horizontalPadding, 0);
+    content.set_size(model.width, model.height);
+    content.add_child(
       this._label(`L${model.layer}`, 20, 20, 60, model.header_font_size)
     );
-    for (const key of model.keys) overlay.add_child(this._key(key, model));
+    for (const key of model.keys) content.add_child(this._key(key, model));
     for (const encoder of model.encoders)
-      overlay.add_child(this._encoder(encoder, model));
+      content.add_child(this._encoder(encoder, model));
+    overlay.add_child(content);
 
     Main.layoutManager.addTopChrome(overlay, {
       affectsStruts: false,
@@ -138,7 +147,7 @@ export default class KeymapOverlayExtension extends Extension {
     const monitor =
       Main.layoutManager.currentMonitor ?? Main.layoutManager.primaryMonitor;
     overlay.set_position(
-      monitor.x + Math.round((monitor.width - model.width) / 2),
+      monitor.x + Math.round((monitor.width - overlay.width) / 2),
       monitor.y + Math.round((monitor.height - model.height) / 2)
     );
     overlay.show();
@@ -196,7 +205,7 @@ export default class KeymapOverlayExtension extends Extension {
     group.add_child(
       this._label(
         encoder.counter_clockwise.length
-          ? `← ${encoder.counter_clockwise.join(' ')}`
+          ? `← ${this._compactEncoderActions(encoder.counter_clockwise)}`
           : '',
         halfSize - encoder.size * 0.75,
         -model.encoder_font_size * 2,
@@ -209,7 +218,9 @@ export default class KeymapOverlayExtension extends Extension {
     );
     group.add_child(
       this._label(
-        encoder.clockwise.length ? `${encoder.clockwise.join(' ')} →` : '',
+        encoder.clockwise.length
+          ? `${this._compactEncoderActions(encoder.clockwise)} →`
+          : '',
         halfSize - labelGap,
         -model.encoder_font_size * 2,
         labelWidth,
@@ -222,6 +233,12 @@ export default class KeymapOverlayExtension extends Extension {
     return group;
   }
 
+  _compactEncoderActions(actions) {
+    return actions
+      .map((action) => action.replace(/^BRI\s*/, 'B').replace(/^VOL\s*/, 'V'))
+      .join(' ');
+  }
+
   _label(
     text,
     x,
@@ -232,11 +249,22 @@ export default class KeymapOverlayExtension extends Extension {
     singleLine = false,
     alignment = Pango.Alignment.CENTER
   ) {
+    const textAlign =
+      alignment === Pango.Alignment.LEFT
+        ? 'left'
+        : alignment === Pango.Alignment.RIGHT
+          ? 'right'
+          : 'center';
     const label = new St.Label({
       text,
       style_class: 'keymap-overlay-label',
-      style: `font-size: ${fontSize}px;`,
-      x_align: Clutter.ActorAlign.FILL,
+      style: `font-size: ${fontSize}px; text-align: ${textAlign};`,
+      x_align:
+        alignment === Pango.Alignment.LEFT
+          ? Clutter.ActorAlign.START
+          : alignment === Pango.Alignment.RIGHT
+            ? Clutter.ActorAlign.END
+            : Clutter.ActorAlign.CENTER,
       y_align: Clutter.ActorAlign.CENTER,
     });
     label.clutter_text.set_line_wrap(!singleLine);
@@ -244,7 +272,6 @@ export default class KeymapOverlayExtension extends Extension {
     label.clutter_text.set_ellipsize(
       singleLine ? Pango.EllipsizeMode.END : Pango.EllipsizeMode.NONE
     );
-
     const container = new St.Bin({
       child: label,
       reactive: false,
