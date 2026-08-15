@@ -240,6 +240,18 @@ fn add_label(
     label.setFont(Some(&NSFont::systemFontOfSize(font_size)));
     label.setTextColor(Some(&text_color()));
     label.setMaximumNumberOfLines(3);
+    // NSTextField vertically aligns its cell contents at the top of a tall
+    // frame. Measure the native text first, then give the field only that
+    // height and centre the field itself inside the requested area.
+    label.sizeToFit();
+    let text_height = label.frame().size.height.min(frame.size.height);
+    label.setFrame(NSRect::new(
+        NSPoint::new(
+            frame.origin.x,
+            frame.origin.y + (frame.size.height - text_height) / 2.0,
+        ),
+        NSSize::new(frame.size.width, text_height),
+    ));
     root.addSubview(&label);
 }
 
