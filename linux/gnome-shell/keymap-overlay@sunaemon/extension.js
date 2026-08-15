@@ -161,6 +161,9 @@ export default class KeymapOverlayExtension extends Extension {
     const group = new St.Widget({ reactive: false, can_focus: false });
     group.set_position(encoder.x, encoder.y);
     group.set_size(encoder.size, encoder.size);
+    const halfSize = encoder.size / 2;
+    const labelGap = 3;
+    const labelWidth = encoder.size * 0.75 - labelGap;
 
     const dial = new St.Widget({
       style_class: 'button keymap-overlay-encoder',
@@ -185,23 +188,25 @@ export default class KeymapOverlayExtension extends Extension {
         encoder.counter_clockwise.length
           ? `← ${encoder.counter_clockwise.join(' ')}`
           : '',
-        -encoder.size,
+        halfSize - encoder.size * 0.75,
         -model.encoder_font_size * 2,
-        encoder.size * 2,
+        labelWidth,
         model.encoder_font_size,
         model.encoder_font_size * 2,
-        true
+        true,
+        Pango.Alignment.RIGHT
       )
     );
     group.add_child(
       this._label(
         encoder.clockwise.length ? `${encoder.clockwise.join(' ')} →` : '',
-        encoder.size,
+        halfSize + labelGap,
         -model.encoder_font_size * 2,
-        encoder.size * 2,
+        labelWidth,
         model.encoder_font_size,
         model.encoder_font_size * 2,
-        true
+        true,
+        Pango.Alignment.LEFT
       )
     );
     return group;
@@ -214,7 +219,8 @@ export default class KeymapOverlayExtension extends Extension {
     width,
     fontSize,
     height = fontSize * 2,
-    singleLine = false
+    singleLine = false,
+    alignment = Pango.Alignment.CENTER
   ) {
     const label = new St.Label({
       text,
@@ -224,7 +230,7 @@ export default class KeymapOverlayExtension extends Extension {
       y_align: Clutter.ActorAlign.CENTER,
     });
     label.clutter_text.set_line_wrap(!singleLine);
-    label.clutter_text.set_line_alignment(Pango.Alignment.CENTER);
+    label.clutter_text.set_line_alignment(alignment);
     label.clutter_text.set_ellipsize(
       singleLine ? Pango.EllipsizeMode.END : Pango.EllipsizeMode.NONE
     );
