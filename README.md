@@ -173,15 +173,25 @@ installs the executable and license notices, registers the launchd agent or
 systemd user services, and starts them. If GitHub CLI (`gh`) is available and
 authenticated, it also verifies GitHub's artifact attestations; `gh` is
 optional.
-On Linux it also installs the GNOME extension and the Qt fallback renderer. If
-GNOME cannot enable a newly installed extension in the running session, log
-out and back in and enable `keymap-overlay@sunaemon` with the Extensions app or
-`gnome-extensions enable keymap-overlay@sunaemon`.
+On Linux it also installs the GNOME extension and the Qt fallback renderer.
 The installer prints every installed path when complete. Logs are written to
 `~/.local/var/log/keymap-overlay/overlay.log` and rotate at 1 MiB, retaining the
 current file and three previous files.
 
 Run `sh ~/.config/keymap-overlay/install.sh` to upgrade to the latest release.
+
+### 5. Enable the overlay on GNOME
+
+After the first installation, log out and back in so GNOME discovers the newly
+installed extension. Then enable the extension and restart the HID daemon:
+
+```bash
+gnome-extensions enable keymap-overlay@sunaemon
+systemctl --user restart keymap-overlay.service
+```
+
+The overlay appears while a QMK `MO(...)` layer key is held. The separate Qt
+renderer is used automatically outside GNOME.
 
 ## Install on Windows
 
