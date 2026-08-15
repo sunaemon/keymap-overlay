@@ -239,15 +239,8 @@ VITALY_JSON := $(BUILD_DIR)/vitaly.json
 # $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
 # first pass and then re-enter make to expand $(ASSETS).
 LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
-ifeq ($(OVERLAY_PLATFORM),windows)
-ASSET_EXTENSION := png
-ASSET_FORMAT := png
-STALE_ASSET_EXTENSION := json
-else
 ASSET_EXTENSION := json
-ASSET_FORMAT := json
 STALE_ASSET_EXTENSION := png
-endif
 ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)
 ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%g.$(ASSET_EXTENSION)" 0 $$(( $(LAYERS) - 1 )); fi))$(ASSETS)
 
@@ -274,6 +267,14 @@ KEYMAP_OVERLAY_DIR := $(HOME)/.config/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
 endif
 KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay$(EXE_SUFFIX)
+WPF_PROJECT := windows/KeymapOverlay.Wpf/KeymapOverlay.Wpf.csproj
+WPF_PUBLISH_DIR := target/wpf-publish
+WINDOWS_BRIDGE_MANIFEST := crates/keymap-overlay-windows-bridge/Cargo.toml
+ifeq ($(OS_FAMILY),windows)
+OVERLAY_BUILD_BINARY := $(WPF_PUBLISH_DIR)/keymap-overlay.exe
+else
+OVERLAY_BUILD_BINARY := target/release/keymap-overlay
+endif
 KEYMAP_OVERLAY_LABEL := com.sunaemon.keymap-overlay
 KEYMAP_OVERLAY_PLIST := $(HOME)/Library/LaunchAgents/$(KEYMAP_OVERLAY_LABEL).plist
 KEYMAP_OVERLAY_UNIT_NAME := keymap-overlay.service
@@ -286,6 +287,7 @@ KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
 # from them.
 KEYMAP_OVERLAY_UDEV_RULES := /etc/udev/rules.d/50-keymap-overlay.rules
 KEYMAP_OVERLAY ?= $(CARGO) run -p keymap-overlay --
+DOTNET ?= $(MISE) exec -- dotnet
 
 # ================= TARGETS =================
 
@@ -304,7 +306,7 @@ setup:
 ifeq ($(OS_FAMILY),windows)
 	# Assets are generated in WSL. Installing just Rust and lefthook keeps the
 	# native Windows setup independent of QMK and Python tooling.
-	$(MISE) install rust lefthook
+	$(MISE) install rust dotnet lefthook
 else
 # The dev tools come too: the git hooks installed below run format and lint.
 	$(MISE_DEV) install
@@ -393,7 +395,7 @@ endif
 endif
 
 # Kept as a compatibility alias for existing scripts. New callers should use
-# install-assets. The Windows overlay receives its assets from WSL.
+# install-assets. The Windows overlay receives its JSON models from WSL.
 .PHONY: install
 install: install-assets
 
@@ -476,14 +478,21 @@ run-overlay:
 	$(KEYMAP_OVERLAY) "$(KEYMAP_OVERLAY_DIR)"
 
 .PHONY: build-overlay
+ifeq ($(OS_FAMILY),windows)
+build-overlay:
+	$(CARGO) build --release --manifest-path "$(WINDOWS_BRIDGE_MANIFEST)" --target-dir target
+	$(DOTNET) publish "$(WPF_PROJECT)" --configuration Release --output "$(WPF_PUBLISH_DIR)"
+else
 build-overlay:
 	$(CARGO) build --release -p keymap-overlay
+endif
 
 .PHONY: install-overlay
 ifeq ($(OS_FAMILY),windows)
 install-overlay: build-overlay
-	@if ! compgen -G "$(KEYMAP_OVERLAY_DIR)/*.png" >/dev/null; then \
-		echo "ERROR: no layer PNGs found in $(KEYMAP_OVERLAY_DIR)."; \
+	@set -- "$(KEYMAP_OVERLAY_DIR)"/*_L*.json; \
+	if ! test -e "$$1"; then \
+		echo "ERROR: no layer JSON models found in $(KEYMAP_OVERLAY_DIR)."; \
 		echo "Generate them in WSL with the command in README's Setup on Windows section first."; \
 		exit 1; \
 	fi
@@ -495,7 +504,7 @@ endif
 # before its binary can be replaced. The other two systems replace the file
 # underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
-	install -C target/release/keymap-overlay$(EXE_SUFFIX) "$(KEYMAP_OVERLAY_BINARY)"
+	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
 
@@ -849,7 +858,7 @@ RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
 endif
 
 $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(ASSET_BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --output-format "$(ASSET_FORMAT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
 
 .PHONY: _force_build
 _force_build:

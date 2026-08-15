@@ -12,7 +12,6 @@ dependencies = [
   "typer>=0.12.0",
   "hjson>=3.1.0",
   "jsonschema>=4.25.1",
-  "pillow>=11.0.0",
 ]
 
 [dependency-groups]

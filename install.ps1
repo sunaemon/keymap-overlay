@@ -67,7 +67,7 @@ function Uninstall-Release {
     Write-Output "  licenses: $licensePath, $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
-    Write-Output "Kept layer PNGs: $assetDirectory"
+    Write-Output "Kept layer models: $assetDirectory"
     Write-Output "Kept logs: $logDirectory"
 }
 
@@ -87,8 +87,8 @@ function Assert-SupportedPlatform {
 }
 
 function Assert-LayerAssets {
-    if (-not (Get-ChildItem -LiteralPath $assetDirectory -Filter '*.png' -File -ErrorAction SilentlyContinue)) {
-        throw "No layer PNGs found in $assetDirectory. Generate assets from a source checkout before installing the binary."
+    if (-not (Get-ChildItem -LiteralPath $assetDirectory -Filter '*_L*.json' -File -ErrorAction SilentlyContinue)) {
+        throw "No layer JSON models found in $assetDirectory. Generate assets from a source checkout before installing the binary."
     }
 }
 
@@ -255,7 +255,7 @@ function Write-InstalledFiles {
     Write-Output "  third-party licenses: $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
-    Write-Output "Using existing layer PNGs: $assetDirectory"
+    Write-Output "Using existing layer models: $assetDirectory"
     Write-Output "Logs: $logDirectory"
     Write-Output "Verified release: $ReleaseTag"
 }

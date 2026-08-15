@@ -8,9 +8,9 @@
 
 This project builds QMK firmware that reports momentary layer changes over Raw
 HID, generates one display asset for each keymap layer, and displays the active
-layer in a native overlay on macOS, Linux, and Windows. macOS and Linux install
-semantic JSON and draw every key, encoder, and label with AppKit or Qt Quick;
-Windows uses PNGs generated from the same display model.
+layer in a native overlay on macOS, Linux, and Windows. All three systems
+install semantic JSON and draw every key, encoder, and label with AppKit, Qt
+Quick, or WPF.
 
 ![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
 
@@ -52,7 +52,7 @@ must be an integer from 0 through 255.
 
 |                | macOS                                   | Linux (KDE Plasma Wayland)                      | Windows                       |
 | -------------- | --------------------------------------- | ----------------------------------------------- | ----------------------------- |
-| Overlay window | Native AppKit glass, controls, and text | Qt Quick with KDE LayerShellQt                  | eframe/egui                   |
+| Overlay window | Native AppKit glass, controls, and text | Qt Quick with KDE LayerShellQt                  | Native WPF                    |
 | Autostart      | launchd agent                           | systemd user unit                               | current-user Run registry key |
 | Raw HID access | Input Monitoring permission             | `uaccess` udev rule (`make install-udev-rules`) | nothing to grant              |
 | Firmware tools | source checkout on macOS                | source checkout on Linux                        | source checkout in WSL        |
@@ -182,7 +182,7 @@ Run `sh ~/.config/keymap-overlay/install.sh` to upgrade to the latest release.
 The normal Windows workflow uses two environments:
 
 - **WSL `keymap-firmware`** holds the source checkout, builds and flashes QMK
-  firmware, and generates PNGs from the shared display model.
+  firmware, and generates JSON models for the native overlay.
 - **PowerShell** installs and runs the released native Windows overlay.
 
 MSYS2 and Visual Studio Build Tools are not required unless developing the
@@ -496,8 +496,8 @@ make -C keymap-overlay \
   install-assets
 ```
 
-The binary installer is unchanged. The runtime reads platform assets from the
-configuration directory: JSON on macOS and Linux, PNG on Windows.
+The binary installer is unchanged. Every runtime reads JSON models from the
+platform configuration directory.
 
 ## Getting Started for Development
 
@@ -589,15 +589,16 @@ make build-overlay
 make install-overlay
 ```
 
-`make install-overlay` expects layer PNGs already generated into the Windows
+`make install-overlay` expects layer JSON models already generated into the Windows
 profile by WSL. Firmware targets intentionally stop in MSYS2; run `compile`,
 `flash`, `flash-keymap`, and `install-assets` from the WSL source checkout.
 
-The Windows CI job compiles `ui/windows.rs` but does not run clippy. After
-changing that file, also run:
+The Windows build publishes a self-contained single-file WPF executable. The
+Rust bridge DLL is embedded and automatically extracted by .NET at launch.
+After changing the bridge, also run:
 
 ```bash
-cargo clippy --target x86_64-pc-windows-msvc -p keymap-overlay -- -D warnings
+cargo clippy --manifest-path crates/keymap-overlay-windows-bridge/Cargo.toml -- -D warnings
 ```
 
 ### Verification commands

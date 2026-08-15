@@ -15,8 +15,8 @@ log = "0.4.33"
 env_logger = "0.11.11"
 
 # The window is the one part that cannot be shared: macOS gets native AppKit,
-# Windows gets eframe, and Linux links the audited CXX bridge to a native Qt
-# Quick / LayerShellQt window. eframe stays on the Windows side only.
+# Linux links the audited CXX bridge to native Qt Quick / LayerShellQt, and the
+# Windows WPF process loads this crate through its own audited C ABI bridge.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
@@ -59,8 +59,6 @@ iohidmanager = { version = "0.10.4", default-features = false, features = [
 pollster = "1.0.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-eframe = "0.36.1"
-image = { version = "=0.25.10", default-features = false, features = ["png"] }
 # The pure-Rust Windows backend rather than hidapi's bundled C one, so that
 # building from an MSYS2 shell needs no C compiler and no path translation for
 # it. Both report the usage page the Raw HID interface is selected by.
