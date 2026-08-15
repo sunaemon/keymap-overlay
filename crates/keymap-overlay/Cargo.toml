@@ -17,8 +17,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # The window is the one part that cannot be shared: macOS gets native AppKit,
-# Linux links the audited CXX bridge to native Qt Quick / LayerShellQt, and the
-# Windows WPF process loads this crate through its own audited C ABI bridge.
+# Linux publishes to separate GNOME/Qt renderers, and the Windows WPF process
+# loads this crate through its own audited C ABI bridge.
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch = "0.2.0"
 objc2 = "0.6.4"
@@ -69,7 +69,8 @@ hidapi = { version = "2.6.6", default-features = false, features = [
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-keymap-overlay-qt-bridge = { path = "../keymap-overlay-qt-bridge" }
+keymap-overlay-linux-protocol = { path = "../keymap-overlay-linux-protocol" }
+zbus.workspace = true
 # Waking the listener when a keyboard arrives. hidapi exposes no hot-plug
 # callback, and libudev is already linked for its hidraw enumeration, so this
 # is a binding to a library the overlay loads either way.

@@ -101,9 +101,10 @@ jobs:
               ;;
             Linux)
               asset="keymap-overlay-linux-${arch}.tar.gz"
-              cp target/release/keymap-overlay THIRD-PARTY-LICENSES.html dist/package/
+              cp target/release/keymap-overlay target/release/keymap-overlay-qt THIRD-PARTY-LICENSES.html dist/package/
+              cp -R linux/gnome-shell dist/package/
               cp LICENSE.md dist/package/LICENSE
-              tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE example/LICENSE THIRD-PARTY-LICENSES.html
+              tar -C dist/package -czf "dist/$asset" keymap-overlay keymap-overlay-qt gnome-shell LICENSE example/LICENSE THIRD-PARTY-LICENSES.html
               ;;
           esac
           echo "asset=$asset" >> "$GITHUB_OUTPUT"

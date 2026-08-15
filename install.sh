@@ -5,10 +5,14 @@ set -eu
 REPOSITORY='sunaemon/keymap-overlay'
 ASSET_DIRECTORY="${HOME}/.config/keymap-overlay"
 BINARY_PATH="${ASSET_DIRECTORY}/keymap-overlay"
+QT_BINARY_PATH="${ASSET_DIRECTORY}/keymap-overlay-qt"
 LICENSE_PATH="${ASSET_DIRECTORY}/LICENSE"
 THIRD_PARTY_LICENSES_PATH="${ASSET_DIRECTORY}/THIRD-PARTY-LICENSES.html"
 INSTALLER_PATH="${ASSET_DIRECTORY}/install.sh"
 LOG_DIRECTORY="${HOME}/.local/var/log/keymap-overlay"
+QT_SERVICE_PATH="${HOME}/.config/systemd/user/keymap-overlay-qt.service"
+GNOME_EXTENSION_UUID='keymap-overlay@sunaemon'
+GNOME_EXTENSION_PATH="${HOME}/.local/share/gnome-shell/extensions/${GNOME_EXTENSION_UUID}"
 
 main() {
   configure_platform
@@ -55,6 +59,7 @@ install_release() {
 
 uninstall_release() {
   stop_and_remove_service
+  "$platform_file_uninstaller"
   rm -f "$BINARY_PATH" "$LICENSE_PATH" "$THIRD_PARTY_LICENSES_PATH" "$INSTALLER_PATH"
 
   echo 'Removed:'
@@ -62,6 +67,7 @@ uninstall_release() {
   echo "  licenses: ${LICENSE_PATH}, ${THIRD_PARTY_LICENSES_PATH}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
+  "$platform_file_printer"
   echo "Kept layer assets: ${ASSET_DIRECTORY}"
   echo "Kept logs: ${LOG_DIRECTORY}"
 }
@@ -77,6 +83,12 @@ configure_platform() {
       service_stopper=stop_macos_service
       service_uninstaller=uninstall_macos_service
       previous_service_restarter=restart_previous_macos_service
+      platform_staged_validator=validate_no_extra_staged_files
+      platform_file_backupper=backup_no_extra_files
+      platform_file_installer=install_no_extra_files
+      platform_file_restorer=restore_no_extra_files
+      platform_file_uninstaller=uninstall_no_extra_files
+      platform_file_printer=print_no_extra_files
       ;;
     Linux:x86_64)
       asset_name='keymap-overlay-linux-x86_64.tar.gz'
@@ -87,6 +99,12 @@ configure_platform() {
       service_stopper=stop_linux_service
       service_uninstaller=uninstall_linux_service
       previous_service_restarter=restart_previous_linux_service
+      platform_staged_validator=validate_linux_staged_files
+      platform_file_backupper=backup_linux_files
+      platform_file_installer=install_linux_files
+      platform_file_restorer=restore_linux_files
+      platform_file_uninstaller=uninstall_linux_files
+      platform_file_printer=print_linux_files
       ;;
     *)
       echo "ERROR: no release binary is available for $(uname -s) $(uname -m)." >&2
@@ -137,6 +155,24 @@ stage_release() {
       exit 1
     fi
   done
+  "$platform_staged_validator"
+}
+
+validate_no_extra_staged_files() {
+  :
+}
+
+validate_linux_staged_files() {
+  for file in \
+    keymap-overlay-qt \
+    gnome-shell/keymap-overlay@sunaemon/metadata.json \
+    gnome-shell/keymap-overlay@sunaemon/extension.js \
+    gnome-shell/keymap-overlay@sunaemon/stylesheet.css; do
+    if [ ! -f "${temporary_directory}/${file}" ]; then
+      echo "ERROR: ${asset_name} does not contain ${file}." >&2
+      exit 1
+    fi
+  done
 }
 
 verify_attestations_if_available() {
@@ -182,6 +218,17 @@ backup_installation() {
   backup_file "$THIRD_PARTY_LICENSES_PATH" third-party-licenses
   backup_file "$INSTALLER_PATH" installer
   backup_file "$service_path" service
+  "$platform_file_backupper"
+}
+
+backup_no_extra_files() {
+  :
+}
+
+backup_linux_files() {
+  backup_file "$QT_BINARY_PATH" qt-binary
+  backup_file "$QT_SERVICE_PATH" qt-service
+  backup_directory "$GNOME_EXTENSION_PATH" gnome-extension
 }
 
 backup_file() {
@@ -193,15 +240,40 @@ backup_file() {
   fi
 }
 
+backup_directory() {
+  source_path=$1
+  backup_name=$2
+  if [ -d "$source_path" ]; then
+    cp -pR "$source_path" "${temporary_directory}/backup-${backup_name}"
+    : >"${temporary_directory}/had-${backup_name}"
+  fi
+}
+
 stop_service() {
   "$service_stopper"
 }
 
 install_staged_files() {
-    install -m 755 "${temporary_directory}/keymap-overlay" "$BINARY_PATH" &&
+  install -m 755 "${temporary_directory}/keymap-overlay" "$BINARY_PATH" &&
     install -m 644 "${temporary_directory}/LICENSE" "$LICENSE_PATH" &&
     install -m 644 "${temporary_directory}/THIRD-PARTY-LICENSES.html" "$THIRD_PARTY_LICENSES_PATH" &&
-    install -m 755 "$staged_installer" "$INSTALLER_PATH"
+    install -m 755 "$staged_installer" "$INSTALLER_PATH" &&
+    "$platform_file_installer"
+}
+
+install_no_extra_files() {
+  :
+}
+
+install_linux_files() {
+  install -m 755 "${temporary_directory}/keymap-overlay-qt" "$QT_BINARY_PATH" || return
+  mkdir -p "$GNOME_EXTENSION_PATH" || return
+  install -m 644 "${temporary_directory}/gnome-shell/${GNOME_EXTENSION_UUID}/metadata.json" \
+    "${GNOME_EXTENSION_PATH}/metadata.json" &&
+    install -m 644 "${temporary_directory}/gnome-shell/${GNOME_EXTENSION_UUID}/extension.js" \
+      "${GNOME_EXTENSION_PATH}/extension.js" &&
+    install -m 644 "${temporary_directory}/gnome-shell/${GNOME_EXTENSION_UUID}/stylesheet.css" \
+      "${GNOME_EXTENSION_PATH}/stylesheet.css"
 }
 
 install_service() {
@@ -214,6 +286,17 @@ restore_installation() {
   restore_file "$THIRD_PARTY_LICENSES_PATH" third-party-licenses
   restore_file "$INSTALLER_PATH" installer
   restore_file "$service_path" service
+  "$platform_file_restorer"
+}
+
+restore_no_extra_files() {
+  :
+}
+
+restore_linux_files() {
+  restore_file "$QT_BINARY_PATH" qt-binary
+  restore_file "$QT_SERVICE_PATH" qt-service
+  restore_directory "$GNOME_EXTENSION_PATH" gnome-extension
 }
 
 restore_file() {
@@ -224,6 +307,16 @@ restore_file() {
     cp -p "${temporary_directory}/backup-${backup_name}" "$destination"
   else
     rm -f "$destination"
+  fi
+}
+
+restore_directory() {
+  destination=$1
+  backup_name=$2
+  rm -rf "$destination"
+  if [ -f "${temporary_directory}/had-${backup_name}" ]; then
+    mkdir -p "$(dirname "$destination")"
+    cp -pR "${temporary_directory}/backup-${backup_name}" "$destination"
   fi
 }
 
@@ -300,29 +393,86 @@ RestartSec=2
 WantedBy=graphical-session.target
 EOF
   mv "${service_path}.tmp" "$service_path" || return
+  cat >"${QT_SERVICE_PATH}.tmp" <<EOF
+[Unit]
+Description=QMK keymap layer Qt renderer
+Documentation=https://github.com/${REPOSITORY}
+PartOf=graphical-session.target
+After=graphical-session.target keymap-overlay.service
+Wants=keymap-overlay.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart="${QT_BINARY_PATH}"
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
+EOF
+  mv "${QT_SERVICE_PATH}.tmp" "$QT_SERVICE_PATH" || return
   systemctl --user daemon-reload &&
     systemctl --user enable keymap-overlay.service &&
-    systemctl --user restart keymap-overlay.service
+    systemctl --user restart keymap-overlay.service || return
+  if [ -n "${KEYMAP_OVERLAY_FORCE_QT:-}" ] ||
+    ! printf '%s' "${XDG_CURRENT_DESKTOP:-}" | grep -Eqi '(^|:)gnome(:|$)'; then
+    systemctl --user enable keymap-overlay-qt.service &&
+      systemctl --user restart keymap-overlay-qt.service || return
+  else
+    systemctl --user disable --now keymap-overlay-qt.service || return
+  fi
+  if command -v gnome-extensions >/dev/null 2>&1 &&
+    printf '%s' "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome; then
+    gnome-extensions enable "$GNOME_EXTENSION_UUID" ||
+      echo "NOTE: log out and back in, then enable ${GNOME_EXTENSION_UUID}."
+  fi
 }
 
 stop_linux_service() {
+  systemctl --user stop keymap-overlay-qt.service 2>/dev/null || true
   systemctl --user stop keymap-overlay.service 2>/dev/null || true
 }
 
 uninstall_linux_service() {
+  systemctl --user disable --now keymap-overlay-qt.service 2>/dev/null || true
   systemctl --user disable --now keymap-overlay.service 2>/dev/null || true
   rm -f "$service_path"
+  rm -f "$QT_SERVICE_PATH"
   systemctl --user daemon-reload
 }
 
 restart_previous_linux_service() {
   systemctl --user daemon-reload &&
     systemctl --user enable keymap-overlay.service &&
-    systemctl --user restart keymap-overlay.service
+    systemctl --user restart keymap-overlay.service || return
+  if [ -f "$QT_SERVICE_PATH" ]; then
+    systemctl --user enable keymap-overlay-qt.service &&
+      systemctl --user restart keymap-overlay-qt.service
+  fi
 }
 
 stop_and_remove_service() {
   "$service_uninstaller"
+}
+
+uninstall_no_extra_files() {
+  :
+}
+
+uninstall_linux_files() {
+  rm -f "$QT_BINARY_PATH"
+  rm -rf "$GNOME_EXTENSION_PATH"
+}
+
+print_no_extra_files() {
+  :
+}
+
+print_linux_files() {
+  echo "  Qt renderer: ${QT_BINARY_PATH}"
+  echo "  GNOME extension: ${GNOME_EXTENSION_PATH}"
+  echo "  Qt autostart: ${QT_SERVICE_PATH}"
 }
 
 print_installed_files() {
@@ -332,6 +482,7 @@ print_installed_files() {
   echo "  third-party licenses: ${THIRD_PARTY_LICENSES_PATH}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
+  "$platform_file_printer"
   echo "Using existing layer assets: ${ASSET_DIRECTORY}"
   echo "Logs: ${LOG_DIRECTORY}"
   echo "Verified release: ${release_tag}"

@@ -1,0 +1,8 @@
+{
+  "name": "Keymap Overlay",
+  "description": "Displays the active QMK momentary layer from the keymap-overlay daemon.",
+  "uuid": "keymap-overlay@sunaemon",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://github.com/sunaemon/keymap-overlay",
+  "version": 1
+}

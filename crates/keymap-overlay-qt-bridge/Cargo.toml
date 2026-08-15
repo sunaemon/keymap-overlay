@@ -5,21 +5,22 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/sunaemon/keymap-overlay"
 
-# Excluding this crate from the Rust workspace is the one audited exception to
-# its no-unsafe rule:
-# cxx expands its C++ FFI declaration to unsafe Rust. Its public API remains
-# safe, and all application state and protocol logic stay in the forbid-unsafe
-# crates on either side of this bridge.
+# This is the one audited exception to the workspace's no-unsafe rule: cxx
+# expands its C++ FFI declaration to unsafe Rust. Its public API remains safe,
+# and all application state and protocol logic stay in forbid-unsafe crates.
 [lints.rust]
 unsafe_code = "allow"
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
+anyhow = "1.0"
 cxx = "1.0"
+keymap-overlay-linux-protocol = { path = "../keymap-overlay-linux-protocol" }
+zbus.workspace = true
+
+[[bin]]
+name = "keymap-overlay-qt"
+path = "src/main.rs"
 
 [build-dependencies]
 cxx-build = "1.0"
 pkg-config = "0.3"
-
-# Keep Cargo from inheriting the enclosing repository's forbid-unsafe
-# workspace when this checkout itself lives inside a git worktree directory.
-[workspace]

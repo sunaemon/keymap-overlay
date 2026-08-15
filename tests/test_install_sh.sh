@@ -13,10 +13,15 @@ CHECKSUM='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 mkdir -p "$FAKE_BIN" "$FIXTURE_DIRECTORY"
 
 printf '#!/usr/bin/env sh\nexit 0\n' >"$FIXTURE_DIRECTORY/keymap-overlay"
+printf '#!/usr/bin/env sh\nexit 0\n' >"$FIXTURE_DIRECTORY/keymap-overlay-qt"
 printf 'MIT license fixture\n' >"$FIXTURE_DIRECTORY/LICENSE"
 printf 'Third-party notices fixture\n' >"$FIXTURE_DIRECTORY/THIRD-PARTY-LICENSES.html"
-chmod +x "$FIXTURE_DIRECTORY/keymap-overlay"
-tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay LICENSE THIRD-PARTY-LICENSES.html
+mkdir -p "$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon"
+printf '{}\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/metadata.json"
+printf '// extension fixture\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/extension.js"
+printf '/* stylesheet fixture */\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/stylesheet.css"
+chmod +x "$FIXTURE_DIRECTORY/keymap-overlay" "$FIXTURE_DIRECTORY/keymap-overlay-qt"
+tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay keymap-overlay-qt gnome-shell LICENSE THIRD-PARTY-LICENSES.html
 
 for command in awk cat cp dirname find grep gzip id mkdir mktemp mv rm tar; do
   ln -s "$(command -v "$command")" "$FAKE_BIN/$command"
@@ -140,6 +145,8 @@ run_installer() {
     TEST_COMMAND_LOG="$home/commands.log" \
     TEST_REAL_INSTALL="$REAL_INSTALL" \
     TEST_FAIL_SERVICE="${TEST_FAIL_SERVICE:-0}" \
+    XDG_CURRENT_DESKTOP="${TEST_XDG_CURRENT_DESKTOP:-}" \
+    KEYMAP_OVERLAY_FORCE_QT="${TEST_KEYMAP_OVERLAY_FORCE_QT:-}" \
     /bin/sh "$PROJECT_DIRECTORY/install.sh" "$@"
 }
 
@@ -153,17 +160,27 @@ test_linux_install_and_uninstall() {
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
 
   test -x "$assets/keymap-overlay"
+  test -x "$assets/keymap-overlay-qt"
   test -f "$assets/LICENSE"
   test -f "$assets/THIRD-PARTY-LICENSES.html"
   test -x "$assets/install.sh"
   unit="$home/.config/systemd/user/keymap-overlay.service"
+  qt_unit="$home/.config/systemd/user/keymap-overlay-qt.service"
+  extension="$home/.local/share/gnome-shell/extensions/keymap-overlay@sunaemon"
   assert_file_contains "$unit" "ExecStart=\"$assets/keymap-overlay\" \"$assets\""
   assert_file_contains "$unit" "Environment=\"KEYMAP_OVERLAY_LOG_DIR=$home/.local/var/log/keymap-overlay\""
+  assert_file_contains "$qt_unit" "ExecStart=\"$assets/keymap-overlay-qt\""
+  test -f "$extension/metadata.json"
+  test -f "$extension/extension.js"
+  test -f "$extension/stylesheet.css"
 
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz uninstall
   test ! -e "$assets/keymap-overlay"
+  test ! -e "$assets/keymap-overlay-qt"
   test ! -e "$assets/install.sh"
   test ! -e "$unit"
+  test ! -e "$qt_unit"
+  test ! -e "$extension"
   test -f "$assets/1_L0.json"
   test -d "$home/.local/var/log/keymap-overlay"
 }
@@ -181,6 +198,29 @@ test_macos_stops_service_before_replacing_binary() {
   stop_line=$(grep -n 'launchctl bootout' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   install_line=$(grep -n 'install .*keymap-overlay' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   test "$stop_line" -lt "$install_line"
+}
+
+test_gnome_disables_qt_renderer_unless_forced() {
+  home="$TEST_DIRECTORY/gnome home"
+  assets="$home/.config/keymap-overlay"
+  mkdir -p "$assets"
+  : >"$assets/1_L0.json"
+  : >"$home/commands.log"
+
+  TEST_XDG_CURRENT_DESKTOP=ubuntu:GNOME \
+    run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
+
+  grep -F 'systemctl --user disable --now keymap-overlay-qt.service' "$home/commands.log" >/dev/null
+  if grep -F 'systemctl --user restart keymap-overlay-qt.service' "$home/commands.log" >/dev/null; then
+    echo 'Qt renderer unexpectedly started under GNOME.' >&2
+    exit 1
+  fi
+
+  : >"$home/commands.log"
+  TEST_XDG_CURRENT_DESKTOP=ubuntu:GNOME \
+    TEST_KEYMAP_OVERLAY_FORCE_QT=1 \
+    run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
+  grep -F 'systemctl --user restart keymap-overlay-qt.service' "$home/commands.log" >/dev/null
 }
 
 test_failed_service_install_rolls_back() {
@@ -206,7 +246,7 @@ test_failed_service_install_rolls_back() {
   assert_file_contains "$assets/THIRD-PARTY-LICENSES.html" 'old notices'
   assert_file_contains "$assets/install.sh" 'old installer'
   assert_file_contains "$unit" 'old service'
-  enable_count=$(grep -c '^systemctl --user enable keymap-overlay.service$' "$home/commands.log")
+  enable_count=$(grep -c '^systemctl --user enable keymap-overlay.service' "$home/commands.log")
   test "$enable_count" -eq 2
 }
 
@@ -230,6 +270,7 @@ test_missing_layer_assets_fails_without_installing_files() {
 
 test_linux_install_and_uninstall
 test_macos_stops_service_before_replacing_binary
+test_gnome_disables_qt_renderer_unless_forced
 test_failed_service_install_rolls_back
 test_missing_layer_assets_fails_without_installing_files
 echo 'install.sh tests passed'
