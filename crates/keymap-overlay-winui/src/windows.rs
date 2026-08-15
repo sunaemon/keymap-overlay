@@ -21,7 +21,7 @@ const TRANSPARENT: Color = Color {
     g: 0,
     b: 0,
 };
-const ENCODER_FILL: Color = Color {
+const KEY_FILL: Color = Color {
     a: 0xF6,
     r: 0xDC,
     g: 0xE0,
@@ -145,7 +145,7 @@ fn model_canvas(model: OverlayModel) -> Element {
                 .background(if key.held {
                     BrushBinding::Direct(HELD_FILL)
                 } else {
-                    BrushBinding::Theme(tokens::CardBackground)
+                    BrushBinding::Direct(KEY_FILL)
                 })
                 .border_brush(tokens::CardStroke)
                 .border_thickness(Thickness::uniform(1.0))
@@ -164,11 +164,7 @@ fn model_canvas(model: OverlayModel) -> Element {
             Shape::ellipse()
                 .width(size)
                 .height(size)
-                .fill(if encoder.held {
-                    HELD_FILL
-                } else {
-                    ENCODER_FILL
-                })
+                .fill(if encoder.held { HELD_FILL } else { KEY_FILL })
                 .stroke(ENCODER_STROKE)
                 .stroke_thickness(1.0)
                 .canvas_left(x)
