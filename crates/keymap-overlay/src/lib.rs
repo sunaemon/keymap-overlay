@@ -11,9 +11,7 @@ use keymap_core::{
 #[cfg(not(target_os = "windows"))]
 use log::error;
 use log::{info, warn};
-#[cfg(any(not(target_os = "windows"), test))]
 use serde::{Deserialize, Serialize};
-#[cfg(any(not(target_os = "windows"), test))]
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
@@ -67,57 +65,53 @@ pub enum ListenerEvent {
     Disconnected { keyboard_id: Option<u8> },
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct OverlayModel {
-    pub(crate) version: u8,
-    pub(crate) layer: u8,
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) header_font_size: f64,
-    pub(crate) key_font_size: f64,
-    pub(crate) encoder_font_size: f64,
-    pub(crate) keys: Vec<DisplayKey>,
-    pub(crate) encoders: Vec<DisplayEncoder>,
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct OverlayModel {
+    pub version: u8,
+    pub layer: u8,
+    pub width: u32,
+    pub height: u32,
+    pub header_font_size: f64,
+    pub key_font_size: f64,
+    pub encoder_font_size: f64,
+    pub keys: Vec<DisplayKey>,
+    pub encoders: Vec<DisplayEncoder>,
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct DisplayKey {
-    pub(crate) x: u32,
-    pub(crate) y: u32,
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) label: Vec<String>,
-    pub(crate) held: bool,
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DisplayKey {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub label: Vec<String>,
+    pub held: bool,
     #[serde(default)]
-    pub(crate) transparent: bool,
+    pub transparent: bool,
     #[serde(default)]
-    pub(crate) momentary_layer: Option<u8>,
+    pub momentary_layer: Option<u8>,
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct DisplayEncoder {
-    pub(crate) x: u32,
-    pub(crate) y: u32,
-    pub(crate) size: u32,
-    pub(crate) counter_clockwise: Vec<String>,
-    pub(crate) clockwise: Vec<String>,
-    pub(crate) press: String,
-    pub(crate) held: bool,
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DisplayEncoder {
+    pub x: u32,
+    pub y: u32,
+    pub size: u32,
+    pub counter_clockwise: Vec<String>,
+    pub clockwise: Vec<String>,
+    pub press: String,
+    pub held: bool,
     #[serde(default)]
-    pub(crate) counter_clockwise_transparent: bool,
+    pub counter_clockwise_transparent: bool,
     #[serde(default)]
-    pub(crate) clockwise_transparent: bool,
+    pub clockwise_transparent: bool,
     #[serde(default)]
-    pub(crate) press_transparent: bool,
+    pub press_transparent: bool,
     #[serde(default)]
-    pub(crate) momentary_layer: Option<u8>,
+    pub momentary_layer: Option<u8>,
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
-pub(crate) type ModelCache = HashMap<(u8, u8), OverlayModel>;
+pub type ModelCache = HashMap<(u8, u8), OverlayModel>;
 
 /// A running listener that platform device notifications can ask to re-enumerate.
 #[derive(Clone)]
@@ -219,8 +213,7 @@ pub fn transition_for_event(held_keys: &mut Vec<(u8, u8)>, event: ListenerEvent)
 }
 
 /// Loads every installed semantic layer model before the listener can show one.
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
+pub fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
     let mut models = HashMap::new();
     for entry in fs::read_dir(assets_dir)
         .with_context(|| format!("Failed to read asset directory {}", assets_dir.display()))?
@@ -250,7 +243,6 @@ pub(crate) fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
     Ok(models)
 }
 
-#[cfg(not(target_os = "windows"))]
 fn model_key(path: &Path) -> Option<(u8, u8)> {
     if !path
         .extension()
@@ -262,12 +254,7 @@ fn model_key(path: &Path) -> Option<(u8, u8)> {
     Some((keyboard_id.parse().ok()?, layer.parse().ok()?))
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
-pub(crate) fn compose_model(
-    models: &ModelCache,
-    keyboard_id: u8,
-    layers: &[u8],
-) -> Option<OverlayModel> {
+pub fn compose_model(models: &ModelCache, keyboard_id: u8, layers: &[u8]) -> Option<OverlayModel> {
     let mut model = models.get(&(keyboard_id, 0))?.clone();
     for layer in layers {
         let overlay = models.get(&(keyboard_id, *layer))?;
@@ -288,7 +275,6 @@ pub(crate) fn compose_model(
     Some(model)
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
 fn apply_overlay(model: &mut OverlayModel, overlay: &OverlayModel) -> Option<()> {
     if overlay.keys.len() != model.keys.len() || overlay.encoders.len() != model.encoders.len() {
         return None;
@@ -360,14 +346,12 @@ fn resolve_home_directory(
     home.or(user_profile)
 }
 
-#[cfg(not(target_os = "windows"))]
-fn assets_dir() -> Result<PathBuf> {
+pub fn assets_dir() -> Result<PathBuf> {
     // args_os, not args: the latter panics on a non-UTF-8 argument, and an
     // asset path handed to us on the command line is an arbitrary byte string.
     resolve_assets_dir(env::args_os().nth(1), home_directory())
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
 fn resolve_assets_dir(argument: Option<OsString>, home: Option<OsString>) -> Result<PathBuf> {
     if let Some(path) = argument {
         return Ok(PathBuf::from(path));

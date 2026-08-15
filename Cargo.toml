@@ -3,6 +3,7 @@ members = [
   "crates/keymap-core",
   "crates/keymap-overlay-linux-protocol",
   "crates/keymap-overlay",
+  "crates/keymap-overlay-winui",
   "crates/keymap-overlay-windows-bridge",
 ]
 resolver = "2"

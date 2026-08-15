@@ -102,6 +102,15 @@ shared Rust HID listener and transition reducer. Rust invokes only a wake
 callback; the WPF dispatcher calls back to take the final queued transition, so
 bursts collapse before anything is drawn.
 
+An experimental sibling executable in `crates/keymap-overlay-winui` exercises a
+pure-Rust WinUI 3 frontend through Microsoft's unreleased `windows-reactor`
+crate. It calls the shared listener, reducer, model loader, and composer
+directly, so it has no C ABI bridge. `make build-winui-overlay` builds it on
+Windows; normal builds, installation, and releases intentionally continue to
+use WPF. WinUI 3 does not officially support transparent top-level windows, so
+the prototype currently uses a layered-window color key and must not replace
+WPF until transparency and repeated-show focus behavior pass physical testing.
+
 The transparent WPF window is mapped once and shrinks to one pixel while idle.
 Its HWND uses `WS_EX_NOACTIVATE`, `WS_EX_TOOLWINDOW`, and click-through styling,
 so repeated layer presses cannot take focus and the overlay stays out of the
