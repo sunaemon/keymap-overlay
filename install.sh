@@ -229,6 +229,22 @@ backup_linux_files() {
   backup_file "$QT_BINARY_PATH" qt-binary
   backup_file "$QT_SERVICE_PATH" qt-service
   backup_directory "$GNOME_EXTENSION_PATH" gnome-extension
+  backup_linux_unit_state "$QT_SERVICE_PATH" keymap-overlay-qt.service qt-service
+}
+
+backup_linux_unit_state() {
+  unit_path=$1
+  unit_name=$2
+  backup_name=$3
+  if [ ! -f "$unit_path" ]; then
+    return
+  fi
+  if systemctl --user is-enabled --quiet "$unit_name"; then
+    : >"${temporary_directory}/was-${backup_name}-enabled"
+  fi
+  if systemctl --user is-active --quiet "$unit_name"; then
+    : >"${temporary_directory}/was-${backup_name}-active"
+  fi
 }
 
 backup_file() {
@@ -447,8 +463,22 @@ restart_previous_linux_service() {
     systemctl --user enable keymap-overlay.service &&
     systemctl --user restart keymap-overlay.service || return
   if [ -f "$QT_SERVICE_PATH" ]; then
-    systemctl --user enable keymap-overlay-qt.service &&
-      systemctl --user restart keymap-overlay-qt.service
+    restore_linux_unit_state keymap-overlay-qt.service qt-service
+  fi
+}
+
+restore_linux_unit_state() {
+  unit_name=$1
+  backup_name=$2
+  if [ -f "${temporary_directory}/was-${backup_name}-enabled" ]; then
+    systemctl --user enable "$unit_name" || return
+  else
+    systemctl --user disable "$unit_name" || return
+  fi
+  if [ -f "${temporary_directory}/was-${backup_name}-active" ]; then
+    systemctl --user restart "$unit_name"
+  else
+    systemctl --user stop "$unit_name"
   fi
 }
 

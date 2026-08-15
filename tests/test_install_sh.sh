@@ -90,7 +90,14 @@ cat >"$FAKE_BIN/systemctl" <<'EOF'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >>"$TEST_COMMAND_LOG"
 case "$*" in
-  *restart*keymap-overlay*) [ "${TEST_FAIL_SERVICE:-0}" -eq 0 ] ;;
+  *is-enabled*keymap-overlay-qt*) [ "${TEST_QT_ENABLED:-1}" -eq 1 ] ;;
+  *is-active*keymap-overlay-qt*) [ "${TEST_QT_ACTIVE:-1}" -eq 1 ] ;;
+  *restart*keymap-overlay.service*)
+    if [ "${TEST_FAIL_SERVICE:-0}" -ne 0 ] && [ ! -f "${TEST_COMMAND_LOG}.failed-once" ]; then
+      : >"${TEST_COMMAND_LOG}.failed-once"
+      exit 1
+    fi
+    ;;
   *) exit 0 ;;
 esac
 EOF
@@ -145,6 +152,8 @@ run_installer() {
     TEST_COMMAND_LOG="$home/commands.log" \
     TEST_REAL_INSTALL="$REAL_INSTALL" \
     TEST_FAIL_SERVICE="${TEST_FAIL_SERVICE:-0}" \
+    TEST_QT_ENABLED="${TEST_QT_ENABLED:-1}" \
+    TEST_QT_ACTIVE="${TEST_QT_ACTIVE:-1}" \
     XDG_CURRENT_DESKTOP="${TEST_XDG_CURRENT_DESKTOP:-}" \
     KEYMAP_OVERLAY_FORCE_QT="${TEST_KEYMAP_OVERLAY_FORCE_QT:-}" \
     /bin/sh "$PROJECT_DIRECTORY/install.sh" "$@"
@@ -250,6 +259,34 @@ test_failed_service_install_rolls_back() {
   test "$enable_count" -eq 2
 }
 
+test_failed_gnome_upgrade_keeps_qt_disabled() {
+  home="$TEST_DIRECTORY/gnome rollback home"
+  assets="$home/.config/keymap-overlay"
+  unit_directory="$home/.config/systemd/user"
+  mkdir -p "$assets" "$unit_directory"
+  : >"$assets/1_L0.json"
+  printf 'old binary\n' >"$assets/keymap-overlay"
+  printf 'old service\n' >"$unit_directory/keymap-overlay.service"
+  printf 'old qt service\n' >"$unit_directory/keymap-overlay-qt.service"
+  : >"$home/commands.log"
+
+  if TEST_FAIL_SERVICE=1 \
+    TEST_QT_ENABLED=0 \
+    TEST_QT_ACTIVE=0 \
+    TEST_XDG_CURRENT_DESKTOP=GNOME \
+    run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz; then
+    echo 'Expected GNOME service installation to fail.' >&2
+    exit 1
+  fi
+
+  if grep -F 'systemctl --user enable keymap-overlay-qt.service' "$home/commands.log" >/dev/null; then
+    echo 'Rollback unexpectedly enabled the previously disabled Qt renderer.' >&2
+    exit 1
+  fi
+  grep -F 'systemctl --user disable keymap-overlay-qt.service' "$home/commands.log" >/dev/null
+  grep -F 'systemctl --user stop keymap-overlay-qt.service' "$home/commands.log" >/dev/null
+}
+
 test_missing_layer_assets_fails_without_installing_files() {
   home="$TEST_DIRECTORY/no assets home"
   assets="$home/.config/keymap-overlay"
@@ -272,5 +309,6 @@ test_linux_install_and_uninstall
 test_macos_stops_service_before_replacing_binary
 test_gnome_disables_qt_renderer_unless_forced
 test_failed_service_install_rolls_back
+test_failed_gnome_upgrade_keeps_qt_disabled
 test_missing_layer_assets_fails_without_installing_files
 echo 'install.sh tests passed'

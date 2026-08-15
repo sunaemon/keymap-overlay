@@ -120,9 +120,25 @@ pub(crate) struct DisplayEncoder {
 #[cfg(any(not(target_os = "windows"), test))]
 pub(crate) type ModelCache = HashMap<(u8, u8), OverlayModel>;
 
-pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
+/// A running listener that platform device notifications can ask to re-enumerate.
+#[derive(Clone)]
+pub struct RawHidListenerHandle {
+    session: hotplug::RunningSession,
+}
+
+impl RawHidListenerHandle {
+    /// Ends the current reader session after the platform reports a device arrival.
+    pub fn device_arrived(&self) {
+        self.session.end();
+    }
+}
+
+pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) -> RawHidListenerHandle {
     let session = hotplug::RunningSession::default();
     hotplug::spawn_watcher(session.clone());
+    let handle = RawHidListenerHandle {
+        session: session.clone(),
+    };
     thread::spawn(move || {
         loop {
             if let Err(error) = run_raw_hid_session(&sink, &session) {
@@ -133,6 +149,7 @@ pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) {
             thread::sleep(RECONNECT_INTERVAL);
         }
     });
+    handle
 }
 
 /// What a report should do to the overlay, given the held momentary layers.

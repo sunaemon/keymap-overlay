@@ -10,7 +10,7 @@ use keymap_overlay_linux_protocol::{
     BUS_NAME, OBJECT_PATH, RENDERER_INTERFACE, RendererService, RendererStateStore,
 };
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zbus::blocking::Connection;
 
@@ -131,8 +131,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     let mut pending = PendingTransition::default();
 
     for event in receiver {
-        pending.push(event);
-        let transition = pending.take();
+        let transition = reduce_queued_events(event, &receiver, &mut pending);
         let outcome = state.update(&transition, &models)?;
         if outcome.missing_model
             && let Transition::Show {
@@ -162,6 +161,18 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
+fn reduce_queued_events(
+    first: ListenerEvent,
+    receiver: &Receiver<ListenerEvent>,
+    pending: &mut PendingTransition,
+) -> Transition {
+    pending.push(first);
+    for event in receiver.try_iter() {
+        pending.push(event);
+    }
+    pending.take()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +191,39 @@ mod tests {
             keys: vec![],
             encoders: vec![],
         }
+    }
+
+    #[test]
+    fn queued_events_are_reduced_before_the_daemon_publishes() {
+        let (sender, receiver) = mpsc::channel();
+        let mut pending = PendingTransition::default();
+        let first = ListenerEvent::Layer(keymap_core::RawLayerEvent {
+            keyboard_id: 1,
+            layer: 2,
+            pressed: true,
+        });
+        sender
+            .send(ListenerEvent::Layer(keymap_core::RawLayerEvent {
+                keyboard_id: 1,
+                layer: 3,
+                pressed: true,
+            }))
+            .expect("queue layer press");
+        sender
+            .send(ListenerEvent::Layer(keymap_core::RawLayerEvent {
+                keyboard_id: 1,
+                layer: 3,
+                pressed: false,
+            }))
+            .expect("queue layer release");
+
+        assert_eq!(
+            reduce_queued_events(first, &receiver, &mut pending),
+            Transition::Show {
+                keyboard_id: 1,
+                layers: vec![2],
+            }
+        );
     }
 
     #[test]

@@ -209,6 +209,9 @@ before adding another one. Dependabot proposes updates for `cargo`, `uv`, and
 GitHub Actions weekly; the tool versions pinned in `mise.toml` and
 `mise.dev.toml` are not covered by it and still need bumping by hand.
 
+When Codex invokes the GitHub CLI (`gh`), run it outside the sandbox so it can
+access the user's GitHub authentication and network connection.
+
 `make install-overlay` still cannot be exercised in CI, because `launchctl
 bootstrap` and `systemctl --user` need a real login session, and the layer-shell
 window needs a running compositor. The release-installer tests cover generated
