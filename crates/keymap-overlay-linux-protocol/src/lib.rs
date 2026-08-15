@@ -50,7 +50,8 @@ impl RendererService {
     interface = "com.sunaemon.KeymapOverlay.Renderer1",
     default_service = "com.sunaemon.KeymapOverlay",
     default_path = "/com/sunaemon/KeymapOverlay",
-    gen_async = false
+    gen_async = false,
+    blocking_name = "RendererProxyBlocking"
 )]
 pub trait Renderer {
     fn get_state(&self) -> zbus::Result<RendererState>;
@@ -74,6 +75,7 @@ mod tests {
 
     #[test]
     fn contract_names_are_stable() {
+        let _: Option<RendererProxyBlocking<'static>> = None;
         assert_eq!(BUS_NAME, "com.sunaemon.KeymapOverlay");
         assert_eq!(OBJECT_PATH, "/com/sunaemon/KeymapOverlay");
         assert_eq!(RENDERER_INTERFACE, "com.sunaemon.KeymapOverlay.Renderer1");
