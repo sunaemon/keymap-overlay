@@ -14,14 +14,14 @@ build/<keyboard>/qmk-keymap.json
 platform-neutral geometry, labels, and state (one model per layer)
   ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
   ├─ Linux: build/<keyboard>/assets/linux/<keyboard>_L<n>.json
-  └─ Windows: Pillow → build/<keyboard>/assets/windows/<keyboard>_L<n>.png
+  └─ Windows: build/<keyboard>/assets/windows/<keyboard>_L<n>.json
   ↓ make install-assets
-platform configuration directory/<keyboard>_L<n>.<json|png>
+platform configuration directory/<keyboard>_L<n>.json
 ```
 
 `make install-assets` is the platform-independent model-generation and copy
-target. It installs JSON on macOS and Linux. On Windows, generate PNGs from WSL
-with `make install-assets`, then run the native `make install-overlay`; WSL
+target. It installs JSON on every platform. On Windows, generate models from
+WSL with `make install-assets`, then run native `make install-overlay`; WSL
 writes them directly to `%USERPROFILE%/.config/keymap-overlay/`.
 
 ## Runtime Data Flow
@@ -36,7 +36,7 @@ Rust HID listener (hidapi)
 native transparent window
   macOS: AppKit NSGlassEffectView + NSBox + NSTextField
   Linux: Qt Quick + KDE LayerShellQt
-  Windows: eframe/egui
+  Windows: WPF
   ↓
 matching <keyboard>_L<layer> asset is displayed
   ↓
@@ -90,29 +90,20 @@ native show animations on every layer-key press.
 The application replaces the former Hammerspoon and Lua integration entirely.
 No synthetic function-key events or Hammerspoon configuration are required.
 
-On **Windows** (`src/ui/windows.rs`) the window is an eframe/egui window with
-the same four properties, kept out of the taskbar and the alt-tab list. It
-differs from every other backend in one way: **it is mapped once and never
-hidden.**
+On **Windows**, `windows/KeymapOverlay.Wpf` owns the process and builds a native
+WPF visual tree from each installed JSON model. A narrow C ABI bridge loads the
+shared Rust HID listener and transition reducer. Rust invokes only a wake
+callback; the WPF dispatcher calls back to take the final queued transition, so
+bursts collapse before anything is drawn.
 
-Hiding it would take focus. `ViewportCommand::Visible(true)` becomes winit's
-`WindowFlags::VISIBLE`, and winit issues `SW_SHOWNOACTIVATE` only for the first
-show of a window built with `with_active(false)`; it then flips an internal
-marker, so every later show is a plain `SW_SHOW`, which activates. Since the
-overlay shows and hides on every key hold, from the second press onward the
-window would take focus and swallow the keystrokes the layer key was held for —
-the same failure described for X11 below. Nothing in winit 0.30 exposes
-`WS_EX_NOACTIVATE` for an application window, and the workspace forbids unsafe,
-so the style cannot be set by hand either.
+The transparent WPF window is mapped once and shrinks to one pixel while idle.
+Its HWND uses `WS_EX_NOACTIVATE`, `WS_EX_TOOLWINDOW`, and click-through styling,
+so repeated layer presses cannot take focus and the overlay stays out of the
+taskbar and Alt-Tab. `SetWindowPos` always includes `SWP_NOACTIVATE`.
 
-So on Windows "hidden" means _drawing nothing_: the window keeps its place in
-the stack, transparent and click-through, and hiding drops the texture and
-shrinks the window, exactly as on macOS. Two
-consequences are load-bearing. The clear colour must be fully transparent —
-eframe's default is a translucent grey that no other backend ever shows,
-because they all unmap, but here it would be a permanent rectangle across the
-screen. And resizing must not activate either, which holds: winit's resize path
-passes `SWP_NOACTIVATE`.
+Windows publishes one self-contained `keymap-overlay.exe`. The .NET single-file
+bundle contains the Rust bridge DLL and extracts native content automatically
+before launch; installation and autostart still manage one executable.
 
 On **Linux**, `src/ui/qt.rs` sends reduced show/hide transitions over a local
 Unix datagram socket. `QSocketNotifier` wakes the Qt main loop, so the resident
@@ -134,8 +125,8 @@ in the forbid-unsafe Rust crates. Qt is linked into the same executable rather
 than run as a helper process.
 
 The model uses platform-independent point geometry. On macOS those values are
-AppKit points and on Linux they are Qt logical pixels. Windows presents the
-generated image at its own pixel size. `PIXELS_PER_UNIT` controls the size of
+AppKit points, on Linux they are Qt logical pixels, and on Windows they are WPF
+device-independent units. `PIXELS_PER_UNIT` controls the size of
 one QMK layout unit. Windows reports a scale factor that egui would otherwise
 apply on top, so that backend pins `pixels_per_point` to 1.
 
@@ -165,7 +156,7 @@ apply on top, so that backend pins `pixels_per_point` to 1.
 ## Installation and Autostart
 
 The normal installation path separates generated assets from the native
-application. `make install-assets` builds keyboard-specific JSON or PNG assets
+application. `make install-assets` builds keyboard-specific JSON models
 from the source checkout. The platform installer then downloads the latest versioned
 release archive, requires a matching entry in `SHA256SUMS`, and, when the
 optional GitHub CLI is present, verifies GitHub artifact attestations. Release
@@ -184,7 +175,7 @@ source-build workflow:
 
 1. On macOS and Linux, uses the `install-assets` target to generate and
    install all layer assets as JSON. On Windows, verifies
-   that WSL has already generated PNGs under
+   that WSL has already generated JSON models under
    `%USERPROFILE%/.config/keymap-overlay/`.
 2. Builds a release binary and installs it as
    `~/.config/keymap-overlay/keymap-overlay` on macOS and Linux, and as
@@ -220,7 +211,7 @@ The overlay writes logs to:
 Logs rotate at 1 MiB and retain the current file plus three previous files.
 
 `make uninstall-overlay` stops and removes the login service, installed binary,
-and generated JSON or PNG assets. It keeps the logs for troubleshooting.
+and generated JSON models. It keeps the logs for troubleshooting.
 
 ## Firmware Workflow
 
@@ -258,10 +249,8 @@ The Python generator converts QMK's keymap and keyboard JSON into one small,
 versioned display model per layer. The model contains only canvas geometry,
 labels, held-state flags, and encoder actions; it contains no toolkit-specific
 objects and does not pass through keymap-drawer, YAML, SVG, or another schema.
-macOS and Linux install this model as JSON and render it with AppKit or Qt
-Quick. Windows uses the same in-memory model as input to the first-party Pillow
-compatibility renderer, which supersamples and downsamples a transparent RGBA
-PNG for smooth edges. Keys use quiet, nearly opaque fills and a low-contrast
+All three platforms install this model as JSON and render it with AppKit, Qt
+Quick, or WPF. Keys use quiet, nearly opaque fills and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
 key alone receives its pale tint. Display-only Unicode labels come from single-character
 comments on `custom_keycodes` entries or an explicit `keymap-overlay-labels`
@@ -274,9 +263,8 @@ layout coordinates. Matrix placement replaces the normal key drawing with one
 circular knob, places counter-clockwise and clockwise actions above it, and
 keeps its push action centred inside.
 
-The macOS and Linux runtimes parse every installed JSON model and build or cache
-their native representation at startup. Windows decodes and caches every
-installed PNG. Layer events therefore only select an in-memory view or image;
+All runtimes parse every installed JSON model and build or cache their native
+representation at startup. Layer events therefore only select an in-memory view;
 they never leave the previous layer visible while disk I/O or decoding
 completes.
 
@@ -288,7 +276,7 @@ empty content view while hiding so a later map cannot expose stale content.
 ### Native Windows Rather Than One Toolkit
 
 Each system gets the window integration it can actually support. AppKit covers
-macOS, Qt Quick plus KDE LayerShellQt covers Linux, and eframe covers Windows.
+macOS, Qt Quick plus KDE LayerShellQt covers Linux, and WPF covers Windows.
 On Wayland a normal application window cannot raise itself above others or
 reject input, which is the entire behaviour of this overlay; LayerShellQt is
 therefore a semantic requirement rather than a styling choice.

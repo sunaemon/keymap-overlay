@@ -1,6 +1,12 @@
 [workspace]
-members = ["crates/keymap-core", "crates/keymap-overlay"]
-exclude = ["crates/keymap-overlay-qt-bridge"]
+members = [
+  "crates/keymap-core",
+  "crates/keymap-overlay",
+  "crates/keymap-overlay-windows-bridge",
+]
+exclude = [
+  "crates/keymap-overlay-qt-bridge",
+]
 resolver = "2"
 
 [workspace.package]

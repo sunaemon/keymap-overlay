@@ -10,7 +10,6 @@ from scripts.generate_overlay_asset import (
     _parse_encoder_map,
     _resolve_layer,
     build_overlay_model,
-    render_png,
 )
 from src.types import KeycodesJson, QmkKeymapJson
 
@@ -37,7 +36,7 @@ def _keyboard() -> dict:
     }
 
 
-def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
+def test_builds_keys_and_an_encoder_into_the_shared_model(tmp_path: Path) -> None:
     keymap = _write(
         tmp_path / "keymap.json",
         {
@@ -75,7 +74,6 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
         64,
     )
     model = build_overlay_model(*args, keymap_c=keymap_c)
-    image = render_png(*args, keymap_c=keymap_c)
 
     assert model.version == 1
     assert (model.width, model.height) == (168, 142)
@@ -83,11 +81,6 @@ def test_renders_keys_and_an_encoder_directly_to_rgba(tmp_path: Path) -> None:
     assert model.encoders[0].counter_clockwise == ["VOL -"]
     assert model.encoders[0].clockwise == ["VOL +"]
     assert model.encoders[0].press == "MUTE"
-    assert image.mode == "RGBA"
-    assert image.size == (168, 142)
-    assert image.getbbox() is not None
-    alpha_histogram = image.getchannel("A").histogram()
-    assert sum(alpha_histogram[1:255]) > 0
 
 
 def test_encoder_parser_preserves_nested_keycode_arguments(tmp_path: Path) -> None:
@@ -199,7 +192,7 @@ def test_encoder_placement_count_must_match_keyboard(tmp_path: Path) -> None:
     keymap_c = _write(tmp_path / "keymap.c", {})
 
     with pytest.raises(ValueError, match="encoder placements"):
-        render_png(
+        build_overlay_model(
             keymap,
             keyboard,
             config,

@@ -101,10 +101,9 @@ jobs:
       - name: Build the release binary
         run: make build-overlay
 
-  # The Windows half: hidapi's own Windows backend, an eframe window that is
-  # never unmapped, and a per-user Run key instead of a login agent. Every step
-  # runs under Git Bash, because the Makefile dispatches on `uname -s` and the
-  # recipes are POSIX shell.
+  # The Windows half: hidapi's own Windows backend behind a narrow Rust DLL,
+  # a WPF-owned window, and a per-user Run key instead of a login agent. Every
+  # Make step runs under Git Bash because platform dispatch uses `uname -s`.
   #
   # What this job cannot prove is the part that matters most — that showing the
   # overlay never takes focus. No CI runner has a session to test that in, the
@@ -154,9 +153,9 @@ jobs:
       - name: Run Rust Tests
         run: make test-rust
 
-      # `make install-overlay` ships this binary, so a release-only build
-      # failure would surface at install time rather than here.
-      - name: Build the release binary
+      # Publishes the self-contained single-file WPF executable and embeds the
+      # Rust bridge DLL for extraction by the .NET bundle host.
+      - name: Build the release overlay
         run: make build-overlay
 
   # Audits Cargo.lock against the RustSec advisory database. Unlike the other

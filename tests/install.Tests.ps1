@@ -78,9 +78,9 @@ Describe 'install.ps1' {
         (Join-Path $staging 'release-install.ps1') | Should -Exist
     }
 
-    It 'keeps layer images and logs when uninstalling' {
+    It 'keeps layer models and logs when uninstalling' {
         New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.png') -Value 'png'
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.json') -Value '{}'
         Set-Content -LiteralPath $binaryPath -Value 'binary'
         Set-Content -LiteralPath $licensePath -Value 'license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'notices'
@@ -94,7 +94,7 @@ Describe 'install.ps1' {
         $licensePath | Should -Not -Exist
         $thirdPartyLicensesPath | Should -Not -Exist
         $installerPath | Should -Not -Exist
-        (Join-Path $assetDirectory '1_L0.png') | Should -Exist
+        (Join-Path $assetDirectory '1_L0.json') | Should -Exist
         $logDirectory | Should -Exist
     }
 
@@ -120,7 +120,7 @@ Describe 'install.ps1' {
     }
 
     It 'restores an existing installation when autostart setup fails' {
-        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.png') -Value 'png'
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.json') -Value '{}'
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
         Set-Content -LiteralPath $licensePath -Value 'old license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'old notices'
@@ -151,7 +151,7 @@ Describe 'install.ps1' {
     }
 
     It 'continues rollback when stopping the failed installation times out' {
-        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.png') -Value 'png'
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.json') -Value '{}'
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
         Set-Content -LiteralPath $licensePath -Value 'old license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'old notices'
@@ -185,7 +185,7 @@ Describe 'install.ps1' {
     }
 
     It 'leaves an existing installation untouched when layer assets are missing' {
-        Get-ChildItem -LiteralPath $assetDirectory -Filter '*.png' -File -ErrorAction SilentlyContinue |
+        Get-ChildItem -LiteralPath $assetDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
             Remove-Item -Force
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
         Set-Content -LiteralPath $licensePath -Value 'old license'

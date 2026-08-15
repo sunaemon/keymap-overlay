@@ -5,13 +5,11 @@ import logging
 import re
 import sys
 from dataclasses import asdict, dataclass
-from io import BytesIO
 from pathlib import Path
 from textwrap import wrap
 from typing import Annotated, Literal
 
 import typer
-from PIL import Image, ImageDraw, ImageFont
 
 from src.types import (
     EncoderPlacement,
@@ -28,28 +26,13 @@ from src.util import initialize_logging, parse_keycode_value, strip_c_comments
 logger = logging.getLogger(__name__)
 
 app = typer.Typer()
-Font = ImageFont.ImageFont | ImageFont.FreeTypeFont
 OverlayPlatform = Literal["macos", "linux", "windows"]
 
-BACKGROUND = (0, 0, 0, 0)
-KEY_FILL = (220, 224, 231, 246)
-KEY_TEXT = (32, 36, 44, 255)
-KEY_BORDER = (32, 36, 44, 31)
-HELD_FILL = (255, 221, 221, 255)
-KNOB_FILL = KEY_FILL
 PADDING = 20
 HEADER_HEIGHT = 38
 KEY_INSET = 3
-KEY_RADIUS = 11
-SUPERSAMPLE_SCALE = 4
 ENCODER_PAIR_NAME = "ENCODER_CCW_CW"
 TRANSPARENT_KEYS = {"KC_TRNS", "KC_TRANSPARENT", "_______"}
-UI_FONT_CANDIDATES = (
-    "SFNS.ttf",
-    "segoeui.ttf",
-    "DejaVuSans.ttf",
-    "LiberationSans-Regular.ttf",
-)
 
 KEYCODE_LABELS = {
     "KC_NO": "",
@@ -132,9 +115,6 @@ def main(
     vitaly_json: Annotated[
         Path | None, typer.Option(help="Vitaly dump containing encoder_layout")
     ] = None,
-    output_format: Annotated[
-        Literal["png", "json"], typer.Option(help="Installed asset format")
-    ] = "png",
     platform: Annotated[
         OverlayPlatform, typer.Option(help="Target overlay platform")
     ] = "macos",
@@ -154,51 +134,16 @@ def main(
             vitaly_json=vitaly_json,
             platform=platform,
         )
-        if output_format == "json":
-            _write_stdout(
-                (
-                    json.dumps(asdict(model), ensure_ascii=False, separators=(",", ":"))
-                    + "\n"
-                ).encode()
-            )
-        else:
-            output = BytesIO()
-            _draw_model(model).save(output, format="PNG", optimize=True)
-            _write_stdout(output.getvalue())
+        _write_stdout(
+            (
+                json.dumps(asdict(model), ensure_ascii=False, separators=(",", ":"))
+                + "\n"
+            ).encode()
+        )
         logger.info("Rendered layer %d from %s", layer, qmk_keymap_json)
     except Exception:
         logger.exception("Failed to render layer %d", layer)
         raise typer.Exit(code=1) from None
-
-
-def render_png(
-    qmk_keymap_json: Path,
-    keyboard_json: Path,
-    keyboard_config: Path,
-    custom_keycodes_json: Path,
-    layout_name: str,
-    layer_index: int,
-    pixels_per_unit: int = 64,
-    *,
-    keymap_c: Path | None = None,
-    vitaly_json: Path | None = None,
-    platform: OverlayPlatform = "macos",
-) -> Image.Image:
-    """Render one keymap layer as an RGBA image."""
-    return _draw_model(
-        build_overlay_model(
-            qmk_keymap_json,
-            keyboard_json,
-            keyboard_config,
-            custom_keycodes_json,
-            layout_name,
-            layer_index,
-            pixels_per_unit,
-            keymap_c=keymap_c,
-            vitaly_json=vitaly_json,
-            platform=platform,
-        )
-    )
 
 
 def build_overlay_model(
@@ -464,47 +409,6 @@ def _build_layer_model(
     )
 
 
-def _draw_model(model: OverlayModel) -> Image.Image:
-    scale = SUPERSAMPLE_SCALE
-    image = Image.new("RGBA", (model.width * scale, model.height * scale), BACKGROUND)
-    draw = ImageDraw.Draw(image)
-    fonts = {
-        "header": _ui_font(model.header_font_size * scale),
-        "key": _ui_font(model.key_font_size * scale),
-        "tiny": _ui_font(model.encoder_font_size * scale),
-    }
-    draw.text(
-        (PADDING * scale, PADDING * scale),
-        f"L{model.layer}",
-        fill=KEY_TEXT,
-        font=fonts["header"],
-        anchor="la",
-    )
-    for key in model.keys:
-        box = _scale_box((key.x, key.y, key.x + key.width, key.y + key.height), scale)
-        draw.rounded_rectangle(
-            box,
-            radius=KEY_RADIUS * scale,
-            fill=HELD_FILL if key.held else KEY_FILL,
-            outline=KEY_BORDER,
-            width=max(1, round(0.75 * scale)),
-        )
-        _draw_lines(draw, key.label, _center(box), fonts["key"])
-    for encoder in model.encoders:
-        box = _scale_box(
-            (encoder.x, encoder.y, encoder.x + encoder.size, encoder.y + encoder.size),
-            scale,
-        )
-        draw.ellipse(
-            box,
-            fill=HELD_FILL if encoder.held else KNOB_FILL,
-            outline=KEY_BORDER,
-            width=max(1, round(0.75 * scale)),
-        )
-        _draw_encoder_model(draw, encoder, box, fonts["tiny"], scale)
-    return image.resize((model.width, model.height), Image.Resampling.LANCZOS)
-
-
 def _canvas_size(
     min_x: float,
     min_y: float,
@@ -541,70 +445,6 @@ def _pixel_box(
         left + round(width * pixels_per_unit),
         top + round(height * pixels_per_unit),
     )
-
-
-def _draw_encoder_model(
-    draw: ImageDraw.ImageDraw,
-    encoder: DisplayEncoder,
-    box: tuple[int, int, int, int],
-    font: Font,
-    scale: int,
-) -> None:
-    center_x, center_y = _center(box)
-    label_y = box[1] - 8 * scale
-    if encoder.counter_clockwise:
-        draw.text(
-            (center_x - 3 * scale, label_y),
-            f"← {' '.join(encoder.counter_clockwise)}",
-            fill=KEY_TEXT,
-            font=font,
-            anchor="rm",
-        )
-    if encoder.clockwise:
-        draw.text(
-            (center_x + 3 * scale, label_y),
-            f"{' '.join(encoder.clockwise)} →",
-            fill=KEY_TEXT,
-            font=font,
-            anchor="lm",
-        )
-    if encoder.press:
-        draw.text(
-            (center_x, center_y),
-            f"P {encoder.press}",
-            fill=KEY_TEXT,
-            font=font,
-            anchor="mm",
-        )
-
-
-def _ui_font(size: int) -> Font:
-    for name in UI_FONT_CANDIDATES:
-        try:
-            return ImageFont.truetype(name, size)
-        except OSError:
-            continue
-    return ImageFont.load_default(size=size)
-
-
-def _draw_lines(
-    draw: ImageDraw.ImageDraw,
-    lines: list[str],
-    center: tuple[int, int],
-    font: Font,
-) -> None:
-    if not lines:
-        return
-    line_height = font.getbbox("Ag")[3] + 1
-    start_y = center[1] - (len(lines) - 1) * line_height / 2
-    for index, line in enumerate(lines):
-        draw.text(
-            (center[0], round(start_y + index * line_height)),
-            line,
-            fill=KEY_TEXT,
-            font=font,
-            anchor="mm",
-        )
 
 
 def _wrap_label(label: str, max_lines: int, max_chars: int) -> list[str]:
@@ -712,11 +552,6 @@ def _inset_box(
 ) -> tuple[int, int, int, int]:
     left, top, right, bottom = box
     return left + inset, top + inset, right - inset, bottom - inset
-
-
-def _scale_box(box: tuple[int, int, int, int], scale: int) -> tuple[int, int, int, int]:
-    left, top, right, bottom = box
-    return left * scale, top * scale, right * scale, bottom * scale
 
 
 def _square_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:

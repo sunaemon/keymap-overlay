@@ -54,8 +54,8 @@ jobs:
           test "$(uname -m)" = arm64
           test "$(mise exec -- rustc -vV | sed -n 's/^host: //p')" = aarch64-apple-darwin
 
-      - name: Build release binary
-        run: mise exec -- cargo build --release -p keymap-overlay
+      - name: Build release overlay
+        run: make build-overlay
 
       - name: Check release version
         env:
@@ -79,7 +79,7 @@ jobs:
           case "$RUNNER_OS" in
             Windows)
               asset="keymap-overlay-windows-${arch}.zip"
-              cp target/release/keymap-overlay.exe dist/package/
+              cp target/wpf-publish/keymap-overlay.exe dist/package/
               cp LICENSE.md dist/package/LICENSE
               cp THIRD-PARTY-LICENSES.html dist/package/
               (cd dist/package && 7z a "$dist/$asset" keymap-overlay.exe LICENSE example/LICENSE THIRD-PARTY-LICENSES.html)
