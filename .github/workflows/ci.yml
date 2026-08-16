@@ -158,6 +158,11 @@ jobs:
       - name: Build the release overlay
         run: make build-overlay
 
+      # Keep the experimental pure-Rust WinUI frontend compiling without
+      # changing the installed or released WPF implementation.
+      - name: Check the WinUI prototype
+        run: cargo check -p keymap-overlay-winui
+
   # Audits Cargo.lock against the RustSec advisory database. Unlike the other
   # jobs this one can start failing without anything here changing, because the
   # database grows. It builds nothing, so it needs no Rust cache.

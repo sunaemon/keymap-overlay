@@ -277,6 +277,7 @@ KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay-qt
 WPF_PROJECT := windows/KeymapOverlay.Wpf/KeymapOverlay.Wpf.csproj
 WPF_PUBLISH_DIR := target/wpf-publish
 WINDOWS_BRIDGE_MANIFEST := crates/keymap-overlay-windows-bridge/Cargo.toml
+WINUI_PACKAGE := keymap-overlay-winui
 QT_RENDERER_SOURCE := linux/qt
 QT_RENDERER_BUILD_DIR := target/qt-release
 ifeq ($(OS_FAMILY),windows)
@@ -505,6 +506,17 @@ ifeq ($(OS_FAMILY),linux)
 		-DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$(abspath target/release)"
 	$(CMAKE) --build "$(QT_RENDERER_BUILD_DIR)" --config Release
 endif
+endif
+
+# Experimental pure-Rust WinUI 3 frontend. The WPF build above remains the
+# installed and released Windows implementation until focus and transparency
+# behavior have been verified on a real desktop.
+.PHONY: build-winui-overlay
+build-winui-overlay:
+ifeq ($(OS_FAMILY),windows)
+	$(CARGO) build --release -p "$(WINUI_PACKAGE)"
+else
+	$(error build-winui-overlay is only available on Windows)
 endif
 
 .PHONY: install-overlay
