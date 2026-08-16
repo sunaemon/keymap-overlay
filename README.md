@@ -53,18 +53,21 @@ composition rules, and native window design.
 
 ## Platform Support
 
-|                | macOS                       | Linux                                     | Windows                       |
-| -------------- | --------------------------- | ----------------------------------------- | ----------------------------- |
-| Renderer       | AppKit                      | GNOME Shell or Qt Quick with LayerShellQt | WPF                           |
-| Autostart      | launchd                     | systemd user services + GNOME extension   | current-user Run registry key |
-| Raw HID access | Input Monitoring permission | `uaccess` udev rule                       | no additional permission      |
-| Firmware tools | source checkout             | source checkout                           | source checkout in WSL        |
-| Overlay binary | GitHub Release              | GitHub Release                            | GitHub Release                |
+|                | macOS                       | Linux                                   | Windows                       |
+| -------------- | --------------------------- | --------------------------------------- | ----------------------------- |
+| Renderer       | AppKit                      | GNOME Shell or Qt Quick                 | WPF                           |
+| Autostart      | launchd                     | systemd user services + GNOME extension | current-user Run registry key |
+| Raw HID access | Input Monitoring permission | `uaccess` udev rule                     | no additional permission      |
+| Firmware tools | source checkout             | source checkout                         | source checkout in WSL        |
+| Overlay binary | GitHub Release              | GitHub Release                          | GitHub Release                |
 
-GNOME 45 or newer uses the included Shell extension on Wayland or X11. KDE
-Plasma uses the Qt renderer; LayerShellQt provides the required Wayland overlay
-semantics, and the same renderer supports X11 and other non-GNOME desktops.
-Cinnamon can use the Qt renderer but does not load the GNOME extension.
+GNOME 45 or newer uses the included Shell extension on Wayland or X11. Other
+desktops use the Qt renderer on both display protocols. On Wayland,
+LayerShellQt provides the required overlay semantics; on X11, the renderer uses
+a native Qt/XCB window. The maintainer has tested GNOME/Wayland, KDE
+Plasma/Wayland, Sway/Wayland, and Cinnamon/X11. Other combinations are
+supported by their respective renderer but are not part of the regularly
+tested matrix. Cinnamon does not load the GNOME extension.
 
 ### Bundled keyboards
 
@@ -171,13 +174,23 @@ gnome-extensions enable keymap-overlay@sunaemon
 systemctl --user restart keymap-overlay.service
 ```
 
-#### KDE Plasma and other desktops
+#### KDE Plasma, Cinnamon, and other desktops
 
 The installer normally enables the Qt renderer automatically. To enable it
 manually and start its shared HID daemon:
 
 ```bash
 systemctl --user enable --now keymap-overlay-qt.service
+```
+
+Cinnamon uses this Qt renderer rather than the GNOME Shell extension. It works
+in a Cinnamon/X11 session through Qt's XCB backend; LayerShellQt is needed only
+for supported Wayland sessions. If the service was already running under a
+different desktop session, restart both processes after logging in so they
+inherit Cinnamon's current `DISPLAY` and D-Bus environment:
+
+```bash
+systemctl --user restart keymap-overlay.service keymap-overlay-qt.service
 ```
 
 Sway's default configuration imports its Wayland environment into the systemd
