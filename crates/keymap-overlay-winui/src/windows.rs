@@ -5,8 +5,9 @@ mod native;
 
 use anyhow::{Context, Result};
 use keymap_overlay::{
-    LayerEventSink, ListenerEvent, ModelCache, OverlayModel, PendingTransition, Transition,
-    assets_dir, compose_model, initialize_logging, load_model_cache, spawn_raw_hid_listener,
+    Arguments, LayerEventSink, ListenerEvent, LogDestination, ModelCache, OverlayModel,
+    Parser as _, PendingTransition, Transition, compose_model, default_asset_dir, default_log_file,
+    initialize_logging, load_model_cache, spawn_raw_hid_listener, write_notice,
 };
 use std::sync::{Arc, Mutex};
 use windows_reactor::{
@@ -87,8 +88,19 @@ impl LayerEventSink for WinUiSink {
 
 /// Runs the experimental WinUI frontend without changing the WPF release path.
 pub(crate) fn run() -> Result<()> {
-    initialize_logging()?;
-    let models = Arc::new(load_model_cache(&assets_dir()?)?);
+    let arguments = Arguments::parse();
+    if let Some(notice) = arguments.notice() {
+        return write_notice(notice);
+    }
+    // A GUI process has no console, so an unnamed log goes to the default file
+    // rather than to stderr.
+    let destination = match arguments.log_out {
+        Some(path) => LogDestination::File(path),
+        None => LogDestination::File(default_log_file()?),
+    };
+    initialize_logging(destination)?;
+    let directory = arguments.asset_dir.map_or_else(default_asset_dir, Ok)?;
+    let models = Arc::new(load_model_cache(&directory)?);
     windows_reactor::bootstrap().context("Failed to initialize the Windows App SDK runtime")?;
     native::run(OverlayComponent { models }).context("The WinUI event loop failed")?;
     Ok(())

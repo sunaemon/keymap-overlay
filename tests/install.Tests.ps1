@@ -4,13 +4,15 @@ BeforeAll {
 
 Describe 'install.ps1' {
     BeforeEach {
-        $script:assetDirectory = Join-Path $TestDrive '.config\keymap-overlay'
-        $script:binaryPath = Join-Path $assetDirectory 'keymap-overlay.exe'
-        $script:licensePath = Join-Path $assetDirectory 'LICENSE'
-        $script:thirdPartyLicensesPath = Join-Path $assetDirectory 'THIRD-PARTY-LICENSES.html'
+        $script:assetDirectory = Join-Path $TestDrive 'AppData\Local\keymap-overlay'
+        $script:programDirectory = Join-Path $TestDrive 'AppData\Local\Programs\keymap-overlay'
+        $script:binaryPath = Join-Path $programDirectory 'keymap-overlay.exe'
+        $script:licensePath = Join-Path $programDirectory 'LICENSE'
+        $script:thirdPartyLicensesPath = Join-Path $programDirectory 'THIRD-PARTY-LICENSES.html'
         $script:installerPath = Join-Path $assetDirectory 'install.ps1'
-        $script:logDirectory = Join-Path $TestDrive '.local\var\log\keymap-overlay'
+        $script:logDirectory = Join-Path $TestDrive 'AppData\Local\keymap-overlay\logs'
         New-Item -ItemType Directory -Path $assetDirectory -Force | Out-Null
+        New-Item -ItemType Directory -Path $programDirectory -Force | Out-Null
     }
 
     It 'verifies a matching SHA-256 manifest entry' {

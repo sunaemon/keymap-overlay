@@ -1,8 +1,8 @@
 //! Narrow C ABI between the WPF frontend and the shared Rust HID runtime.
 
 use keymap_overlay::{
-    LayerEventSink, ListenerEvent, PendingTransition, RawHidListenerHandle, Transition,
-    initialize_logging, spawn_raw_hid_listener,
+    LayerEventSink, ListenerEvent, LogDestination, PendingTransition, RawHidListenerHandle,
+    Transition, default_log_file, initialize_logging, spawn_raw_hid_listener,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -59,7 +59,19 @@ fn start(wake: extern "system" fn()) -> i32 {
     if STATE.get().is_some() {
         return -2;
     }
-    if initialize_logging().is_err() {
+    // WPF owns the process and this ABI carries no strings, so the log file is
+    // the shared default rather than something the frontend can name. Both
+    // failures are reported on stderr because logging does not exist yet and
+    // the caller receives only a numeric code.
+    let log_file = match default_log_file() {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("Failed to resolve the log file: {error:#}");
+            return -1;
+        }
+    };
+    if let Err(error) = initialize_logging(LogDestination::File(log_file)) {
+        eprintln!("Failed to initialize logging: {error:#}");
         return -1;
     }
 

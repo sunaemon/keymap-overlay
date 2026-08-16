@@ -166,30 +166,41 @@ run_installer() {
 test_linux_install_and_uninstall() {
   home="$TEST_DIRECTORY/linux home"
   assets="$home/.config/keymap-overlay"
+  bin="$home/.local/bin"
   mkdir -p "$assets"
   : >"$assets/1_L0.json"
   : >"$home/commands.log"
 
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
 
-  test -x "$assets/keymap-overlay"
-  test -x "$assets/keymap-overlay-qt"
-  test -f "$assets/LICENSE"
-  test -f "$assets/THIRD-PARTY-LICENSES.html"
+  test -x "$bin/keymap-overlay"
+  test -x "$bin/keymap-overlay-qt"
   test -x "$assets/install.sh"
+  # The binary embeds the notices, so nothing is installed for them.
+  test ! -e "$assets/LICENSE"
+  test ! -e "$assets/THIRD-PARTY-LICENSES.html"
   unit="$home/.config/systemd/user/keymap-overlay.service"
   qt_unit="$home/.config/systemd/user/keymap-overlay-qt.service"
   extension="$home/.local/share/gnome-shell/extensions/keymap-overlay@sunaemon"
-  assert_file_contains "$unit" "ExecStart=\"$assets/keymap-overlay\" \"$assets\""
-  assert_file_contains "$unit" "Environment=\"KEYMAP_OVERLAY_LOG_DIR=$home/.local/var/log/keymap-overlay\""
-  assert_file_contains "$qt_unit" "ExecStart=\"$assets/keymap-overlay-qt\""
+  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\" --asset-dir \"$assets\""
+  # Anchored on the directives: the unit's own comments mention both names.
+  assert_file_contains "$unit" "SyslogIdentifier=keymap-overlay"
+  if grep -q '^ExecStart=.*--log-out' "$unit"; then
+    echo 'The systemd unit should not name a log file.' >&2
+    exit 1
+  fi
+  if grep -q '^Environment=' "$unit"; then
+    echo 'The systemd unit should not set a log directory.' >&2
+    exit 1
+  fi
+  assert_file_contains "$qt_unit" "ExecStart=\"$bin/keymap-overlay-qt\""
   test -f "$extension/metadata.json"
   test -f "$extension/extension.js"
   test -f "$extension/stylesheet.css"
 
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz uninstall
-  test ! -e "$assets/keymap-overlay"
-  test ! -e "$assets/keymap-overlay-qt"
+  test ! -e "$bin/keymap-overlay"
+  test ! -e "$bin/keymap-overlay-qt"
   test ! -e "$assets/install.sh"
   test ! -e "$unit"
   test ! -e "$qt_unit"
@@ -208,9 +219,16 @@ test_macos_stops_service_before_replacing_binary() {
   run_installer "$home" Darwin arm64 keymap-overlay-macos-arm64.tar.gz
 
   test -d "$home/.local/var/log/keymap-overlay"
-  assert_file_contains \
-    "$home/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist" \
-    'macos &amp; home/.config/keymap-overlay'
+  plist="$home/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist"
+  # The ampersand in the home directory must survive XML escaping.
+  assert_file_contains "$plist" '<string>--asset-dir</string>'
+  assert_file_contains "$plist" 'macos &amp; home/.config/keymap-overlay'
+  assert_file_contains "$plist" '<string>--log-out</string>'
+  assert_file_contains "$plist" 'macos &amp; home/.local/var/log/keymap-overlay/overlay.log'
+  if grep -F 'KEYMAP_OVERLAY_LOG_DIR' "$plist" >/dev/null; then
+    echo 'The launchd plist should pass the log path as an argument.' >&2
+    exit 1
+  fi
   stop_line=$(grep -n 'launchctl bootout' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   install_line=$(grep -n 'install .*keymap-overlay' "$home/commands.log" | awk -F: 'NR == 1 { print $1 }')
   test "$stop_line" -lt "$install_line"
@@ -242,12 +260,12 @@ test_gnome_disables_qt_renderer_unless_forced() {
 test_failed_service_install_rolls_back() {
   home="$TEST_DIRECTORY/rollback home"
   assets="$home/.config/keymap-overlay"
+  bin="$home/.local/bin"
   unit="$home/.config/systemd/user/keymap-overlay.service"
-  mkdir -p "$assets" "$(dirname "$unit")"
+  mkdir -p "$assets" "$bin" "$(dirname "$unit")"
   : >"$assets/1_L0.json"
-  printf 'old binary\n' >"$assets/keymap-overlay"
-  printf 'old license\n' >"$assets/LICENSE"
-  printf 'old notices\n' >"$assets/THIRD-PARTY-LICENSES.html"
+  printf 'old binary\n' >"$bin/keymap-overlay"
+  printf 'old qt binary\n' >"$bin/keymap-overlay-qt"
   printf 'old installer\n' >"$assets/install.sh"
   printf 'old service\n' >"$unit"
   : >"$home/commands.log"
@@ -257,9 +275,8 @@ test_failed_service_install_rolls_back() {
     exit 1
   fi
 
-  assert_file_contains "$assets/keymap-overlay" 'old binary'
-  assert_file_contains "$assets/LICENSE" 'old license'
-  assert_file_contains "$assets/THIRD-PARTY-LICENSES.html" 'old notices'
+  assert_file_contains "$bin/keymap-overlay" 'old binary'
+  assert_file_contains "$bin/keymap-overlay-qt" 'old qt binary'
   assert_file_contains "$assets/install.sh" 'old installer'
   assert_file_contains "$unit" 'old service'
   enable_count=$(grep -c '^systemctl --user enable keymap-overlay.service' "$home/commands.log")
@@ -309,9 +326,8 @@ test_missing_layer_assets_fails_without_installing_files() {
     exit 1
   fi
 
-  test ! -e "$assets/keymap-overlay"
-  test ! -e "$assets/LICENSE"
-  test ! -e "$assets/THIRD-PARTY-LICENSES.html"
+  test ! -e "$home/.local/bin/keymap-overlay"
+  test ! -e "$home/.local/bin/keymap-overlay-qt"
   test ! -e "$assets/install.sh"
   test ! -e "$home/.config/systemd/user/keymap-overlay.service"
 }
@@ -328,7 +344,7 @@ test_unrelated_json_is_not_a_layer_asset() {
     exit 1
   fi
 
-  test ! -e "$assets/keymap-overlay"
+  test ! -e "$home/.local/bin/keymap-overlay"
   test ! -e "$home/.config/systemd/user/keymap-overlay.service"
 }
 
