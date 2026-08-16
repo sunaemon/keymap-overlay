@@ -180,7 +180,7 @@ The installer normally enables the Qt renderer automatically. To enable it
 manually and start its shared HID daemon:
 
 ```bash
-systemctl --user enable --now keymap-overlay-qt.service
+systemctl --user enable --now keymap-overlay.service keymap-overlay-qt.service
 ```
 
 Cinnamon uses this Qt renderer rather than the GNOME Shell extension. It works
