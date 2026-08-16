@@ -112,6 +112,8 @@ fn configure_window(window: &NSWindow) {
 fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLayer {
     let size = NSSize::new(f64::from(model.width), f64::from(model.height));
     let root = NSView::initWithFrame(mtm.alloc(), NSRect::new(NSPoint::new(0.0, 0.0), size));
+    let glass_text_color = NSColor::labelColor();
+    let key_text_color = key_text_color();
 
     add_label(
         &root,
@@ -122,6 +124,7 @@ fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLaye
         ),
         model.header_font_size,
         NSTextAlignment::Left,
+        &glass_text_color,
         mtm,
     );
 
@@ -134,6 +137,7 @@ fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLaye
             frame,
             model.key_font_size,
             NSTextAlignment::Center,
+            &key_text_color,
             mtm,
         );
     }
@@ -162,6 +166,7 @@ fn add_label(
     frame: NSRect,
     font_size: f64,
     alignment: NSTextAlignment,
+    text_color: &NSColor,
     mtm: MainThreadMarker,
 ) {
     if text.is_empty() {
@@ -171,7 +176,7 @@ fn add_label(
     label.setFrame(frame);
     label.setAlignment(alignment);
     label.setFont(Some(&NSFont::systemFontOfSize(font_size)));
-    label.setTextColor(Some(&text_color()));
+    label.setTextColor(Some(text_color));
     label.setMaximumNumberOfLines(3);
     // NSTextField vertically aligns its cell contents at the top of a tall
     // frame. Measure the native text first, then give the field only that
@@ -194,6 +199,8 @@ fn add_encoder(
     model: &OverlayModel,
     mtm: MainThreadMarker,
 ) {
+    let glass_text_color = NSColor::labelColor();
+    let key_text_color = key_text_color();
     let frame = top_left_frame(
         encoder.x,
         encoder.y,
@@ -224,6 +231,7 @@ fn add_encoder(
         ),
         model.encoder_font_size,
         NSTextAlignment::Right,
+        &glass_text_color,
         mtm,
     );
     add_label(
@@ -235,6 +243,7 @@ fn add_encoder(
         ),
         model.encoder_font_size,
         NSTextAlignment::Left,
+        &glass_text_color,
         mtm,
     );
     if !encoder.press.is_empty() {
@@ -244,6 +253,7 @@ fn add_encoder(
             frame,
             model.encoder_font_size,
             NSTextAlignment::Center,
+            &key_text_color,
             mtm,
         );
     }
@@ -294,7 +304,7 @@ fn held_color() -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 221.0 / 255.0, 221.0 / 255.0, 1.0)
 }
 
-fn text_color() -> Retained<NSColor> {
+fn key_text_color() -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(32.0 / 255.0, 36.0 / 255.0, 44.0 / 255.0, 1.0)
 }
 
