@@ -71,13 +71,17 @@ function Uninstall-Release {
     Write-Output "Kept logs: $logDirectory"
 }
 
+# Local rather than roaming %APPDATA%, because generated models and a log both
+# describe one machine. Programs is where a per-user install puts an executable
+# on Windows, the same place VS Code and Slack use.
 function Initialize-Paths {
-    $script:assetDirectory = Join-Path $env:USERPROFILE '.config\keymap-overlay'
-    $script:binaryPath = Join-Path $assetDirectory 'keymap-overlay.exe'
-    $script:licensePath = Join-Path $assetDirectory 'LICENSE'
-    $script:thirdPartyLicensesPath = Join-Path $assetDirectory 'THIRD-PARTY-LICENSES.html'
+    $script:assetDirectory = Join-Path $env:LOCALAPPDATA 'keymap-overlay'
+    $script:programDirectory = Join-Path $env:LOCALAPPDATA 'Programs\keymap-overlay'
+    $script:binaryPath = Join-Path $programDirectory 'keymap-overlay.exe'
+    $script:licensePath = Join-Path $programDirectory 'LICENSE'
+    $script:thirdPartyLicensesPath = Join-Path $programDirectory 'THIRD-PARTY-LICENSES.html'
     $script:installerPath = Join-Path $assetDirectory 'install.ps1'
-    $script:logDirectory = Join-Path $env:USERPROFILE '.local\var\log\keymap-overlay'
+    $script:logDirectory = Join-Path $env:LOCALAPPDATA 'keymap-overlay\logs'
 }
 
 function Assert-SupportedPlatform {
@@ -203,6 +207,7 @@ function Install-StagedFiles {
     param([string]$TemporaryDirectory)
 
     New-Item -ItemType Directory -Path $assetDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path $programDirectory -Force | Out-Null
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Destination $licensePath -Force
@@ -213,8 +218,8 @@ function Install-StagedFiles {
 function Install-Autostart {
     $quotedBinary = '"{0}"' -f $binaryPath
     $quotedAssets = '"{0}"' -f $assetDirectory
-    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary $quotedAssets"
-    Start-Process -FilePath $binaryPath -ArgumentList $quotedAssets
+    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary --asset-dir $quotedAssets"
+    Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
 }
 
 function Restore-Installation {
@@ -242,7 +247,7 @@ function Restore-Installation {
 function Restart-PreviousInstallation {
     if (Test-Path -LiteralPath $binaryPath -PathType Leaf) {
         $quotedAssets = '"{0}"' -f $assetDirectory
-        Start-Process -FilePath $binaryPath -ArgumentList $quotedAssets
+        Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
     }
 }
 

@@ -3,6 +3,9 @@ mod hotplug;
 mod ui;
 
 use anyhow::{Context, Result};
+// Re-exported so a frontend can parse the shared command line without taking a
+// clap dependency of its own.
+pub use clap::Parser;
 use hidapi::{HidApi, HidDevice};
 use keymap_core::{
     ActiveLayerChange, ActiveLayerState, RawLayerEvent, carries_report_magic,
@@ -25,23 +28,120 @@ use std::time::Duration;
 
 pub(crate) const RAW_USAGE_PAGE: u16 = 0xFF60;
 pub(crate) const RAW_USAGE_ID: u16 = 0x61;
-const LOG_DIRECTORY_ENV: &str = "KEYMAP_OVERLAY_LOG_DIR";
 const MAX_LOG_BYTES: u64 = 1_048_576;
 const MAX_LOG_FILES: u8 = 3;
 /// How long a reader blocks before checking for disconnects or UI shutdown.
 const READ_TIMEOUT: i32 = 1_000;
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 
+/// This project's own licence terms.
+///
+/// Embedded rather than installed beside the executable, which lives in a
+/// different directory from the models: a copy carried anywhere can still state
+/// its terms.
+pub const LICENSE: &str = include_str!("../../../LICENSE.md");
+
+/// The generated third-party notice, as shipped in the release archive.
+///
+/// `make licenses` has to have run before a build that embeds it. The
+/// pre-commit hook and the CI `check-licenses` step already guarantee that, so
+/// nothing regenerates it here.
+pub const THIRD_PARTY_LICENSES: &str = include_str!("../../../THIRD-PARTY-LICENSES.html");
+
+/// The overlay's command line.
+//
+// These stay out of the doc comment because clap derives `--help` from it.
+//
+// `exclusive` is where "a notice reads no models, so it takes no asset
+// directory" gets machine-checked rather than left to a reviewer.
+//
+// The third-party notice is deliberately not also spelled `--licenses`: one
+// letter from `--license`, it would answer a typo with 168 KiB of HTML.
+#[derive(Clone, Debug, Parser)]
+#[command(
+    name = "keymap-overlay",
+    version,
+    about = "Shows the held QMK momentary layer in a native overlay",
+    long_about = None
+)]
+pub struct Arguments {
+    /// Directory holding the installed <keyboard>_L<layer>.json models
+    #[cfg_attr(
+        target_os = "windows",
+        doc = "[default: %LOCALAPPDATA%\\keymap-overlay]"
+    )]
+    #[cfg_attr(
+        not(target_os = "windows"),
+        doc = "[default: $HOME/.config/keymap-overlay]"
+    )]
+    #[arg(long, value_name = "PATH")]
+    pub asset_dir: Option<PathBuf>,
+
+    /// Write the log to this file, rotating it, instead of to stderr
+    #[arg(long, value_name = "PATH")]
+    pub log_out: Option<PathBuf>,
+
+    /// Print this project's own licence terms
+    #[arg(long, exclusive = true)]
+    pub license: bool,
+
+    /// Print the third-party notices, as HTML
+    #[arg(long, exclusive = true)]
+    pub third_party_licenses: bool,
+}
+
+impl Arguments {
+    /// Returns the notice to print and exit on, if one was asked for.
+    pub fn notice(&self) -> Option<&'static str> {
+        if self.license {
+            return Some(LICENSE);
+        }
+        self.third_party_licenses.then_some(THIRD_PARTY_LICENSES)
+    }
+
+    /// Returns where this invocation wants its log.
+    ///
+    /// Defaulting to stderr is what lets the systemd unit hand the log to
+    /// journald by simply not passing `--log-out`.
+    pub fn log_destination(self) -> LogDestination {
+        self.log_out
+            .map_or(LogDestination::Stderr, LogDestination::File)
+    }
+}
+
 /// Starts logging and runs the native AppKit overlay or Linux renderer service.
 #[cfg(not(target_os = "windows"))]
 pub fn run_native_overlay() -> Result<()> {
-    initialize_logging()?;
+    let arguments = Arguments::parse();
+    if let Some(notice) = arguments.notice() {
+        return write_notice(notice);
+    }
+    let directory = arguments
+        .asset_dir
+        .clone()
+        .map_or_else(default_asset_dir, Ok)?;
+    initialize_logging(arguments.log_destination())?;
 
-    if let Err(error) = ui::run(assets_dir()?) {
+    if let Err(error) = ui::run(directory) {
         error!("Keymap overlay stopped: {error:#}");
         return Err(error);
     }
     Ok(())
+}
+
+/// Writes a notice to standard output, treating a closed pipe as success.
+///
+/// 168 KiB is normally read through `head` or a pager, and Rust ignores
+/// SIGPIPE, so otherwise quitting the pager would look like a write failure.
+pub fn write_notice(text: &str) -> Result<()> {
+    let mut stdout = io::stdout();
+    match stdout
+        .write_all(text.as_bytes())
+        .and_then(|()| stdout.flush())
+    {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        result => result.context("Failed to write to standard output"),
+    }
 }
 
 /// Where the Raw HID listener delivers the events it reads.
@@ -299,27 +399,91 @@ fn apply_overlay(model: &mut OverlayModel, overlay: &OverlayModel) -> Option<()>
     Some(())
 }
 
-/// Initializes the rotating file logger used by every platform frontend.
-pub fn initialize_logging() -> Result<()> {
-    let log_directory = resolve_log_directory(env::var_os(LOG_DIRECTORY_ENV), home_directory())?;
-    fs::create_dir_all(&log_directory)
-        .with_context(|| format!("Failed to create log directory {}", log_directory.display()))?;
-    let writer = RotatingLogWriter::new(log_directory.join("overlay.log"))?;
+/// Where a frontend wants its log to go.
+///
+/// Named by the caller rather than read from the environment, because the
+/// Windows Run key carries arguments but no environment at all.
+pub enum LogDestination {
+    /// Leave the log on stderr for the supervisor to capture.
+    ///
+    /// journald already timestamps, rotates and retains it, and it is where a
+    /// Linux user looks first.
+    Stderr,
+    /// Write to this file, rotating it in-process.
+    ///
+    /// launchd never rotates what it redirects, so a login-to-logout process
+    /// has to bound its own log.
+    File(PathBuf),
+}
 
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .target(env_logger::Target::Pipe(Box::new(writer)))
+/// Initializes the logger every platform frontend shares.
+pub fn initialize_logging(destination: LogDestination) -> Result<()> {
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    match destination {
+        LogDestination::Stderr => {
+            // journald stamps every entry it receives.
+            builder.format_timestamp(None);
+        }
+        LogDestination::File(path) => {
+            if let Some(directory) = path.parent() {
+                fs::create_dir_all(directory).with_context(|| {
+                    format!("Failed to create log directory {}", directory.display())
+                })?;
+            }
+            builder.target(env_logger::Target::Pipe(Box::new(RotatingLogWriter::new(
+                path,
+            )?)));
+        }
+    }
+    builder
         .try_init()
         .map_err(|error| anyhow::anyhow!("Failed to initialize logger: {error}"))?;
     Ok(())
 }
 
+/// The log file a frontend that cannot be given one on its command line uses.
+///
+/// Only the Windows frontends need this: they reach the shared runtime through
+/// a C ABI that deliberately carries no strings.
+pub fn default_log_file() -> Result<PathBuf> {
+    resolve_default_log_file(env::var_os("LOCALAPPDATA"), home_directory())
+}
+
 /// Takes the environment as arguments so the fallback order stays testable;
 /// `env::set_var` is unsafe in this edition and the workspace forbids unsafe.
-fn resolve_log_directory(configured: Option<OsString>, home: Option<OsString>) -> Result<PathBuf> {
-    configured
+fn resolve_default_log_file(
+    local_app_data: Option<OsString>,
+    home: Option<OsString>,
+) -> Result<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        windows_local_app_data(local_app_data, home)
+            .map(|root| root.join("keymap-overlay/logs/overlay.log"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = local_app_data;
+        let home = home.context("No home directory is set")?;
+        Ok(PathBuf::from(home).join(".local/var/log/keymap-overlay/overlay.log"))
+    }
+}
+
+/// The root Windows keeps a program's per-user data under.
+///
+/// Local rather than roaming `%APPDATA%`, because generated models and a log
+/// both describe one machine. The fallback covers the stripped environment a
+/// Run key process can inherit.
+#[cfg(target_os = "windows")]
+fn windows_local_app_data(
+    local_app_data: Option<OsString>,
+    home: Option<OsString>,
+) -> Result<PathBuf> {
+    local_app_data
         .map(PathBuf::from)
-        .or_else(|| home.map(|home| PathBuf::from(home).join(".local/var/log/keymap-overlay")))
-        .context("Neither KEYMAP_OVERLAY_LOG_DIR nor a home directory is set")
+        .or_else(|| home.map(|home| PathBuf::from(home).join("AppData/Local")))
+        .context("Neither LOCALAPPDATA nor a home directory is set")
 }
 
 fn home_directory() -> Option<OsString> {
@@ -346,19 +510,29 @@ fn resolve_home_directory(
     home.or(user_profile)
 }
 
-pub fn assets_dir() -> Result<PathBuf> {
-    // args_os, not args: the latter panics on a non-UTF-8 argument, and an
-    // asset path handed to us on the command line is an arbitrary byte string.
-    resolve_assets_dir(env::args_os().nth(1), home_directory())
+/// Where the installed layer models live when the command line names no path.
+///
+/// Each system is asked where its own per-user data belongs: `$XDG_CONFIG_HOME`
+/// means nothing to Windows, and `%LOCALAPPDATA%` means nothing to Unix.
+pub fn default_asset_dir() -> Result<PathBuf> {
+    resolve_default_asset_dir(env::var_os("LOCALAPPDATA"), home_directory())
 }
 
-fn resolve_assets_dir(argument: Option<OsString>, home: Option<OsString>) -> Result<PathBuf> {
-    if let Some(path) = argument {
-        return Ok(PathBuf::from(path));
+fn resolve_default_asset_dir(
+    local_app_data: Option<OsString>,
+    home: Option<OsString>,
+) -> Result<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        windows_local_app_data(local_app_data, home).map(|root| root.join("keymap-overlay"))
     }
 
-    let home = home.context("No home directory is set")?;
-    Ok(PathBuf::from(home).join(".config/keymap-overlay"))
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = local_app_data;
+        let home = home.context("No home directory is set")?;
+        Ok(PathBuf::from(home).join(".config/keymap-overlay"))
+    }
 }
 
 /// Opens newly discovered Raw HID devices without interrupting active readers.
@@ -739,58 +913,149 @@ mod tests {
         );
     }
 
+    /// Each system is asked where its own per-user data belongs.
+    #[cfg(not(target_os = "windows"))]
     #[test]
-    fn an_explicit_assets_directory_wins_over_home() {
-        let directory = resolve_assets_dir(
-            Some(OsString::from("/somewhere/else")),
-            Some(OsString::from("/home/user")),
-        )
-        .expect("an explicit argument needs no environment");
-
-        assert_eq!(directory, PathBuf::from("/somewhere/else"));
-    }
-
-    #[test]
-    fn the_assets_directory_defaults_under_home() {
-        let directory = resolve_assets_dir(None, Some(OsString::from("/home/user")))
-            .expect("HOME is enough on its own");
-
+    fn the_default_asset_directory_sits_under_home() {
         assert_eq!(
-            directory,
+            resolve_default_asset_dir(None, Some(OsString::from("/home/user")))
+                .expect("HOME is enough on its own"),
             PathBuf::from("/home/user/.config/keymap-overlay")
         );
+        assert!(resolve_default_asset_dir(None, None).is_err());
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
-    fn the_assets_directory_needs_home_when_no_argument_is_given() {
-        assert!(resolve_assets_dir(None, None).is_err());
-    }
-
-    #[test]
-    fn the_configured_log_directory_wins_over_home() {
-        let directory = resolve_log_directory(
-            Some(OsString::from("/var/log/overlay")),
-            Some(OsString::from("/home/user")),
-        )
-        .expect("the service definition always sets the log directory");
-
-        assert_eq!(directory, PathBuf::from("/var/log/overlay"));
-    }
-
-    #[test]
-    fn the_log_directory_defaults_under_home() {
-        let directory = resolve_log_directory(None, Some(OsString::from("/home/user")))
-            .expect("HOME is enough on its own");
-
+    fn the_default_asset_directory_follows_the_windows_convention() {
         assert_eq!(
-            directory,
-            PathBuf::from("/home/user/.local/var/log/keymap-overlay")
+            resolve_default_asset_dir(Some(OsString::from(r"C:\Users\user\AppData\Local")), None)
+                .expect("LOCALAPPDATA is enough on its own"),
+            PathBuf::from(r"C:\Users\user\AppData\Local").join("keymap-overlay")
+        );
+        assert_eq!(
+            resolve_default_asset_dir(None, Some(OsString::from(r"C:\Users\user")))
+                .expect("USERPROFILE is enough on its own"),
+            PathBuf::from(r"C:\Users\user")
+                .join("AppData/Local")
+                .join("keymap-overlay")
+        );
+        assert!(resolve_default_asset_dir(None, None).is_err());
+    }
+
+    fn parse(arguments: &[&str]) -> Result<Arguments, clap::Error> {
+        Arguments::try_parse_from(
+            std::iter::once("keymap-overlay").chain(arguments.iter().copied()),
+        )
+    }
+
+    #[test]
+    fn license_flags_select_the_embedded_notices() {
+        assert_eq!(parse(&["--license"]).expect("flag").notice(), Some(LICENSE));
+        assert_eq!(
+            parse(&["--third-party-licenses"]).expect("flag").notice(),
+            Some(THIRD_PARTY_LICENSES)
         );
     }
 
+    /// One letter from `--license`, and it would answer that typo with 168 KiB
+    /// of HTML, so the short spelling must stay unrecognised.
     #[test]
-    fn the_log_directory_needs_one_of_the_two_variables() {
-        assert!(resolve_log_directory(None, None).is_err());
+    fn the_third_party_notice_has_no_one_letter_spelling() {
+        assert!(parse(&["--licenses"]).is_err());
+    }
+
+    #[test]
+    fn an_asset_directory_runs_the_overlay() {
+        let arguments =
+            parse(&["--asset-dir", "/somewhere/else"]).expect("a path is a valid command line");
+
+        assert_eq!(arguments.notice(), None);
+        assert_eq!(arguments.asset_dir, Some(PathBuf::from("/somewhere/else")));
+    }
+
+    /// A bare path used to be accepted positionally, which turned a mistyped
+    /// option into a directory the overlay would fail to read much later.
+    #[test]
+    fn a_bare_path_is_not_an_asset_directory() {
+        assert!(parse(&["/somewhere/else"]).is_err());
+    }
+
+    /// The service definitions pass the directory explicitly, but running the
+    /// overlay by hand should not require repeating the default.
+    #[test]
+    fn the_asset_directory_may_be_omitted() {
+        let arguments = parse(&[]).expect("no arguments is a valid command line");
+
+        assert_eq!(arguments.notice(), None);
+        assert_eq!(arguments.asset_dir, None);
+    }
+
+    /// A notice does not read the models, so pairing it with a directory is a
+    /// mistake worth reporting rather than quietly ignoring.
+    #[test]
+    fn notice_flags_take_no_asset_directory() {
+        assert!(parse(&["--license", "/somewhere/else"]).is_err());
+        assert!(parse(&["/somewhere/else", "--third-party-licenses"]).is_err());
+    }
+
+    /// Without this a mistyped flag becomes an asset path, and the overlay
+    /// fails with "no such file or directory" instead of naming the option.
+    #[test]
+    fn an_unknown_option_is_rejected_rather_than_opened_as_a_path() {
+        assert!(parse(&["--versoin"]).is_err());
+        assert!(parse(&["--license-text"]).is_err());
+    }
+
+    #[test]
+    fn only_one_asset_directory_is_accepted() {
+        assert!(parse(&["--asset-dir", "/first", "--asset-dir", "/second"]).is_err());
+    }
+
+    /// Guards the `include_str!` paths: a wrong one fails the build, but an
+    /// empty or truncated notice would not.
+    #[test]
+    fn the_embedded_notices_carry_their_terms() {
+        assert!(LICENSE.contains("MIT License"));
+        assert!(LICENSE.contains("GPL-2.0-or-later"));
+        assert!(THIRD_PARTY_LICENSES.contains("keymap-overlay third-party licenses"));
+    }
+
+    /// The systemd unit passes no `--log-out`, which is how journald ends up
+    /// owning the log instead of the in-process rotator.
+    #[test]
+    fn without_log_out_the_log_stays_on_stderr() {
+        let arguments = parse(&["--asset-dir", "/x"]).expect("no log flag is valid");
+
+        assert!(matches!(
+            arguments.log_destination(),
+            LogDestination::Stderr
+        ));
+    }
+
+    /// The launchd plist passes one, because launchd redirects stderr to a file
+    /// it never rotates.
+    #[test]
+    fn log_out_names_the_file_to_rotate() {
+        let arguments = parse(&[
+            "--asset-dir",
+            "/assets",
+            "--log-out",
+            "/var/log/overlay.log",
+        ])
+        .expect("a path and a log file are valid together");
+
+        assert_eq!(arguments.asset_dir, Some(PathBuf::from("/assets")));
+        assert!(matches!(
+            arguments.log_destination(),
+            LogDestination::File(path) if path == Path::new("/var/log/overlay.log")
+        ));
+    }
+
+    /// A notice exits before logging starts, so pairing the two is a mistake.
+    #[test]
+    fn log_out_cannot_be_combined_with_a_notice() {
+        assert!(parse(&["--license", "--log-out", "/var/log/overlay.log"]).is_err());
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -829,6 +1094,44 @@ mod tests {
     #[test]
     fn neither_variable_leaves_the_home_directory_unknown() {
         assert_eq!(resolve_home_directory(None, None), None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn the_default_log_file_follows_the_windows_convention() {
+        assert_eq!(
+            resolve_default_log_file(
+                Some(OsString::from(r"C:\Users\user\AppData\Local")),
+                Some(OsString::from(r"C:\Users\user"))
+            )
+            .expect("LOCALAPPDATA is enough on its own"),
+            PathBuf::from(r"C:\Users\user\AppData\Local").join("keymap-overlay/logs/overlay.log")
+        );
+    }
+
+    /// A process started from the Run key can inherit almost no environment.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn the_default_log_file_falls_back_to_the_profile() {
+        assert_eq!(
+            resolve_default_log_file(None, Some(OsString::from(r"C:\Users\user")))
+                .expect("USERPROFILE is enough on its own"),
+            PathBuf::from(r"C:\Users\user")
+                .join("AppData/Local")
+                .join("keymap-overlay/logs/overlay.log")
+        );
+        assert!(resolve_default_log_file(None, None).is_err());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn the_default_log_file_sits_under_home() {
+        assert_eq!(
+            resolve_default_log_file(None, Some(OsString::from("/home/user")))
+                .expect("HOME is enough on its own"),
+            PathBuf::from("/home/user/.local/var/log/keymap-overlay/overlay.log")
+        );
+        assert!(resolve_default_log_file(None, None).is_err());
     }
 
     fn contents(path: &Path) -> String {

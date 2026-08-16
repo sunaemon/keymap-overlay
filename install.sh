@@ -4,10 +4,9 @@ set -eu
 
 REPOSITORY='sunaemon/keymap-overlay'
 ASSET_DIRECTORY="${HOME}/.config/keymap-overlay"
-BINARY_PATH="${ASSET_DIRECTORY}/keymap-overlay"
-QT_BINARY_PATH="${ASSET_DIRECTORY}/keymap-overlay-qt"
-LICENSE_PATH="${ASSET_DIRECTORY}/LICENSE"
-THIRD_PARTY_LICENSES_PATH="${ASSET_DIRECTORY}/THIRD-PARTY-LICENSES.html"
+BIN_DIRECTORY="${HOME}/.local/bin"
+BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay"
+QT_BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay-qt"
 INSTALLER_PATH="${ASSET_DIRECTORY}/install.sh"
 LOG_DIRECTORY="${HOME}/.local/var/log/keymap-overlay"
 QT_SERVICE_PATH="${HOME}/.config/systemd/user/keymap-overlay-qt.service"
@@ -41,7 +40,7 @@ install_release() {
   temporary_directory="$(mktemp -d)"
   trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
   stage_release
-  mkdir -p "$ASSET_DIRECTORY" "$LOG_DIRECTORY"
+  mkdir -p "$ASSET_DIRECTORY" "$BIN_DIRECTORY" "$LOG_DIRECTORY"
   backup_installation
   stop_service
 
@@ -60,11 +59,10 @@ install_release() {
 uninstall_release() {
   stop_and_remove_service
   "$platform_file_uninstaller"
-  rm -f "$BINARY_PATH" "$LICENSE_PATH" "$THIRD_PARTY_LICENSES_PATH" "$INSTALLER_PATH"
+  rm -f "$BINARY_PATH" "$INSTALLER_PATH"
 
   echo 'Removed:'
   echo "  binary: ${BINARY_PATH}"
-  echo "  licenses: ${LICENSE_PATH}, ${THIRD_PARTY_LICENSES_PATH}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
@@ -214,8 +212,6 @@ verify_checksum() {
 
 backup_installation() {
   backup_file "$BINARY_PATH" binary
-  backup_file "$LICENSE_PATH" license
-  backup_file "$THIRD_PARTY_LICENSES_PATH" third-party-licenses
   backup_file "$INSTALLER_PATH" installer
   backup_file "$service_path" service
   "$platform_file_backupper"
@@ -270,10 +266,11 @@ stop_service() {
   "$service_stopper"
 }
 
+# The archive still carries LICENSE and THIRD-PARTY-LICENSES.html for anyone
+# packaging this where a distribution requires them as files; the binary embeds
+# both, so nothing is installed for them here.
 install_staged_files() {
   install -m 755 "${temporary_directory}/keymap-overlay" "$BINARY_PATH" &&
-    install -m 644 "${temporary_directory}/LICENSE" "$LICENSE_PATH" &&
-    install -m 644 "${temporary_directory}/THIRD-PARTY-LICENSES.html" "$THIRD_PARTY_LICENSES_PATH" &&
     install -m 755 "$staged_installer" "$INSTALLER_PATH" &&
     "$platform_file_installer"
 }
@@ -299,8 +296,6 @@ install_service() {
 
 restore_installation() {
   restore_file "$BINARY_PATH" binary
-  restore_file "$LICENSE_PATH" license
-  restore_file "$THIRD_PARTY_LICENSES_PATH" third-party-licenses
   restore_file "$INSTALLER_PATH" installer
   restore_file "$service_path" service
   "$platform_file_restorer"
@@ -352,11 +347,13 @@ xml_escape() {
   }'
 }
 
+# launchd never rotates what it redirects, so the overlay owns its own log file
+# here.
 install_macos_service() {
   label='com.sunaemon.keymap-overlay'
   binary_xml="$(xml_escape "$BINARY_PATH")"
   assets_xml="$(xml_escape "$ASSET_DIRECTORY")"
-  log_xml="$(xml_escape "$LOG_DIRECTORY")"
+  log_xml="$(xml_escape "${LOG_DIRECTORY}/overlay.log")"
   mkdir -p "$(dirname "$service_path")" || return
   cat >"${service_path}.tmp" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -368,7 +365,10 @@ install_macos_service() {
   <key>ProgramArguments</key>
   <array>
     <string>${binary_xml}</string>
+    <string>--asset-dir</string>
     <string>${assets_xml}</string>
+    <string>--log-out</string>
+    <string>${log_xml}</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -376,11 +376,6 @@ install_macos_service() {
   <dict><key>SuccessfulExit</key><false/></dict>
   <key>ProcessType</key>
   <string>Interactive</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>KEYMAP_OVERLAY_LOG_DIR</key>
-    <string>${log_xml}</string>
-  </dict>
 </dict>
 </plist>
 EOF
@@ -413,8 +408,10 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart="${BINARY_PATH}" "${ASSET_DIRECTORY}"
-Environment="KEYMAP_OVERLAY_LOG_DIR=${LOG_DIRECTORY}"
+ExecStart="${BINARY_PATH}" --asset-dir "${ASSET_DIRECTORY}"
+# The log is left on stderr for journald, which timestamps, rotates and retains
+# it: journalctl --user -u keymap-overlay
+SyslogIdentifier=keymap-overlay
 Restart=on-failure
 RestartSec=2
 
@@ -520,14 +517,25 @@ print_linux_files() {
 print_installed_files() {
   echo 'Installed:'
   echo "  binary: ${BINARY_PATH}"
-  echo "  license: ${LICENSE_PATH}"
-  echo "  third-party licenses: ${THIRD_PARTY_LICENSES_PATH}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
   echo "Using existing layer assets: ${ASSET_DIRECTORY}"
   echo "Logs: ${LOG_DIRECTORY}"
+  echo "Licenses: ${BINARY_PATH} --license, --third-party-licenses"
   echo "Verified release: ${release_tag}"
+  warn_if_not_on_path
+}
+
+# The service definitions name the binary by absolute path, so this only affects
+# running it by hand.
+warn_if_not_on_path() {
+  case ":${PATH}:" in
+    *":${BIN_DIRECTORY}:"*) ;;
+    *)
+      echo "NOTE: ${BIN_DIRECTORY} is not on PATH; the login service is unaffected." >&2
+      ;;
+  esac
 }
 
 main "$@"

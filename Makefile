@@ -253,26 +253,39 @@ endif
 
 # ================= OVERLAY CONFIGURATION =================
 ifeq ($(OS_FAMILY),windows)
-# MSYS2's HOME is /home/<user>, which is private to MSYS2. Assets, logs, and
-# the Run key's target instead belong beside the Windows user's other
-# configuration so WSL can generate the assets directly into this directory.
-#
-# This is expanded on every invocation, not just `make setup`, so it cannot
-# lean on _setup_toolchain_windows having checked for cygpath. Left empty it
-# would silently root every path at /, and `make uninstall-overlay` would
-# delete from /.config/keymap-overlay.
+# MSYS2's HOME is private to MSYS2, so installed paths come from the Windows
+# environment instead. Expanded on every invocation, not just `make setup`, so
+# they cannot lean on _setup_toolchain_windows having checked for cygpath: left
+# empty they would root every path at /, and `make uninstall-overlay` would
+# delete from /keymap-overlay.
 WINDOWS_USER_HOME := $(shell cygpath -u "$$USERPROFILE" 2>/dev/null)
 ifeq ($(strip $(WINDOWS_USER_HOME)),)
 $(error Could not resolve USERPROFILE with cygpath; run make from an MSYS2 UCRT64 shell)
 endif
-KEYMAP_OVERLAY_DIR ?= $(WINDOWS_USER_HOME)/.config/keymap-overlay
-KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay
+# Local rather than roaming %APPDATA%, because generated models and a log both
+# describe one machine. Falls back the way the overlay itself does, so make and
+# the binary always name the same directory.
+WINDOWS_LOCAL_APP_DATA := $(shell cygpath -u "$$LOCALAPPDATA" 2>/dev/null)
+ifeq ($(strip $(WINDOWS_LOCAL_APP_DATA)),)
+WINDOWS_LOCAL_APP_DATA := $(WINDOWS_USER_HOME)/AppData/Local
+endif
+KEYMAP_OVERLAY_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/keymap-overlay
+KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/keymap-overlay/logs
+# Where a per-user install puts an executable on Windows, the same place VS Code
+# and Slack use. The Run key names it by absolute path, so it need not be on
+# PATH.
+KEYMAP_OVERLAY_BIN_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/Programs/keymap-overlay
 else
 KEYMAP_OVERLAY_DIR := $(HOME)/.config/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
+# systemd puts this on PATH for user services and the distro profiles add it for
+# login shells, so `keymap-overlay-qt` can be run by hand to diagnose the
+# renderer instead of only by absolute path out of its unit.
+KEYMAP_OVERLAY_BIN_DIR := $(HOME)/.local/bin
 endif
-KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay$(EXE_SUFFIX)
-KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_DIR)/keymap-overlay-qt
+KEYMAP_OVERLAY_LOG_FILE := $(KEYMAP_OVERLAY_LOG_DIR)/overlay.log
+KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay$(EXE_SUFFIX)
+KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-qt
 WPF_PROJECT := windows/KeymapOverlay.Wpf/KeymapOverlay.Wpf.csproj
 WPF_PUBLISH_DIR := target/wpf-publish
 WINDOWS_BRIDGE_MANIFEST := crates/keymap-overlay-windows-bridge/Cargo.toml
@@ -396,8 +409,9 @@ ifeq ($(OS_FAMILY),windows)
 .PHONY: install-assets
 install-assets:
 	@echo "ERROR: install-assets must run in WSL, not MSYS2."; \
-		echo "Run it from the shared checkout with:"; \
-		echo "  make install-assets OVERLAY_PLATFORM=windows KEYMAP_OVERLAY_DIR=\"\$$WINDOWS_HOME/.config/keymap-overlay\""; \
+		echo "Run it from the shared checkout in WSL, passing KEYMAP_OVERLAY_DIR"; \
+		echo "the Windows %LOCALAPPDATA%\\keymap-overlay path. The commands that"; \
+		echo "derive it are in the Setup on Windows section of README.md."; \
 		exit 1
 else
 install-assets:
@@ -500,7 +514,7 @@ clean:
 
 .PHONY: run-overlay
 run-overlay:
-	$(KEYMAP_OVERLAY) "$(KEYMAP_OVERLAY_DIR)"
+	$(KEYMAP_OVERLAY) --asset-dir "$(KEYMAP_OVERLAY_DIR)"
 
 .PHONY: build-overlay
 build-overlay:
@@ -540,7 +554,7 @@ install-overlay: build-overlay
 else
 install-overlay: install-assets build-overlay
 endif
-	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
+	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
 # Windows holds an open executable locked, so the running overlay has to go
 # before its binary can be replaced. The other two systems replace the file
 # underneath the running process and stop it as part of installing the service.
@@ -581,6 +595,9 @@ _install_renderer_linux:
 _install_renderer_windows:
 	@:
 
+# launchd never rotates what it redirects, so the overlay owns its own log file
+# here. Both paths are arguments because the Windows Run key carries arguments
+# and no environment at all.
 .PHONY: _install_service_macos
 _install_service_macos:
 	@mkdir -p "$(dir $(KEYMAP_OVERLAY_PLIST))"
@@ -595,6 +612,10 @@ _install_service_macos:
 		'  <key>ProgramArguments</key>' \
 		'  <array>' \
 		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_BINARY))</string>' \
+		'    <string>--asset-dir</string>' \
+		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_DIR))</string>' \
+		'    <string>--log-out</string>' \
+		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_LOG_FILE))</string>' \
 		'  </array>' \
 		'  <key>RunAtLoad</key>' \
 		'  <true/>' \
@@ -602,11 +623,6 @@ _install_service_macos:
 		'  <dict><key>SuccessfulExit</key><false/></dict>' \
 		'  <key>ProcessType</key>' \
 		'  <string>Interactive</string>' \
-		'  <key>EnvironmentVariables</key>' \
-		'  <dict>' \
-		'    <key>KEYMAP_OVERLAY_LOG_DIR</key>' \
-		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_LOG_DIR))</string>' \
-		'  </dict>' \
 		'</dict>' \
 		'</plist>'; \
 		} > "$(KEYMAP_OVERLAY_PLIST).tmp" && mv "$(KEYMAP_OVERLAY_PLIST).tmp" "$(KEYMAP_OVERLAY_PLIST)"
@@ -634,8 +650,10 @@ _install_service_linux:
 		'' \
 		'[Service]' \
 		'Type=simple' \
-		'ExecStart="$(KEYMAP_OVERLAY_BINARY)" "$(KEYMAP_OVERLAY_DIR)"' \
-		'Environment="KEYMAP_OVERLAY_LOG_DIR=$(KEYMAP_OVERLAY_LOG_DIR)"' \
+		'ExecStart="$(KEYMAP_OVERLAY_BINARY)" --asset-dir "$(KEYMAP_OVERLAY_DIR)"' \
+		'# The log is left on stderr for journald, which timestamps, rotates' \
+		'# and retains it: journalctl --user -u keymap-overlay' \
+		'SyslogIdentifier=keymap-overlay' \
 		'# Matches KeepAlive/SuccessfulExit=false in the launchd plist:' \
 		'# come back after a crash, stay stopped after a clean exit.' \
 		'Restart=on-failure' \
@@ -680,16 +698,18 @@ _install_service_linux:
 	fi
 
 # The current user's Run key starts the overlay at sign-in without requiring an
-# administrator to create a Task Scheduler entry. It has no equivalent of the
-# plist's EnvironmentVariables or the unit's Environment, so
-# KEYMAP_OVERLAY_LOG_DIR cannot travel there; the overlay falls back to the same
-# directory under USERPROFILE, which is where this variable points anyway unless
-# it was overridden.
+# administrator to create a Task Scheduler entry.
+#
+# The Windows frontend is WPF, which reaches the shared runtime through a C ABI
+# that deliberately carries no strings, so it cannot be handed a `--log-out`
+# path the way the plist hands one to the native binary. It writes to the
+# default file under %LOCALAPPDATA% instead, which is where this variable
+# points unless it was overridden.
 .PHONY: _install_service_windows
 _install_service_windows:
-	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(WINDOWS_USER_HOME)/.local/var/log/keymap-overlay" ]; then \
+	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(WINDOWS_LOCAL_APP_DATA)/keymap-overlay/logs" ]; then \
 		echo "ERROR: KEYMAP_OVERLAY_LOG_DIR cannot be honoured on Windows."; \
-		echo "The Windows Run key is given no environment, so the overlay would keep"; \
+		echo "The WPF frontend takes no log argument, so the overlay would keep"; \
 		echo "logging to its default directory. Leave the variable unset."; \
 		exit 1; \
 	fi
@@ -701,7 +721,7 @@ _install_service_windows:
 	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
 	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)")"; \
 	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote)'
+	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " --asset-dir " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList "--asset-dir", ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote)'
 
 .PHONY: uninstall-overlay
 uninstall-overlay:
@@ -927,6 +947,8 @@ print-vars:
 	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
 	@echo ""
 	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
+	@echo "KEYMAP_OVERLAY_BIN_DIR=$(KEYMAP_OVERLAY_BIN_DIR)"
+	@echo "KEYMAP_OVERLAY_BINARY=$(KEYMAP_OVERLAY_BINARY)"
 	@echo "KEYBOARDS_DIR=$(KEYBOARDS_DIR)"
 
 # ================= INTERNAL TARGETS =================

@@ -22,7 +22,7 @@ platform configuration directory/<keyboard>_L<n>.json
 `make install-assets` is the platform-independent model-generation and copy
 target. It installs JSON on every platform. On Windows, generate models from
 WSL with `make install-assets`, then run native `make install-overlay`; WSL
-writes them directly to `%USERPROFILE%/.config/keymap-overlay/`.
+writes them directly to `%LOCALAPPDATA%/keymap-overlay/`.
 
 ## Runtime Data Flow
 
@@ -193,9 +193,16 @@ The normal installation path separates generated assets from the native
 application. `make install-assets` builds keyboard-specific JSON models
 from the source checkout. The platform installer then downloads the latest versioned
 release archive, requires a matching entry in `SHA256SUMS`, and, when the
-optional GitHub CLI is present, verifies GitHub artifact attestations. Release
-archives carry the MIT license and generated third-party license notices beside
-the executable.
+optional GitHub CLI is present, verifies GitHub artifact attestations.
+
+Release archives carry the MIT license and the generated third-party notices,
+which also serves anyone packaging the overlay where a distribution requires
+them as files. On macOS and Linux nothing installs them: the binary embeds both
+and prints them with `keymap-overlay --license` and `--third-party-licenses`,
+so a copy carried away from its install directory still states its terms. The
+Windows package installs both beside the executable, because WPF owns that
+process and reaches the shared runtime through a C ABI that carries no strings,
+leaving it nothing to print.
 
 The installers stop the running service before replacing its binary, preserve
 the previous binary, notices and service definition until the new service
@@ -210,10 +217,16 @@ source-build workflow:
 1. On macOS and Linux, uses the `install-assets` target to generate and
    install all layer assets as JSON. On Windows, verifies
    that WSL has already generated JSON models under
-   `%USERPROFILE%/.config/keymap-overlay/`.
+   `%LOCALAPPDATA%/keymap-overlay/`.
 2. Builds the platform executable and installs it as
-   `~/.config/keymap-overlay/keymap-overlay` on macOS and Linux, and as
-   `%USERPROFILE%/.config/keymap-overlay/keymap-overlay.exe` on Windows.
+   `~/.local/bin/keymap-overlay` on macOS and Linux — with the Qt renderer
+   beside it as `~/.local/bin/keymap-overlay-qt` — and as
+   `%LOCALAPPDATA%/Programs/keymap-overlay/keymap-overlay.exe` on Windows.
+   Executables are kept apart from the generated models each system stores
+   elsewhere. Where systemd or the login profile puts `~/.local/bin` on `PATH`,
+   the Qt renderer can be diagnosed by running `keymap-overlay-qt`; otherwise
+   `~/.local/bin/keymap-overlay-qt` names it directly. Either way the service
+   definitions use absolute paths and do not depend on `PATH`.
 3. Writes the per-user service definition:
    - macOS: the launchd agent
      `~/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist`.
@@ -230,20 +243,24 @@ All service definitions start at login. macOS and Linux also restart after a
 crash and stay stopped after a clean exit; Windows uses the per-user Run key,
 which starts a fresh overlay at the next login.
 
-Two things are specific to Windows. A running executable is locked there, so
-the service is stopped before the binary is replaced rather than afterwards.
-And the Run key is given no environment, so `KEYMAP_OVERLAY_LOG_DIR`
-cannot be passed the way the plist and the unit pass it; the overlay falls back
-to the same path under `USERPROFILE` instead, and `make install-overlay`
-refuses to run if that variable was overridden.
+One thing is specific to Windows: a running executable is locked there, so the
+service is stopped before the binary is replaced rather than afterwards.
 
-The overlay writes logs to:
+Where the log goes is an argument, `--log-out`, not an environment variable,
+because the Run key carries arguments and no environment at all. Each system is
+given the destination its supervisor handles best:
 
-```text
-~/.local/var/log/keymap-overlay/overlay.log
-```
+- Linux passes nothing, leaving the log on stderr for journald to timestamp,
+  rotate and retain: `journalctl --user -u keymap-overlay`.
+- macOS passes `~/.local/var/log/keymap-overlay/overlay.log`, because launchd
+  redirects a job's output but never rotates it.
+- Windows writes `%LOCALAPPDATA%\keymap-overlay\logs\overlay.log`. WPF owns
+  that process and reaches the shared runtime through a C ABI that carries no
+  strings, so it cannot be handed a path; `make install-overlay` refuses to run
+  if `KEYMAP_OVERLAY_LOG_DIR` was overridden.
 
-Logs rotate at 1 MiB and retain the current file plus three previous files.
+A log the overlay owns rotates at 1 MiB and retains the current file plus three
+previous files.
 
 `make uninstall-overlay` stops and removes the login service, installed binary,
 and generated JSON models. It keeps the logs for troubleshooting.

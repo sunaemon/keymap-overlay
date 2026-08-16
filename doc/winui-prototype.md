@@ -14,7 +14,7 @@ Use the same MSYS2 UCRT64 shell as the normal Windows build:
 
 ```bash
 make build-winui-overlay
-target/release/keymap-overlay-winui.exe "$USERPROFILE/.config/keymap-overlay"
+target/release/keymap-overlay-winui.exe --asset-dir "$LOCALAPPDATA/keymap-overlay"
 ```
 
 The prototype is framework-dependent and needs Windows App SDK 2.3.1 or newer

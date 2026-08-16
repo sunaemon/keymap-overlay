@@ -145,9 +145,20 @@ sh install.sh
 ```
 
 Review the script before leaving `less` with `q`. It selects the release for
-the current system, verifies its SHA-256 checksum, installs the executable and
-notices, registers login services, and starts them. When authenticated GitHub
-CLI is available, it also verifies the artifact attestation.
+the current system, verifies its SHA-256 checksum, installs the executable,
+registers login services, and starts them. When authenticated GitHub CLI is
+available, it also verifies the artifact attestation.
+
+On macOS and Linux the executable is installed to `~/.local/bin/keymap-overlay`,
+with the Qt renderer beside it, while the generated layer models stay in
+`~/.config/keymap-overlay`. The login service names the binary by absolute path,
+so it works whether or not `~/.local/bin` is on your `PATH`; drop the directory
+prefix below once it is. Its license terms are built in:
+
+```bash
+~/.local/bin/keymap-overlay --license                 # this project's terms
+~/.local/bin/keymap-overlay --third-party-licenses    # third-party notices
+```
 
 ### Finish setup on macOS
 
@@ -285,11 +296,11 @@ is a simpler fallback.
 From WSL:
 
 ```bash
-WINDOWS_PROFILE="$(cd /mnt/c && cmd.exe /C echo %USERPROFILE% | tr -d '\r')"
-WINDOWS_HOME="$(wslpath "$WINDOWS_PROFILE")"
+WINDOWS_LOCAL="$(cd /mnt/c && cmd.exe /C echo %LOCALAPPDATA% | tr -d '\r')"
+WINDOWS_LOCAL_APP_DATA="$(wslpath "$WINDOWS_LOCAL")"
 make install-assets \
   OVERLAY_PLATFORM=windows \
-  KEYMAP_OVERLAY_DIR="$WINDOWS_HOME/.config/keymap-overlay"
+  KEYMAP_OVERLAY_DIR="$WINDOWS_LOCAL_APP_DATA/keymap-overlay"
 ```
 
 Run this again whenever the keymap changes.
@@ -308,7 +319,8 @@ powershell.exe -ExecutionPolicy Bypass -File install.ps1
 ```
 
 Review the script before running the final command. It verifies the release,
-installs under `%USERPROFILE%\.config\keymap-overlay`, registers the current
+installs the executable under `%LOCALAPPDATA%\Programs\keymap-overlay` and the
+layer models under `%LOCALAPPDATA%\keymap-overlay`, registers the current
 user's `KeymapOverlay` Run value, and starts the overlay.
 
 ## Everyday Operations
@@ -342,8 +354,9 @@ On Windows PowerShell:
 
 ```powershell
 Get-Process keymap-overlay -ErrorAction SilentlyContinue | Stop-Process
-$overlay = "$env:USERPROFILE\.config\keymap-overlay"
-Start-Process "$overlay\keymap-overlay.exe" -ArgumentList "`"$overlay`""
+$models = "$env:LOCALAPPDATA\keymap-overlay"
+$exe = "$env:LOCALAPPDATA\Programs\keymap-overlay\keymap-overlay.exe"
+Start-Process $exe -ArgumentList "--asset-dir", "`"$models`""
 ```
 
 ### Upgrade the released overlay
@@ -355,20 +368,33 @@ sh ~/.config/keymap-overlay/install.sh
 
 ```powershell
 # Windows
-powershell.exe -ExecutionPolicy Bypass -File "$env:USERPROFILE\.config\keymap-overlay\install.ps1"
+powershell.exe -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\keymap-overlay\install.ps1"
 ```
 
 ### Logs and quick checks
 
-Runtime logs are written to
-`~/.local/var/log/keymap-overlay/overlay.log`. They rotate at 1 MiB and retain
-the current file plus three previous files.
+Where the log goes depends on what supervises the overlay:
+
+| System  | Log                                                |
+| ------- | -------------------------------------------------- |
+| Linux   | the journal, `journalctl --user -u keymap-overlay` |
+| macOS   | `~/.local/var/log/keymap-overlay/overlay.log`      |
+| Windows | `%LOCALAPPDATA%\keymap-overlay\logs\overlay.log`   |
+
+A log the overlay writes itself rotates at 1 MiB and retains the current file
+plus three previous files; journald applies its own retention instead.
 
 On Linux:
 
 ```bash
 systemctl --user status keymap-overlay.service
 systemctl --user status keymap-overlay-qt.service
+journalctl --user -u keymap-overlay.service -f
+```
+
+On macOS:
+
+```bash
 tail -f ~/.local/var/log/keymap-overlay/overlay.log
 ```
 
@@ -381,7 +407,7 @@ sh ~/.config/keymap-overlay/install.sh --uninstall
 
 ```powershell
 # Windows
-powershell.exe -ExecutionPolicy Bypass -File "$env:USERPROFILE\.config\keymap-overlay\install.ps1" -Uninstall
+powershell.exe -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\keymap-overlay\install.ps1" -Uninstall
 ```
 
 Uninstalling removes the executable, license notices, and login entry. Layer
@@ -497,3 +523,8 @@ Firmware under `firmware/` and keyboard files under `example/` are
 GPL-2.0-or-later. The tools and application are MIT licensed. See
 [LICENSE.md](LICENSE.md), [example/LICENSE](example/LICENSE), and the generated
 [third-party license notices](THIRD-PARTY-LICENSES.html).
+
+The installed overlay embeds the first and the last of those, so a binary copied
+away from its install directory can still state its terms: run
+`keymap-overlay --license` or `keymap-overlay --third-party-licenses`. Both files also
+remain in every release archive for downstream packaging.
