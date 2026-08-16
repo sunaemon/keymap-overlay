@@ -12,11 +12,11 @@ use objc2::rc::{Allocated, Retained};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, extern_methods};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSBackingStoreType, NSBox, NSBoxType, NSColor, NSFont,
+    NSAutoresizingMaskOptions, NSBackingStoreType, NSBox, NSBoxType, NSColor, NSEvent, NSFont,
     NSGlassEffectView, NSGlassEffectViewStyle, NSMainMenuWindowLevel, NSScreen, NSTextAlignment,
     NSTextField, NSView, NSViewController, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
 };
-use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{NSPoint, NSPointInRect, NSRect, NSSize, NSString};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -543,9 +543,22 @@ fn centered_frame_on_screen(size: NSSize, screen: NSRect) -> NSRect {
 }
 
 fn current_screen_frame() -> Option<NSRect> {
-    MainThreadMarker::new()
-        .and_then(NSScreen::mainScreen)
-        .map(|screen| screen.frame())
+    let mtm = MainThreadMarker::new()?;
+    let mouse_location = NSEvent::mouseLocation();
+    frame_containing_point(
+        mouse_location,
+        NSScreen::screens(mtm).iter().map(|screen| screen.frame()),
+    )
+    .or_else(|| NSScreen::mainScreen(mtm).map(|screen| screen.frame()))
+}
+
+fn frame_containing_point(
+    point: NSPoint,
+    frames: impl IntoIterator<Item = NSRect>,
+) -> Option<NSRect> {
+    frames
+        .into_iter()
+        .find(|frame| NSPointInRect(point, *frame))
 }
 
 fn idle_rect() -> NSRect {
@@ -565,5 +578,20 @@ mod tests {
 
         assert_eq!(frame.origin, NSPoint::new(500.0, 350.0));
         assert_eq!(frame.size, NSSize::new(400.0, 200.0));
+    }
+
+    #[test]
+    fn selects_the_screen_containing_the_pointer() {
+        let left = NSRect::new(NSPoint::new(-1_200.0, 0.0), NSSize::new(1_200.0, 800.0));
+        let right = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1_600.0, 900.0));
+
+        assert_eq!(
+            frame_containing_point(NSPoint::new(-300.0, 400.0), [left, right]),
+            Some(left)
+        );
+        assert_eq!(
+            frame_containing_point(NSPoint::new(500.0, 400.0), [left, right]),
+            Some(right)
+        );
     }
 }
