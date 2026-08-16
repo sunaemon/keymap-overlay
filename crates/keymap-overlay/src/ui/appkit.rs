@@ -12,9 +12,9 @@ use objc2::rc::{Allocated, Retained};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, extern_methods};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSBackingStoreType, NSBox, NSBoxType, NSColor, NSFont, NSGlassEffectView,
-    NSGlassEffectViewStyle, NSMainMenuWindowLevel, NSScreen, NSTextAlignment, NSTextField, NSView,
-    NSViewController, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSBackingStoreType, NSBox, NSBoxType, NSColor, NSFont,
+    NSGlassEffectView, NSGlassEffectViewStyle, NSMainMenuWindowLevel, NSScreen, NSTextAlignment,
+    NSTextField, NSView, NSViewController, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use std::cell::RefCell;
@@ -88,8 +88,9 @@ struct OverlayApp {
     layers: HashMap<(u8, Vec<u8>), NativeLayer>,
     visible_layer: Option<(u8, Vec<u8>)>,
     window: Retained<NSWindow>,
+    appearance_root: Retained<NSView>,
     glass: Retained<NSGlassEffectView>,
-    empty_view: Retained<NSView>,
+    content_host: Retained<NSView>,
     screen_frame: Option<NSRect>,
 }
 
@@ -102,14 +103,13 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     let application = NSApplication::sharedApplication(mtm);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
-    let empty_view = appearance_view(idle_rect(), mtm);
-    let glass = NSGlassEffectView::initWithFrame(mtm.alloc(), idle_rect());
-    glass.setStyle(NSGlassEffectViewStyle::Regular);
-    glass.setCornerRadius(GLASS_RADIUS);
-    glass.setContentView(Some(&empty_view));
+    let appearance_root = appearance_view(idle_rect(), mtm);
+    let content_host = NSView::initWithFrame(mtm.alloc(), idle_rect());
+    let glass = build_glass(idle_rect(), &content_host, mtm);
+    appearance_root.addSubview(&glass);
 
     let controller = NSViewController::new(mtm);
-    controller.setView(&glass);
+    controller.setView(&appearance_root);
     let window = NSWindow::windowWithContentViewController(&controller);
     configure_window(&window);
 
@@ -124,8 +124,9 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         layers: HashMap::new(),
         visible_layer: None,
         window,
+        appearance_root,
         glass,
-        empty_view,
+        content_host,
         screen_frame: current_screen_frame(),
     };
 
@@ -151,7 +152,7 @@ fn process_appearance_change() {
     }
     OVERLAY_APP.with(|app| {
         if let Some(app) = app.borrow_mut().as_mut() {
-            app.rebuild_layers();
+            app.refresh_appearance();
         }
     });
 }
@@ -181,6 +182,25 @@ fn configure_window(window: &NSWindow) {
     window.setFrame_display(idle_rect(), false);
 }
 
+fn appearance_view(frame: NSRect, mtm: MainThreadMarker) -> Retained<NSView> {
+    AppearanceView::init_with_frame(mtm.alloc(), frame).into_super()
+}
+
+fn build_glass(
+    frame: NSRect,
+    content_host: &NSView,
+    mtm: MainThreadMarker,
+) -> Retained<NSGlassEffectView> {
+    let glass = NSGlassEffectView::initWithFrame(mtm.alloc(), frame);
+    glass.setStyle(NSGlassEffectViewStyle::Regular);
+    glass.setCornerRadius(GLASS_RADIUS);
+    glass.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+    glass.setContentView(Some(content_host));
+    glass
+}
+
 fn build_native_layer(
     model: &OverlayModel,
     appearance: &NSAppearance,
@@ -201,7 +221,7 @@ fn build_native_layer_for_current_appearance(
     mtm: MainThreadMarker,
 ) -> NativeLayer {
     let size = NSSize::new(f64::from(model.width), f64::from(model.height));
-    let root = appearance_view(NSRect::new(NSPoint::new(0.0, 0.0), size), mtm);
+    let root = NSView::initWithFrame(mtm.alloc(), NSRect::new(NSPoint::new(0.0, 0.0), size));
     let glass_text_color = resolved_color(NSColor::labelColor());
 
     add_label(
@@ -237,10 +257,6 @@ fn build_native_layer_for_current_appearance(
     }
 
     NativeLayer { view: root, size }
-}
-
-fn appearance_view(frame: NSRect, mtm: MainThreadMarker) -> Retained<NSView> {
-    AppearanceView::init_with_frame(mtm.alloc(), frame).into_super()
 }
 
 fn add_key_surface(root: &NSView, frame: NSRect, held: bool, radius: f64, mtm: MainThreadMarker) {
@@ -443,6 +459,7 @@ impl OverlayApp {
             self.layers
                 .insert(key.clone(), build_native_layer(&model, &appearance, mtm));
         }
+        self.detach_visible_layer();
         let Some(native) = self.layers.get(&key) else {
             log::warn!(
                 "Overlay model is unavailable for keyboard {keyboard_id}, layers {layers:?}"
@@ -450,7 +467,7 @@ impl OverlayApp {
             self.hide();
             return;
         };
-        self.glass.setContentView(Some(&native.view));
+        self.content_host.addSubview(&native.view);
         self.window
             .setFrame_display(centered_frame(native.size), true);
         self.window.orderFrontRegardless();
@@ -458,17 +475,39 @@ impl OverlayApp {
     }
 
     fn hide(&mut self) {
+        self.detach_visible_layer();
         self.visible_layer = None;
-        self.glass.setContentView(Some(&self.empty_view));
         self.window.setFrame_display(idle_rect(), false);
     }
 
     fn rebuild_layers(&mut self) {
         let visible_layer = self.visible_layer.clone();
+        self.detach_visible_layer();
         self.layers.clear();
         if let Some((keyboard_id, layers)) = visible_layer {
             self.show(keyboard_id, &layers);
         }
+    }
+
+    fn refresh_appearance(&mut self) {
+        self.rebuild_layers();
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let glass = build_glass(self.appearance_root.bounds(), &self.content_host, mtm);
+        self.glass.removeFromSuperview();
+        self.appearance_root.addSubview(&glass);
+        self.glass = glass;
+    }
+
+    fn detach_visible_layer(&self) {
+        let Some(key) = &self.visible_layer else {
+            return;
+        };
+        let Some(native) = self.layers.get(key) else {
+            return;
+        };
+        native.view.removeFromSuperview();
     }
 
     fn recenter_visible_layer(&self, screen_frame: Option<NSRect>) {
