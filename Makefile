@@ -78,7 +78,6 @@ SUDO ?= sudo
 # bootloader labels its volume differently.
 UF2_VOLUME_LABEL ?= RPI-RP2
 CARGO_AUDIT ?= $(MISE_DEV) exec -- cargo-audit
-CARGO_ABOUT ?= $(MISE_DEV) exec -- cargo-about
 LEFTHOOK ?= $(MISE) exec -- lefthook
 QMK ?= $(QMK_ENV) $(MISE) exec -- qmk
 UV ?= $(MISE) exec -- uv
@@ -393,8 +392,8 @@ doctor:
 
 # Because LAYERS depends on $(QMK_KEYMAP_JSON), install-assets and draw-layers
 # build the QMK JSON in a first make invocation, then re-enter make to expand assets.
-.PHONY: install-assets
 ifeq ($(OS_FAMILY),windows)
+.PHONY: install-assets
 install-assets:
 	@echo "ERROR: install-assets must run in WSL, not MSYS2."; \
 		echo "Run it from the shared checkout with:"; \
@@ -465,13 +464,15 @@ endif
 audit:
 	$(CARGO_AUDIT) audit
 
-# This file ships beside every release binary. Regenerating it in CI keeps
+# This file ships beside every release binary. The non-mutating CI check keeps
 # additions and upgrades in Cargo.lock from silently dropping their notices.
 .PHONY: licenses
 licenses:
-	$(CARGO_ABOUT) generate doc/third-party-licenses.hbs --workspace --all-features --locked --fail --output-file THIRD-PARTY-LICENSES.html.tmp
-	sed 's/[[:space:]]*$$//' THIRD-PARTY-LICENSES.html.tmp > THIRD-PARTY-LICENSES.html
-	rm THIRD-PARTY-LICENSES.html.tmp
+	$(MISE_DEV) exec -- uv run python -m scripts.generate_license_report
+
+.PHONY: check-licenses
+check-licenses:
+	$(MISE_DEV) exec -- uv run python -m scripts.generate_license_report --check
 
 .PHONY: test
 test:
@@ -519,8 +520,8 @@ else
 	$(error build-winui-overlay is only available on Windows)
 endif
 
-.PHONY: install-overlay
 ifeq ($(OS_FAMILY),windows)
+.PHONY: install-overlay
 install-overlay: build-overlay
 	@set -- "$(KEYMAP_OVERLAY_DIR)"/*_L*.json; \
 	if ! test -e "$$1"; then \

@@ -37,17 +37,14 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Install dependencies
-        run: mise exec -- uv sync
-
       - name: Run Lint
         run: mise run lint
 
       - name: Run Format
         run: mise run format
 
-      - name: Regenerate third-party license notices
-        run: make licenses
+      - name: Check third-party license notices
+        run: make check-licenses
 
       - name: Run Tests
         run: make test
@@ -83,9 +80,6 @@ jobs:
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: mise exec -- uv sync
 
       - name: Run Tests
         run: make test
@@ -127,9 +121,6 @@ jobs:
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: mise exec -- uv sync
 
       - name: Run Tests
         run: make test
