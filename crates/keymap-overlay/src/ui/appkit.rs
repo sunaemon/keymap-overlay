@@ -7,8 +7,8 @@
 
 use anyhow::{Context, Result};
 use dispatch::Queue;
-use objc2::MainThreadMarker;
-use objc2::rc::Retained;
+use objc2::rc::{Allocated, Retained};
+use objc2::{MainThreadMarker, MainThreadOnly, define_class, extern_methods};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBox, NSBoxType, NSColor,
     NSFont, NSGlassEffectView, NSGlassEffectViewStyle, NSMainMenuWindowLevel, NSScreen,
@@ -18,6 +18,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSDate, NSPoint, NSRect, NSRunLoop, NSSize, NSString};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::{
@@ -28,6 +29,27 @@ use crate::{
 const IDLE_SIZE: f64 = 1.0;
 const GLASS_RADIUS: f64 = 22.0;
 const KEY_RADIUS: f64 = 11.0;
+static APPEARANCE_CHANGED: AtomicBool = AtomicBool::new(false);
+
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    struct AppearanceView;
+
+    impl AppearanceView {
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn view_did_change_effective_appearance(&self) {
+            APPEARANCE_CHANGED.store(true, Ordering::Release);
+        }
+    }
+);
+
+impl AppearanceView {
+    extern_methods!(
+        #[unsafe(method(initWithFrame:))]
+        fn init_with_frame(this: Allocated<Self>, frame: NSRect) -> Retained<Self>;
+    );
+}
 
 #[derive(Clone)]
 struct ChannelSink(Sender<ListenerEvent>);
@@ -50,7 +72,6 @@ struct NativeLayer {
 #[derive(PartialEq)]
 struct AppEnvironment {
     screen_frame: Option<NSRect>,
-    appearance_name: String,
 }
 
 struct OverlayApp {
@@ -69,7 +90,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     let application = NSApplication::sharedApplication(mtm);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
-    let empty_view = NSView::initWithFrame(mtm.alloc(), idle_rect());
+    let empty_view = appearance_view(idle_rect(), mtm);
     let glass = NSGlassEffectView::initWithFrame(mtm.alloc(), idle_rect());
     glass.setStyle(NSGlassEffectViewStyle::Regular);
     glass.setCornerRadius(GLASS_RADIUS);
@@ -97,7 +118,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
 
     application.finishLaunching();
     overlay.window.orderFrontRegardless();
-    overlay.run_event_loop(&application)
+    overlay.run_event_loop()
 }
 
 fn configure_window(window: &NSWindow) {
@@ -119,7 +140,7 @@ fn configure_window(window: &NSWindow) {
 
 fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLayer {
     let size = NSSize::new(f64::from(model.width), f64::from(model.height));
-    let root = NSView::initWithFrame(mtm.alloc(), NSRect::new(NSPoint::new(0.0, 0.0), size));
+    let root = appearance_view(NSRect::new(NSPoint::new(0.0, 0.0), size), mtm);
     let glass_text_color = NSColor::labelColor();
 
     add_label(
@@ -155,6 +176,10 @@ fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLaye
     }
 
     NativeLayer { view: root, size }
+}
+
+fn appearance_view(frame: NSRect, mtm: MainThreadMarker) -> Retained<NSView> {
+    AppearanceView::init_with_frame(mtm.alloc(), frame).into_super()
 }
 
 fn add_key_surface(root: &NSView, frame: NSRect, held: bool, radius: f64, mtm: MainThreadMarker) {
@@ -311,15 +336,19 @@ fn key_text_color(held: bool) -> Retained<NSColor> {
 }
 
 impl OverlayApp {
-    fn run_event_loop(&mut self, application: &NSApplication) -> Result<()> {
+    fn run_event_loop(&mut self) -> Result<()> {
         let run_loop = NSRunLoop::mainRunLoop();
         let distant_future = NSDate::distantFuture();
         let default_mode = NSString::from_str("kCFRunLoopDefaultMode");
-        let mut environment = AppEnvironment::capture(application);
+        let mut environment = AppEnvironment::capture();
         loop {
             run_loop.runMode_beforeDate(&default_mode, &distant_future);
 
-            let next_environment = AppEnvironment::capture(application);
+            if APPEARANCE_CHANGED.swap(false, Ordering::AcqRel) {
+                self.rebuild_layers();
+            }
+
+            let next_environment = AppEnvironment::capture();
             self.update_environment(&environment, &next_environment);
             environment = next_environment;
 
@@ -374,9 +403,6 @@ impl OverlayApp {
     }
 
     fn update_environment(&mut self, previous: &AppEnvironment, current: &AppEnvironment) {
-        if previous.appearance_name != current.appearance_name {
-            self.rebuild_layers();
-        }
         if previous.screen_frame != current.screen_frame {
             self.recenter_visible_layer(current.screen_frame);
         }
@@ -406,10 +432,9 @@ impl OverlayApp {
 }
 
 impl AppEnvironment {
-    fn capture(application: &NSApplication) -> Self {
+    fn capture() -> Self {
         Self {
             screen_frame: current_screen_frame(),
-            appearance_name: application.effectiveAppearance().name().to_string(),
         }
     }
 }
