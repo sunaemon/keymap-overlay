@@ -18,6 +18,7 @@ internal sealed class OverlayWindow : Window
     private const uint TransitionShow = 2 << 24;
     private const int DeviceNodesChanged = 0x0007;
     private const int WindowMessageDeviceChange = 0x0219;
+    private const double OverlayBorderThickness = 1;
     private static readonly Brush KeyFill = Brush("#E0F1F4F8");
     private static readonly Brush HeldFill = Brush("#FFFFDDDD");
     private static readonly Brush KeyBorder = Brush("#6020242C");
@@ -161,10 +162,12 @@ internal sealed class OverlayWindow : Window
             return;
         }
 
+        var width = model.Width + 2 * OverlayBorderThickness;
+        var height = model.Height + 2 * OverlayBorderThickness;
         Content = BuildCanvas(model);
-        Width = model.Width;
-        Height = model.Height;
-        PositionOnCursorMonitor(model.Width, model.Height);
+        Width = width;
+        Height = height;
+        PositionOnCursorMonitor(width, height);
     }
 
     private OverlayModel? ComposeModel(byte keyboard, byte[] layers)
@@ -345,12 +348,12 @@ internal sealed class OverlayWindow : Window
         }
         return new Border
         {
-            Width = model.Width,
-            Height = model.Height,
+            Width = model.Width + 2 * OverlayBorderThickness,
+            Height = model.Height + 2 * OverlayBorderThickness,
             CornerRadius = new CornerRadius(16),
             Background = OverlayFill,
             BorderBrush = OverlayBorder,
-            BorderThickness = new Thickness(1),
+            BorderThickness = new Thickness(OverlayBorderThickness),
             Child = canvas,
         };
     }

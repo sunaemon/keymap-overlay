@@ -12,14 +12,17 @@ windows_core::imp::interface_hierarchy!(DesktopWindowXamlSource, IUnknown, IInsp
 impl DesktopWindowXamlSource {
     pub(super) fn new() -> windows_core::Result<Self> {
         Self::factory(|factory| unsafe {
+            let mut inner = std::ptr::null_mut();
             let mut result = std::ptr::null_mut();
             (Interface::vtable(factory).create_instance)(
                 Interface::as_raw(factory),
                 std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                &mut inner,
                 &mut result,
             )
             .ok()?;
+            let inner: IUnknown = windows_core::Type::from_abi(inner)?;
+            drop(inner);
             windows_core::Type::from_abi(result)
         })
     }
@@ -147,6 +150,13 @@ impl DesktopChildSiteBridge {
         }
     }
 
+    pub(super) fn move_in_z_order_at_top(&self) -> windows_core::Result<()> {
+        let bridge = self.cast::<IDesktopSiteBridge>()?;
+        unsafe {
+            (Interface::vtable(&bridge).move_in_z_order_at_top)(Interface::as_raw(&bridge)).ok()
+        }
+    }
+
     pub(super) fn show(&self) -> windows_core::Result<()> {
         let bridge = self.cast::<IDesktopSiteBridge>()?;
         unsafe { (Interface::vtable(&bridge).show)(Interface::as_raw(&bridge)).ok() }
@@ -184,7 +194,7 @@ pub struct IDesktopSiteBridge_Vtbl {
     hide: usize,
     move_and_resize: unsafe extern "system" fn(*mut c_void, RectInt32) -> HRESULT,
     move_in_z_order_at_bottom: usize,
-    move_in_z_order_at_top: usize,
+    move_in_z_order_at_top: unsafe extern "system" fn(*mut c_void) -> HRESULT,
     move_in_z_order_below: usize,
     show: unsafe extern "system" fn(*mut c_void) -> HRESULT,
 }

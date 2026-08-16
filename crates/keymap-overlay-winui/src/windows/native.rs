@@ -26,10 +26,10 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GWL_EXSTYLE, GetCursorPos, GetWindowLongPtrW, HWND_TOPMOST,
-    LWA_ALPHA, LWA_COLORKEY, RegisterClassExW, SET_WINDOW_POS_FLAGS, SW_HIDE, SW_SHOWNOACTIVATE,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, WINDOW_EX_STYLE, WM_DESTROY, WM_DEVICECHANGE, WNDCLASSEXW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
+    LWA_ALPHA, LWA_COLORKEY, PostQuitMessage, RegisterClassExW, SET_WINDOW_POS_FLAGS, SW_HIDE,
+    SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SetLayeredWindowAttributes,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WM_DESTROY, WM_DEVICECHANGE,
+    WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows_core::HRESULT;
 use windows_reactor::{App, Component, RenderHost, WinUIBackend, WinUIDispatcher, WindowSize};
@@ -77,7 +77,9 @@ pub(super) fn run(component: OverlayComponent) -> windows_core::Result<()> {
 }
 
 pub(super) fn install_listener(listener: RawHidListenerHandle) {
-    let _ = LISTENER.set(listener);
+    if LISTENER.set(listener).is_err() {
+        log::error!("The WinUI raw HID listener was already initialized");
+    }
 }
 
 pub(super) fn request_window(size: WindowSize) {
@@ -238,6 +240,9 @@ fn present_window(window: HWND, site_bridge: &island_bindings::DesktopChildSiteB
         }) {
             log::error!("Failed to resize the XAML Island: {error}");
         }
+        if let Err(error) = site_bridge.move_in_z_order_at_top() {
+            log::error!("Failed to move the XAML Island to the top of its Z-order: {error}");
+        }
         let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
         if first_show {
             let _ = DwmFlush();
@@ -292,7 +297,10 @@ unsafe extern "system" fn window_proc(
     {
         listener.device_arrived();
     } else if message == WM_DESTROY {
-        std::process::exit(0);
+        let host = ISLAND_HOST.with(|slot| slot.borrow_mut().take());
+        drop(host);
+        unsafe { PostQuitMessage(0) };
+        return LRESULT(0);
     }
     unsafe { DefWindowProcW(window, message, parameter, data) }
 }

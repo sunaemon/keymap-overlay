@@ -102,7 +102,13 @@ fn render(context: &mut windows_reactor::RenderCx, models: Arc<ModelCache>) -> E
         Transition::Show {
             keyboard_id,
             layers,
-        } => compose_model(&models, *keyboard_id, layers),
+        } => {
+            let model = compose_model(&models, *keyboard_id, layers);
+            if model.is_none() {
+                log_composition_failure(&models, *keyboard_id, layers);
+            }
+            model
+        }
         Transition::Hide | Transition::Ignore => None,
     };
     let window_size = model
@@ -136,6 +142,36 @@ fn hidden_canvas() -> Element {
         .height(1.0)
         .background(TRANSPARENT)
         .into()
+}
+
+fn log_composition_failure(models: &ModelCache, keyboard_id: u8, layers: &[u8]) {
+    let Some(base) = models.get(&(keyboard_id, 0)) else {
+        log::error!(
+            "Failed to compose keyboard {keyboard_id} layers {layers:?}: base layer is missing"
+        );
+        return;
+    };
+    for layer in layers {
+        let Some(overlay) = models.get(&(keyboard_id, *layer)) else {
+            log::error!(
+                "Failed to compose keyboard {keyboard_id} layers {layers:?}: layer {layer} is missing"
+            );
+            return;
+        };
+        if overlay.keys.len() != base.keys.len() || overlay.encoders.len() != base.encoders.len() {
+            log::error!(
+                "Failed to compose keyboard {keyboard_id} layers {layers:?}: layer {layer} shape differs from the base layer (keys {} vs {}, encoders {} vs {})",
+                overlay.keys.len(),
+                base.keys.len(),
+                overlay.encoders.len(),
+                base.encoders.len()
+            );
+            return;
+        }
+    }
+    log::error!(
+        "Failed to compose keyboard {keyboard_id} layers {layers:?}: unknown model mismatch"
+    );
 }
 
 fn model_canvas(model: OverlayModel) -> Element {
@@ -175,7 +211,20 @@ fn model_canvas(model: OverlayModel) -> Element {
         let center_x = x + size / 2.0;
         let label_width = size * 0.7;
         let label_gap = 3.0;
-        let label_top = y - 30.0;
+        let label_height = 26.0;
+        let max_label_left = (f64::from(model.width) - label_width).max(0.0);
+        let counter_clockwise_left =
+            (center_x - label_width - label_gap / 2.0).clamp(0.0, max_label_left);
+        let clockwise_left = (center_x + label_gap / 2.0).clamp(0.0, max_label_left);
+        let max_label_top = (f64::from(model.height) - label_height).max(0.0);
+        let below_encoder = y + size + 4.0;
+        let label_top = if y >= 30.0 {
+            y - 30.0
+        } else if below_encoder + label_height <= f64::from(model.height) {
+            below_encoder
+        } else {
+            (y - 30.0).clamp(0.0, max_label_top)
+        };
         children.push(
             Shape::ellipse()
                 .width(size)
@@ -191,8 +240,8 @@ fn model_canvas(model: OverlayModel) -> Element {
         children.push(
             label(encoder.counter_clockwise.join(" "), model.encoder_font_size)
                 .width(label_width)
-                .height(26.0)
-                .canvas_left(center_x - label_width - label_gap / 2.0)
+                .height(label_height)
+                .canvas_left(counter_clockwise_left)
                 .canvas_top(label_top)
                 .with_key(format!("encoder-{index}-ccw"))
                 .into(),
@@ -200,21 +249,24 @@ fn model_canvas(model: OverlayModel) -> Element {
         children.push(
             label(encoder.clockwise.join(" "), model.encoder_font_size)
                 .width(label_width)
-                .height(26.0)
-                .canvas_left(center_x + label_gap / 2.0)
+                .height(label_height)
+                .canvas_left(clockwise_left)
                 .canvas_top(label_top)
                 .with_key(format!("encoder-{index}-cw"))
                 .into(),
         );
         if !encoder.press.is_empty() {
             children.push(
-                label(format!("P {}", encoder.press), model.encoder_font_size)
-                    .width(size)
-                    .height(size)
-                    .canvas_left(x)
-                    .canvas_top(y)
-                    .with_key(format!("encoder-{index}-press"))
-                    .into(),
+                border(label(
+                    format!("P {}", encoder.press),
+                    model.encoder_font_size,
+                ))
+                .width(size)
+                .height(size)
+                .canvas_left(x)
+                .canvas_top(y)
+                .with_key(format!("encoder-{index}-press"))
+                .into(),
             );
         }
     }
