@@ -121,7 +121,6 @@ fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLaye
     let size = NSSize::new(f64::from(model.width), f64::from(model.height));
     let root = NSView::initWithFrame(mtm.alloc(), NSRect::new(NSPoint::new(0.0, 0.0), size));
     let glass_text_color = NSColor::labelColor();
-    let key_text_color = key_text_color();
 
     add_label(
         &root,
@@ -139,13 +138,14 @@ fn build_native_layer(model: &OverlayModel, mtm: MainThreadMarker) -> NativeLaye
     for key in &model.keys {
         let frame = top_left_frame(key.x, key.y, key.width, key.height, model.height);
         add_key_surface(&root, frame, key.held, KEY_RADIUS, mtm);
+        let text_color = key_text_color(key.held);
         add_label(
             &root,
             &key.label.join("\n"),
             frame,
             model.key_font_size,
             NSTextAlignment::Center,
-            &key_text_color,
+            &text_color,
             mtm,
         );
     }
@@ -208,7 +208,7 @@ fn add_encoder(
     mtm: MainThreadMarker,
 ) {
     let glass_text_color = NSColor::labelColor();
-    let key_text_color = key_text_color();
+    let key_text_color = key_text_color(encoder.held);
     let frame = top_left_frame(
         encoder.x,
         encoder.y,
@@ -291,29 +291,23 @@ fn top_left_frame(x: u32, y: u32, width: u32, height: u32, canvas_height: u32) -
 }
 
 fn key_color() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(
-        220.0 / 255.0,
-        224.0 / 255.0,
-        231.0 / 255.0,
-        246.0 / 255.0,
-    )
+    NSColor::controlBackgroundColor()
 }
 
 fn key_border_color() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(
-        32.0 / 255.0,
-        36.0 / 255.0,
-        44.0 / 255.0,
-        31.0 / 255.0,
-    )
+    NSColor::separatorColor()
 }
 
 fn held_color() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 221.0 / 255.0, 221.0 / 255.0, 1.0)
+    NSColor::selectedControlColor()
 }
 
-fn key_text_color() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(32.0 / 255.0, 36.0 / 255.0, 44.0 / 255.0, 1.0)
+fn key_text_color(held: bool) -> Retained<NSColor> {
+    if held {
+        NSColor::selectedControlTextColor()
+    } else {
+        NSColor::controlTextColor()
+    }
 }
 
 impl OverlayApp {
