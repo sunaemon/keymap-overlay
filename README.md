@@ -180,6 +180,15 @@ manually and start its shared HID daemon:
 systemctl --user enable --now keymap-overlay-qt.service
 ```
 
+Sway's default configuration imports its Wayland environment into the systemd
+user manager but does not start `graphical-session.target`. The enabled overlay
+services therefore remain inactive. Start them explicitly after entering a
+Sway session:
+
+```bash
+systemctl --user start keymap-overlay.service keymap-overlay-qt.service
+```
+
 If the daemon was still acquiring its D-Bus name when the renderer started,
 restart the renderer once:
 
