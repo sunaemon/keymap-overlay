@@ -1,21 +1,60 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag to create, for example v1.0.0'
-        required: true
-        type: string
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
 
 permissions:
   contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
 
 jobs:
+  prepare:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.release.outputs.should_release }}
+      tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          cache: false
+
+      - name: Find version bump merged by pull request
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          mise exec -- uv run python -m scripts.prepare_release \
+            --tested-sha "$TESTED_SHA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --github-output "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     name: ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -34,9 +73,10 @@ jobs:
         shell: bash
 
     steps:
-      - name: Checkout repo
+      - name: Checkout tested commit
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - name: Install Linux system dependencies
@@ -57,60 +97,13 @@ jobs:
       - name: Build release overlay
         run: make build-overlay
 
-      - name: Check release version
-        env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          release_version="${RELEASE_TAG#v}"
-          cargo_mismatches="$(mise exec -- cargo metadata --no-deps --format-version 1 | jq -r --arg version "$release_version" '.packages[] | select(.version != $version) | "\(.name)=\(.version)"')"
-          python_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml)"
-          if [ "$RELEASE_TAG" = "$release_version" ] || [ -n "$cargo_mismatches" ] || [ "$python_version" != "$release_version" ]; then
-            echo "ERROR: tag $RELEASE_TAG, every Cargo package and Python $python_version must use version $release_version." >&2
-            if [ -n "$cargo_mismatches" ]; then
-              printf 'Mismatched Cargo package: %s\n' "$cargo_mismatches" >&2
-            fi
-            exit 1
-          fi
-
       - name: Package binary and notices
         id: package
         run: |
-          mkdir -p dist/package/example
-          cp example/LICENSE dist/package/example/LICENSE
-          dist="$PWD/dist"
-          arch="$(uname -m)"
-          case "$RUNNER_OS" in
-            Windows)
-              asset="keymap-overlay-windows-${arch}.zip"
-              sdk_version="$(dotnet --version)"
-              runtime_version="$(dotnet --list-runtimes | awk '$1 == "Microsoft.NETCore.App" { print $2; exit }')"
-              wpf_version="$(dotnet --list-runtimes | awk '$1 == "Microsoft.WindowsDesktop.App" { print $2; exit }')"
-              cp target/wpf-publish/keymap-overlay.exe dist/package/
-              cp LICENSE.md dist/package/LICENSE
-              cp THIRD-PARTY-LICENSES.html dist/package/
-              cp "$DOTNET_ROOT/LICENSE.txt" dist/package/DOTNET-LIBRARY-LICENSE.txt
-              cp "$DOTNET_ROOT/ThirdPartyNotices.txt" "dist/package/dotnet-runtime-${runtime_version}-THIRD-PARTY-NOTICES.txt"
-              cp "$DOTNET_ROOT/sdk/${sdk_version}/Sdks/Microsoft.NET.Sdk.WindowsDesktop/THIRD-PARTY-NOTICES.TXT" \
-                "dist/package/dotnet-wpf-${wpf_version}-THIRD-PARTY-NOTICES.txt"
-              (cd dist/package && 7z a "$dist/$asset" \
-                keymap-overlay.exe LICENSE example/LICENSE THIRD-PARTY-LICENSES.html \
-                DOTNET-LIBRARY-LICENSE.txt dotnet-*-THIRD-PARTY-NOTICES.txt)
-              ;;
-            macOS)
-              asset="keymap-overlay-macos-${arch}.tar.gz"
-              cp target/release/keymap-overlay THIRD-PARTY-LICENSES.html dist/package/
-              cp LICENSE.md dist/package/LICENSE
-              tar -C dist/package -czf "dist/$asset" keymap-overlay LICENSE example/LICENSE THIRD-PARTY-LICENSES.html
-              ;;
-            Linux)
-              asset="keymap-overlay-linux-${arch}.tar.gz"
-              cp target/release/keymap-overlay target/release/keymap-overlay-qt THIRD-PARTY-LICENSES.html dist/package/
-              cp -R linux/gnome-shell dist/package/
-              cp LICENSE.md dist/package/LICENSE
-              tar -C dist/package -czf "dist/$asset" keymap-overlay keymap-overlay-qt gnome-shell LICENSE example/LICENSE THIRD-PARTY-LICENSES.html
-              ;;
-          esac
-          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          mise exec -- uv run python -m scripts.package_release \
+            --platform "$RUNNER_OS" \
+            --architecture "$(uname -m)" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Upload release asset
         uses: actions/upload-artifact@v4
@@ -120,7 +113,10 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs:
+      - prepare
+      - build
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -130,9 +126,10 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout repo
+      - name: Checkout tested commit
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - name: Download release assets
@@ -156,18 +153,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null || true)"
-          if [ -n "$tag_ref" ]; then
-            tag_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
-            tag_type="$(jq -r '.object.type' <<<"$tag_ref")"
-            if [ "$tag_type" = tag ]; then
-              tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" --jq '.object.sha')"
-            fi
-            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
-              echo "ERROR: $RELEASE_TAG points to $tag_sha, not $GITHUB_SHA." >&2
-              exit 1
-            fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "ERROR: tag $RELEASE_TAG was created while release assets were building." >&2
+            exit 1
           fi
-          gh release create "$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "$RELEASE_TAG" --generate-notes
+          gh release create "$RELEASE_TAG" release/* --target "$TESTED_SHA" --title "$RELEASE_TAG" --generate-notes

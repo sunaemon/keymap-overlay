@@ -29,9 +29,12 @@ Releases are beta until the project explicitly declares 1.0 stability.
 5. Verify the native overlay manually on every affected platform, including
    startup at login, upgrade, rollback after a simulated service failure, and
    uninstall. Verify firmware compile and flash when firmware changed.
-6. Merge the release preparation and create an annotated `vMAJOR.MINOR.PATCH`
-   tag on that exact commit.
-7. Confirm the Release workflow publishes all three platform archives,
+6. Open a release preparation PR containing the version bump, then merge it
+   into `main`. Do not create the tag manually. After the `main` push CI passes,
+   the Release workflow verifies that the tested commit came from a merged PR
+   and changed the version, then creates both the `vMAJOR.MINOR.PATCH` tag and
+   GitHub release on that exact commit.
+7. Confirm the automated Release workflow publishes all three platform archives,
    `install.sh`, `install.ps1`, `SHA256SUMS`, the MIT license and third-party
    notices, and GitHub artifact attestations.
 8. Download each archive, verify its SHA-256 checksum and attestation, inspect
