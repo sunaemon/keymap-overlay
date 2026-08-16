@@ -179,21 +179,37 @@ make test-rust    # cargo test --workspace
 make test-installer-sh # release installer integration tests with stubbed services
 make build-overlay # build the release overlay for the current platform
 make audit        # cargo-audit against the RustSec advisory database
+make check-licenses # verify release third-party license notices without changing them
 make licenses     # regenerate release third-party license notices
 ```
+
+The installed hooks own the common local verification gates. When publishing a
+change, do not run `make format`, `make lint`, `make test`, or `make test-rust`
+immediately before committing or pushing only to repeat them: pre-commit runs
+format and lint, while pre-push runs both test suites. During implementation,
+run the smallest relevant targeted checks. In a pull request's verification
+section, report the hook results once and list only change-specific checks
+separately.
+
+`make check-licenses` regenerates the third-party notice in a temporary
+directory and compares it without changing the worktree. Pre-commit runs it
+only when staged Cargo dependency or package metadata, cargo-about tooling,
+license rendering configuration, or the notice itself can affect the result.
+Run `make licenses` and stage the generated notice when that check reports
+drift.
 
 Force a rebuild of generated artifacts with `make clean` before verifying
 anything that depends on `build/`.
 
 CI runs four jobs. On Linux it runs `lint`, `format`, `test`,
-`test-installer-sh`, `test-rust` and `build-overlay`, regenerates the
-third-party notices, then fails if any of that produced a diff. On macOS it
-runs `test`, `test-installer-sh`, `test-rust` and `build-overlay`. On Windows it
-runs `test`, the `install.ps1` Pester suite, `test-rust` and `build-overlay`; the
-other Windows steps set `shell: bash` so the Makefile runs under Git Bash. Each
-job builds only its own native backend, so `ui/appkit.rs` is compiled by the
-macOS job, WPF and its Rust bridge by the Windows job, and the D-Bus daemon and
-Qt renderer by the Linux job. A fourth job runs `make audit`.
+`test-installer-sh`, `test-rust`, `check-licenses` and `build-overlay`, then
+fails if formatting or linting produced a diff. On macOS it runs `test`,
+`test-installer-sh`, `test-rust` and `build-overlay`. On Windows it runs `test`,
+the `install.ps1` Pester suite, `test-rust` and `build-overlay`; the other
+Windows steps set `shell: bash` so the Makefile runs under Git Bash. Each job
+builds only its own native backend, so `ui/appkit.rs` is compiled by the macOS
+job, WPF and its Rust bridge by the Windows job, and the D-Bus daemon and Qt
+renderer by the Linux job. A fourth job runs `make audit`.
 
 Only the Linux job runs the complete lint task. After changing the Windows
 bridge, run clippy against its manifest; after changing WPF, publish the

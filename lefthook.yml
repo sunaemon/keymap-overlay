@@ -14,6 +14,20 @@ pre-commit:
     - name: lint
       run: make lint
       stage_fixed: true
+    # The report changes with dependencies, package metadata, workspace
+    # versions, cargo-about itself, and its rendering configuration. Keep this
+    # check non-mutating so a hook never adds an unstaged generated file.
+    - name: license-notices
+      run: make check-licenses
+      glob:
+        - Cargo.lock
+        - Cargo.toml
+        - '**/Cargo.toml'
+        - about.toml
+        - mise.dev.toml
+        - doc/third-party-licenses.hbs
+        - scripts/generate_license_report.py
+        - THIRD-PARTY-LICENSES.html
 
 commit-msg:
   jobs:
