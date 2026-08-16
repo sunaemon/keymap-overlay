@@ -653,11 +653,11 @@ dependencies = [
 
 [[package]]
 name = "keymap-core"
-version = "0.0.4"
+version = "0.0.5"
 
 [[package]]
 name = "keymap-overlay"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "block2",
@@ -682,21 +682,21 @@ dependencies = [
 
 [[package]]
 name = "keymap-overlay-linux-protocol"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "zbus",
 ]
 
 [[package]]
 name = "keymap-overlay-windows-bridge"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "keymap-overlay",
 ]
 
 [[package]]
 name = "keymap-overlay-winui"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "keymap-overlay",
