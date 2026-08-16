@@ -47,11 +47,18 @@ struct NativeLayer {
     size: NSSize,
 }
 
+#[derive(PartialEq)]
+struct AppEnvironment {
+    screen_frame: Option<NSRect>,
+    appearance_name: String,
+}
+
 struct OverlayApp {
     receiver: Receiver<ListenerEvent>,
     pending: PendingTransition,
     models: ModelCache,
     layers: HashMap<(u8, Vec<u8>), NativeLayer>,
+    visible_layer: Option<(u8, Vec<u8>)>,
     window: Retained<NSWindow>,
     glass: Retained<NSGlassEffectView>,
     empty_view: Retained<NSView>,
@@ -82,6 +89,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         pending: PendingTransition::default(),
         models,
         layers: HashMap::new(),
+        visible_layer: None,
         window,
         glass,
         empty_view,
@@ -89,7 +97,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
 
     application.finishLaunching();
     overlay.window.orderFrontRegardless();
-    overlay.run_event_loop()
+    overlay.run_event_loop(&application)
 }
 
 fn configure_window(window: &NSWindow) {
@@ -309,12 +317,17 @@ fn key_text_color() -> Retained<NSColor> {
 }
 
 impl OverlayApp {
-    fn run_event_loop(&mut self) -> Result<()> {
+    fn run_event_loop(&mut self, application: &NSApplication) -> Result<()> {
         let run_loop = NSRunLoop::mainRunLoop();
         let distant_future = NSDate::distantFuture();
         let default_mode = NSString::from_str("kCFRunLoopDefaultMode");
+        let mut environment = AppEnvironment::capture(application);
         loop {
             run_loop.runMode_beforeDate(&default_mode, &distant_future);
+
+            let next_environment = AppEnvironment::capture(application);
+            self.update_environment(&environment, &next_environment);
+            environment = next_environment;
 
             for event in self.receiver.try_iter() {
                 self.pending.push(event);
@@ -357,19 +370,64 @@ impl OverlayApp {
         self.window
             .setFrame_display(centered_frame(native.size), true);
         self.window.orderFrontRegardless();
+        self.visible_layer = Some(key);
     }
 
-    fn hide(&self) {
+    fn hide(&mut self) {
+        self.visible_layer = None;
         self.glass.setContentView(Some(&self.empty_view));
         self.window.setFrame_display(idle_rect(), false);
+    }
+
+    fn update_environment(&mut self, previous: &AppEnvironment, current: &AppEnvironment) {
+        if previous.appearance_name != current.appearance_name {
+            self.rebuild_layers();
+        }
+        if previous.screen_frame != current.screen_frame {
+            self.recenter_visible_layer(current.screen_frame);
+        }
+    }
+
+    fn rebuild_layers(&mut self) {
+        let visible_layer = self.visible_layer.clone();
+        self.layers.clear();
+        if let Some((keyboard_id, layers)) = visible_layer {
+            self.show(keyboard_id, &layers);
+        }
+    }
+
+    fn recenter_visible_layer(&self, screen_frame: Option<NSRect>) {
+        let Some(screen_frame) = screen_frame else {
+            return;
+        };
+        let Some(key) = &self.visible_layer else {
+            return;
+        };
+        let Some(native) = self.layers.get(key) else {
+            return;
+        };
+        self.window
+            .setFrame_display(centered_frame_on_screen(native.size, screen_frame), true);
+    }
+}
+
+impl AppEnvironment {
+    fn capture(application: &NSApplication) -> Self {
+        Self {
+            screen_frame: current_screen_frame(),
+            appearance_name: application.effectiveAppearance().name().to_string(),
+        }
     }
 }
 
 fn centered_frame(size: NSSize) -> NSRect {
-    let Some(screen) = MainThreadMarker::new().and_then(NSScreen::mainScreen) else {
+    let Some(screen) = current_screen_frame() else {
         return NSRect::new(NSPoint::new(0.0, 0.0), size);
     };
-    let screen = screen.frame();
+    centered_frame_on_screen(size, screen)
+}
+
+fn centered_frame_on_screen(size: NSSize, screen: NSRect) -> NSRect {
     NSRect::new(
         NSPoint::new(
             screen.origin.x + (screen.size.width - size.width) / 2.0,
@@ -379,6 +437,28 @@ fn centered_frame(size: NSSize) -> NSRect {
     )
 }
 
+fn current_screen_frame() -> Option<NSRect> {
+    MainThreadMarker::new()
+        .and_then(NSScreen::mainScreen)
+        .map(|screen| screen.frame())
+}
+
 fn idle_rect() -> NSRect {
     NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(IDLE_SIZE, IDLE_SIZE))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn centers_a_layer_after_the_screen_geometry_changes() {
+        let frame = centered_frame_on_screen(
+            NSSize::new(400.0, 200.0),
+            NSRect::new(NSPoint::new(100.0, 50.0), NSSize::new(1_200.0, 800.0)),
+        );
+
+        assert_eq!(frame.origin, NSPoint::new(500.0, 350.0));
+        assert_eq!(frame.size, NSSize::new(400.0, 200.0));
+    }
 }

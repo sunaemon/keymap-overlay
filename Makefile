@@ -831,14 +831,16 @@ _flash_macos:
 .PHONY: _flash_linux
 _flash_linux:
 	@bootloader="$$( $(UV) run python -m scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" bootloader)" || exit 1; \
+	mounted=false; \
 	case "$$bootloader" in \
-		rp2040) $(MAKE) _mount_uf2_volume || exit 1 ;; \
-	esac
-	$(QMK) flash -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
-	@bootloader="$$( $(UV) run python -m scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" bootloader)" || exit 1; \
-	case "$$bootloader" in \
-		rp2040) $(MAKE) _unmount_uf2_volume || exit 1 ;; \
-	esac
+		rp2040) $(MAKE) _mount_uf2_volume || exit 1; mounted=true ;; \
+	esac; \
+	status=0; \
+	$(QMK) flash -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS) || status=$$?; \
+	if [ "$$mounted" = true ]; then \
+		$(MAKE) _unmount_uf2_volume || [ "$$status" -ne 0 ] || status=$$?; \
+	fi; \
+	exit "$$status"
 
 .PHONY: _mount_uf2_volume
 _mount_uf2_volume:

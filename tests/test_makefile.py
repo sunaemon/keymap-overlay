@@ -1,5 +1,6 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -44,3 +45,37 @@ def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
         "7_L1.json",
     ]
     assert not stale_build.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")
+def test_failed_rp2040_flash_still_unmounts_volume(tmp_path: Path) -> None:
+    """Unmount a UF2 volume even when qmk reports a flashing failure."""
+    command_log = tmp_path / "commands.log"
+    fake_uv = tmp_path / "uv"
+    fake_uv.write_text(
+        """#!/bin/sh
+case "$*" in
+  *scripts.get_keyboard_metadata*) printf '%s\\n' rp2040 ;;
+  *) printf '%s\\n' "$*" >> "$COMMAND_LOG" ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "make",
+            "_flash_linux",
+            "KEYBOARD_ID=1",
+            f"UV={fake_uv}",
+            "QMK=false",
+            "SUDO=",
+        ],
+        check=False,
+        cwd=Path(__file__).parents[1],
+        env={**os.environ, "COMMAND_LOG": str(command_log)},
+    )
+
+    assert result.returncode != 0
+    assert "--unmount" in command_log.read_text(encoding="utf-8")

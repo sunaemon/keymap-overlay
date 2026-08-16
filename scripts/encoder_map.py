@@ -1,11 +1,35 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import ast
+import operator
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from src.util import strip_c_comments
 
 ENCODER_PAIR_NAME = "ENCODER_CCW_CW"
+C_INTEGER_SUFFIX = re.compile(
+    r"(?i)\b(0x[0-9a-f]+|0b[01]+|[0-9]+)(?:u(?:ll|l)?|(?:ll|l)u?)\b"
+)
+
+BINARY_INTEGER_OPERATORS: dict[type[ast.operator], Callable[[int, int], int]] = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: lambda left, right: _c_div(left, right),
+    ast.Mod: lambda left, right: left - _c_div(left, right) * right,
+    ast.LShift: operator.lshift,
+    ast.RShift: operator.rshift,
+    ast.BitOr: operator.or_,
+    ast.BitXor: operator.xor,
+    ast.BitAnd: operator.and_,
+}
+UNARY_INTEGER_OPERATORS: dict[type[ast.unaryop], Callable[[int], int]] = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+    ast.Invert: operator.invert,
+}
 
 
 def parse_encoder_map(keymap_c: Path) -> list[list[list[str]]]:
@@ -103,16 +127,46 @@ def _parse_enum_values(content: str) -> dict[str, int]:
                 current = None
                 continue
             if separator:
-                value = raw_value.strip()
-                try:
-                    current = int(value, 0)
-                except ValueError:
-                    current = values.get(value)
+                current = _evaluate_integer_expression(raw_value.strip(), values)
             elif current is not None:
                 current += 1
             if current is not None:
                 values[name] = current
     return values
+
+
+def _evaluate_integer_expression(expression: str, values: dict[str, int]) -> int | None:
+    """Evaluate the integer-only subset of C used by enum initializers."""
+    expression = C_INTEGER_SUFFIX.sub(r"\1", expression)
+    try:
+        parsed = ast.parse(expression, mode="eval")
+        return _evaluate_integer_node(parsed.body, values)
+    except (KeyError, SyntaxError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _evaluate_integer_node(node: ast.expr, values: dict[str, int]) -> int:
+    """Evaluate one validated integer-expression node."""
+    if isinstance(node, ast.Constant) and type(node.value) is int:
+        return node.value
+    if isinstance(node, ast.Name):
+        return values[node.id]
+    if isinstance(node, ast.BinOp):
+        operation = BINARY_INTEGER_OPERATORS[type(node.op)]
+        return operation(
+            _evaluate_integer_node(node.left, values),
+            _evaluate_integer_node(node.right, values),
+        )
+    if isinstance(node, ast.UnaryOp):
+        operation = UNARY_INTEGER_OPERATORS[type(node.op)]
+        return operation(_evaluate_integer_node(node.operand, values))
+    raise ValueError("unsupported integer expression")
+
+
+def _c_div(left: int, right: int) -> int:
+    """Divide integers with C's truncation toward zero."""
+    quotient = abs(left) // abs(right)
+    return -quotient if (left < 0) != (right < 0) else quotient
 
 
 def _extract_delimited(

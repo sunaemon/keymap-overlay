@@ -120,6 +120,26 @@ def test_encoder_parser_resolves_symbolic_layer_designators(tmp_path: Path) -> N
     ]
 
 
+def test_encoder_parser_resolves_layer_designator_expressions(tmp_path: Path) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        """
+        enum layers { BASE = 0U, LOWER = (BASE + 1) << 1 };
+        const uint16_t PROGMEM encoder_map[3][1][2] = {
+          [BASE] = {ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
+          [LOWER] = {ENCODER_CCW_CW(KC_PGDN, KC_PGUP)},
+        };
+        """,
+        encoding="utf-8",
+    )
+
+    assert parse_encoder_map(keymap_c) == [
+        [["KC_VOLD", "KC_VOLU"]],
+        [],
+        [["KC_PGDN", "KC_PGUP"]],
+    ]
+
+
 @pytest.mark.parametrize("arguments", [", KC_VOLU", "KC_VOLD,", " , "])
 def test_encoder_parser_rejects_empty_actions(tmp_path: Path, arguments: str) -> None:
     keymap_c = tmp_path / "keymap.c"
