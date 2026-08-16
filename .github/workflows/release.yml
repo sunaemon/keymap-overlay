@@ -47,7 +47,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          mise exec -- uv run python -m scripts.prepare_release \
+          mise exec -- uv run python -m installer.release.prepare_release \
             --tested-sha "$TESTED_SHA" \
             --repository "$GITHUB_REPOSITORY" \
             --github-output "$GITHUB_OUTPUT"
@@ -100,7 +100,7 @@ jobs:
       - name: Package binary and notices
         id: package
         run: |
-          mise exec -- uv run python -m scripts.package_release \
+          mise exec -- uv run python -m installer.release.package_release \
             --platform "$RUNNER_OS" \
             --architecture "$(uname -m)" \
             --github-output "$GITHUB_OUTPUT"
@@ -140,7 +140,7 @@ jobs:
 
       - name: Add installers and SHA-256 checksums
         run: |
-          cp install.sh install.ps1 release/
+          cp installer/install.sh installer/install.ps1 release/
           (cd release && sha256sum keymap-overlay-* install.sh install.ps1 > SHA256SUMS)
 
       - name: Attest release files

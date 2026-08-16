@@ -702,27 +702,15 @@ name = "keymap-core"
 version = "0.0.5"
 
 [[package]]
-name = "keymap-overlay"
+name = "keymap-overlay-linux-daemon"
 version = "0.0.5"
 dependencies = [
  "anyhow",
- "block2",
- "clap",
- "dispatch",
- "env_logger",
- "hidapi",
- "iohidmanager",
- "keymap-core",
  "keymap-overlay-linux-protocol",
+ "keymap-overlay-runtime",
  "log",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "pollster",
  "rustix",
- "serde",
  "serde_json",
- "tempfile",
  "udev",
  "zbus",
 ]
@@ -735,10 +723,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "keymap-overlay-macos"
+version = "0.0.5"
+dependencies = [
+ "anyhow",
+ "block2",
+ "dispatch",
+ "iohidmanager",
+ "keymap-overlay-runtime",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "pollster",
+]
+
+[[package]]
+name = "keymap-overlay-runtime"
+version = "0.0.5"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "hidapi",
+ "keymap-core",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "keymap-overlay-windows-bridge"
 version = "0.0.5"
 dependencies = [
- "keymap-overlay",
+ "keymap-overlay-runtime",
 ]
 
 [[package]]
@@ -746,7 +765,7 @@ name = "keymap-overlay-winui"
 version = "0.0.5"
 dependencies = [
  "anyhow",
- "keymap-overlay",
+ "keymap-overlay-runtime",
  "log",
  "windows",
  "windows-core 0.100.0",

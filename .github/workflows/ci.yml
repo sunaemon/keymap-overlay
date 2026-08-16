@@ -139,7 +139,7 @@ jobs:
 
       - name: Test release installer
         shell: powershell
-        run: Invoke-Pester -Path tests/install.Tests.ps1 -CI
+        run: Invoke-Pester -Path installer/tests/install.Tests.ps1 -CI
 
       - name: Run Rust Tests
         run: make test-rust

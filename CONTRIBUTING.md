@@ -8,7 +8,7 @@ valuable.
 
 Read [AGENTS.md](AGENTS.md) for the repository architecture, toolchain, coding
 standards, and platform-specific verification requirements. The authoritative
-system design is [doc/design.md](doc/design.md).
+system design is [docs/design.md](docs/design.md).
 
 For a substantial behavioral change, open an issue first so the expected user
 workflow and cross-platform impact can be agreed before implementation.
@@ -30,7 +30,7 @@ make audit
 On Windows PowerShell, also run the installer tests:
 
 ```powershell
-Invoke-Pester -Path tests/install.Tests.ps1 -CI
+Invoke-Pester -Path installer/tests/install.Tests.ps1 -CI
 ```
 
 `make format` must leave no diff. Platform UI and login-service changes also

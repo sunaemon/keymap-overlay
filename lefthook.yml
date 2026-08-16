@@ -23,10 +23,10 @@ pre-commit:
         - Cargo.lock
         - Cargo.toml
         - '**/Cargo.toml'
-        - about.toml
+        - docs/about.toml
         - mise.dev.toml
-        - doc/third-party-licenses.hbs
-        - scripts/generate_license_report.py
+        - docs/third-party-licenses.hbs
+        - installer/release/generate_license_report.py
         - THIRD-PARTY-LICENSES.html
 
 commit-msg:

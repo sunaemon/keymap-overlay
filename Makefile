@@ -148,12 +148,12 @@ env MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
 endef
 
 # ================= QMK CONFIGURATION =================
-QMK_HOME := qmk_firmware
+QMK_HOME := firmware/vendor/qmk
 export QMK_HOME := $(QMK_HOME)
 
 QMK_KEYMAP ?= keymap
 
-KEYBOARDS_DIR ?= example
+KEYBOARDS_DIR ?= firmware/examples
 
 # Every configured keyboard, by KEYBOARD_ID. A directory counts once it has a
 # config.json, which is the file the ID and QMK_KEYBOARD are read from.
@@ -191,7 +191,7 @@ QMK_FLAGS += -e KEYBOARD_ID=$(KEYBOARD_ID)
 KEYMAP_PREFIX := $(KEYBOARD_ID)_
 
 # QMK keyboard definition (matrix/layouts/metadata).
-# Type: src/types.py:KeyboardJson
+# Type: model/src/types.py:KeyboardJson
 KEYBOARD_JSON := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json
 QMK_KEYMAP_C := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/keymap.c
 KEYBOARD_CONFIG := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json
@@ -211,31 +211,31 @@ ABS_BUILD_DIR := $(abspath $(BUILD_DIR))
 QMK_FLAGS += -e BUILD_DIR=$(ABS_BUILD_DIR)/qmk_build
 
 # Contains the full, unmodified keymap definition (layers, keycodes) in QMK format.
-# Type: src/types.py:QmkKeymapJson
+# Type: model/src/types.py:QmkKeymapJson
 # Generated from: 'qmk c2json' (source) or 'generate_qmk_keymap_from_vitaly.py' (VIAL).
 # Used by: the overlay asset generator, 'generate_vitaly_layout.py' (flashing).
 QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
 
 # Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
-# Type: src/types.py:KeycodesJson
+# Type: model/src/types.py:KeycodesJson
 # Generated from: 'generate_keycodes.py' scanning QMK firmware.
 # Used by: the overlay asset generator for name resolution.
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
 # Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from keymap.c.
-# Type: src/types.py:KeycodesJson
+# Type: model/src/types.py:KeycodesJson
 # Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c'.
 # Used by: the overlay asset generator and 'generate_vitaly_layout.py'.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 
 # VIAL-compatible keyboard definition (matrix, layout, VID/PID).
-# Type: src/types.py:VialJson
+# Type: model/src/types.py:VialJson
 # Generated from: 'generate_vial.py' using keyboard.json.
 # Used by: 'qmk compile' (embedded in firmware) for VIAL support.
 VIAL_JSON := $(BUILD_DIR)/vial.json
 
 # Temporary dump of the keyboard's current VIAL configuration.
-# Type: src/types.py:VitalyJson
+# Type: model/src/types.py:VitalyJson
 # Generated from: 'vitaly save' (downloaded from device).
 # Used by: 'generate_qmk_keymap_from_vitaly.py' (source for rebuild), 'generate_vitaly_layout.py' (base for merge).
 VITALY_JSON := $(BUILD_DIR)/vitaly.json
@@ -243,7 +243,7 @@ VITALY_JSON := $(BUILD_DIR)/vitaly.json
 # Same lazy-and-cached treatment as DEVICE_PID. These are only meaningful once
 # $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
 # first pass and then re-enter make to expand $(ASSETS).
-LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
+LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m model.scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
 ASSET_EXTENSION := json
 STALE_ASSET_EXTENSION := png
 ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)
@@ -286,16 +286,23 @@ endif
 KEYMAP_OVERLAY_LOG_FILE := $(KEYMAP_OVERLAY_LOG_DIR)/overlay.log
 KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay$(EXE_SUFFIX)
 KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-qt
-WPF_PROJECT := windows/KeymapOverlay.Wpf/KeymapOverlay.Wpf.csproj
+WPF_PROJECT := overlay/platforms/windows/wpf/KeymapOverlay.Wpf.csproj
 WPF_PUBLISH_DIR := target/wpf-publish
-WINDOWS_BRIDGE_MANIFEST := crates/keymap-overlay-windows-bridge/Cargo.toml
+WINDOWS_BRIDGE_MANIFEST := overlay/platforms/windows/bridge/Cargo.toml
 WINUI_PACKAGE := keymap-overlay-winui
-QT_RENDERER_SOURCE := linux/qt
+QT_RENDERER_SOURCE := overlay/platforms/linux/qt
 QT_RENDERER_BUILD_DIR := target/qt-release
 ifeq ($(OS_FAMILY),windows)
 OVERLAY_BUILD_BINARY := $(WPF_PUBLISH_DIR)/keymap-overlay.exe
+KEYMAP_OVERLAY ?= "$(OVERLAY_BUILD_BINARY)"
 else
+ifeq ($(OS_FAMILY),macos)
+OVERLAY_PACKAGE := keymap-overlay-macos
+else
+OVERLAY_PACKAGE := keymap-overlay-linux-daemon
+endif
 OVERLAY_BUILD_BINARY := target/release/keymap-overlay
+KEYMAP_OVERLAY ?= $(CARGO) run -p $(OVERLAY_PACKAGE) --
 endif
 KEYMAP_OVERLAY_LABEL := com.sunaemon.keymap-overlay
 KEYMAP_OVERLAY_PLIST := $(HOME)/Library/LaunchAgents/$(KEYMAP_OVERLAY_LABEL).plist
@@ -304,7 +311,7 @@ KEYMAP_OVERLAY_UNIT := $(HOME)/.config/systemd/user/$(KEYMAP_OVERLAY_UNIT_NAME)
 KEYMAP_OVERLAY_QT_UNIT_NAME := keymap-overlay-qt.service
 KEYMAP_OVERLAY_QT_UNIT := $(HOME)/.config/systemd/user/$(KEYMAP_OVERLAY_QT_UNIT_NAME)
 GNOME_EXTENSION_UUID := keymap-overlay@sunaemon
-GNOME_EXTENSION_SOURCE := linux/gnome-shell/$(GNOME_EXTENSION_UUID)
+GNOME_EXTENSION_SOURCE := overlay/platforms/linux/gnome-shell/$(GNOME_EXTENSION_UUID)
 GNOME_EXTENSION_DIR := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID)
 # The registry value under the current user's Run key that starts the overlay
 # when they sign in. It is intentionally a user-level autostart, not a service.
@@ -313,7 +320,6 @@ KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
 # HID node; without it the overlay enumerates the keyboards but cannot read
 # from them.
 KEYMAP_OVERLAY_UDEV_RULES := /etc/udev/rules.d/50-keymap-overlay.rules
-KEYMAP_OVERLAY ?= $(CARGO) run -p keymap-overlay --
 DOTNET ?= $(MISE) exec -- dotnet
 CMAKE ?= cmake
 
@@ -470,7 +476,7 @@ check-commit-message:
 ifndef COMMIT_MSG_FILE
 	$(error COMMIT_MSG_FILE is required for check-commit-message)
 endif
-	@$(UV) run python -m scripts.check_commit_message "$(COMMIT_MSG_FILE)"
+	@$(UV) run python -m tools.check_commit_message "$(COMMIT_MSG_FILE)"
 
 # Checks Cargo.lock against the RustSec advisory database. Ignored advisories
 # and the reasons for them live in .cargo/audit.toml.
@@ -484,17 +490,17 @@ bump-version:
 ifndef VERSION
 	$(error VERSION is required, for example: make bump-version VERSION=0.0.5)
 endif
-	$(UV) run python -m scripts.bump_version "$(VERSION)"
+	$(UV) run python -m installer.release.bump_version "$(VERSION)"
 
 # This file ships beside every release binary. The non-mutating CI check keeps
 # additions and upgrades in Cargo.lock from silently dropping their notices.
 .PHONY: licenses
 licenses:
-	$(MISE_DEV) exec -- uv run python -m scripts.generate_license_report
+	$(MISE_DEV) exec -- uv run python -m installer.release.generate_license_report
 
 .PHONY: check-licenses
 check-licenses:
-	$(MISE_DEV) exec -- uv run python -m scripts.generate_license_report --check
+	$(MISE_DEV) exec -- uv run python -m installer.release.generate_license_report --check
 
 .PHONY: test
 test:
@@ -502,7 +508,7 @@ test:
 
 .PHONY: test-installer-sh
 test-installer-sh:
-	./tests/test_install_sh.sh
+	./installer/tests/test_install_sh.sh
 
 .PHONY: test-rust
 test-rust:
@@ -522,7 +528,7 @@ ifeq ($(OS_FAMILY),windows)
 	$(CARGO) build --release --manifest-path "$(WINDOWS_BRIDGE_MANIFEST)" --target-dir target
 	$(DOTNET) publish "$(WPF_PROJECT)" --configuration Release --output "$(WPF_PUBLISH_DIR)"
 else
-	$(CARGO) build --release -p keymap-overlay
+	$(CARGO) build --release -p $(OVERLAY_PACKAGE)
 ifeq ($(OS_FAMILY),linux)
 	$(CMAKE) -S "$(QT_RENDERER_SOURCE)" -B "$(QT_RENDERER_BUILD_DIR)" \
 		-DCMAKE_BUILD_TYPE=Release \
@@ -802,8 +808,8 @@ print-udev-rule:
 ifndef KEYBOARD_ID
 	$(error KEYBOARD_ID is required for print-udev-rule)
 endif
-	@vid="$$( $(UV) run python -m scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" vid)" || exit 1; \
-		pid="$$( $(UV) run python -m scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" pid)" || exit 1; \
+	@vid="$$( $(UV) run python -m model.scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" vid)" || exit 1; \
+		pid="$$( $(UV) run python -m model.scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" pid)" || exit 1; \
 		printf '\n# %s (KEYBOARD_ID=%s)\nKERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="%s", ATTRS{idProduct}=="%s", TAG+="uaccess"\n' \
 		"$(QMK_KEYBOARD)" "$(KEYBOARD_ID)" "$$vid" "$$pid"
 
@@ -817,7 +823,7 @@ endif
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h"
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json"
 	install -C firmware/layer_notify.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/layer_notify.h"
-	$(call WRITE_OUTPUT,$(VIAL_JSON),$(UV) run python -m scripts.generate_vial --keyboard-json $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json --layout-name "$(LAYOUT_NAME)")
+	$(call WRITE_OUTPUT,$(VIAL_JSON),$(UV) run python -m model.scripts.generate_vial --keyboard-json $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json --layout-name "$(LAYOUT_NAME)")
 	install -C $(VIAL_JSON) "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/vial.json"
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/* "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/"
 
@@ -850,7 +856,7 @@ _flash_macos:
 
 # An rp2040 board flashes by copying a UF2 onto the mass storage volume its
 # bootloader exposes, and qmk only ever looks for that volume already mounted
-# (qmk_firmware/util/uf2conv.py). Nothing on a Linux box mounts it on its own:
+# (firmware/vendor/qmk/util/uf2conv.py). Nothing on a Linux box mounts it on its own:
 # Plasma does not auto-mount by default, and udisks refuses a remote session
 # or mounts under /run/media/root, so qmk waits forever. Mount it first, with
 # sudo, and qmk's wait loop finds it immediately. WSL keeps the USB mass-storage
@@ -859,7 +865,7 @@ _flash_macos:
 # skip both steps.
 .PHONY: _flash_linux
 _flash_linux:
-	@bootloader="$$( $(UV) run python -m scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" bootloader)" || exit 1; \
+	@bootloader="$$( $(UV) run python -m model.scripts.get_keyboard_metadata "$(KEYBOARD_JSON)" bootloader)" || exit 1; \
 	mounted=false; \
 	case "$$bootloader" in \
 		rp2040) $(MAKE) _mount_uf2_volume || exit 1; mounted=true ;; \
@@ -874,11 +880,11 @@ _flash_linux:
 .PHONY: _mount_uf2_volume
 _mount_uf2_volume:
 	@echo "Waiting for the $(UF2_VOLUME_LABEL) volume; put the board into its bootloader now..."
-	$(UV) run python -m scripts.mount_uf2_volume --label "$(UF2_VOLUME_LABEL)" --sudo "$(SUDO)"
+	$(UV) run python -m firmware.tools.mount_uf2_volume --label "$(UF2_VOLUME_LABEL)" --sudo "$(SUDO)"
 
 .PHONY: _unmount_uf2_volume
 _unmount_uf2_volume:
-	$(UV) run python -m scripts.mount_uf2_volume --label "$(UF2_VOLUME_LABEL)" --sudo "$(SUDO)" --unmount
+	$(UV) run python -m firmware.tools.mount_uf2_volume --label "$(UF2_VOLUME_LABEL)" --sudo "$(SUDO)" --unmount
 
 .PHONY: flash-keymap
 flash-keymap:
@@ -896,7 +902,7 @@ ifdef KEYBOARD_ID
 	@echo "Merging QMK keymap into Vitaly configuration..."
 	@# The renderer resolves KC_TRNS only in memory. This source JSON remains raw,
 	@# so writing it to EEPROM preserves transparent-key inheritance.
-	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)")
+	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m model.scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)")
 	@echo "Loading new configuration to device..."
 	$(VITALY) -i $(DEVICE_PID) load -f $(BUILD_DIR)/vitaly_ready.json
 else
@@ -980,7 +986,7 @@ $(BUILD_DIR):
 $(ASSET_BUILD_DIR):
 	mkdir -p $(ASSET_BUILD_DIR)
 
-RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) scripts/encoder_map.py scripts/generate_overlay_asset.py src/types.py src/util.py
+RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) model/scripts/encoder_map.py model/scripts/generate_overlay_asset.py model/src/types.py model/src/util.py
 ifeq ($(VIAL),true)
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)" --vitaly-json "$(VITALY_JSON)"
 else
@@ -988,7 +994,7 @@ RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
 endif
 
 $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(ASSET_BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
 
 .PHONY: _force_build
 _force_build:
@@ -1022,14 +1028,14 @@ ifeq ($(VIAL),true)
 	@echo "Dumping QMK JSON from VIAL EEPROM..."
 	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)")
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)")
 else
 	@echo "Compiling QMK JSON from source..."
 	$(call WRITE_OUTPUT,$@,$(QMK) c2json --no-cpp -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) "$(QMK_KEYMAP_C)")
 endif
 
-$(KEYCODES_JSON): scripts/generate_keycodes.py | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_keycodes --qmk-dir "$(QMK_HOME)")
+$(KEYCODES_JSON): model/scripts/generate_keycodes.py | $(BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_keycodes --qmk-dir "$(QMK_HOME)")
 
-$(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) scripts/generate_custom_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m scripts.generate_custom_keycodes "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)")
+$(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) model/scripts/generate_custom_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_custom_keycodes "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)")

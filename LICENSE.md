@@ -6,12 +6,12 @@ depends on the file:
 ## Firmware and QMK keymap files: GPL-2.0-or-later
 
 The shared firmware code in [`firmware/`](firmware/) and the keyboard and
-keymap files in [`example/`](example/) are licensed under the GNU General
+keymap files in [`firmware/examples/`](firmware/examples/) are licensed under the GNU General
 Public License v2.0 or later (`GPL-2.0-or-later`). Individual files retain
 their original copyright notices.
 
 The full text of the GPL v2.0 is available in
-[`example/LICENSE`](example/LICENSE).
+[`firmware/examples/LICENSE`](firmware/examples/LICENSE).
 
 ## Tools and application: MIT
 
