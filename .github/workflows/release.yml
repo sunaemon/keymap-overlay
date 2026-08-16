@@ -62,10 +62,13 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           release_version="${RELEASE_TAG#v}"
-          cargo_version="$(mise exec -- cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "keymap-overlay") | .version')"
+          cargo_mismatches="$(mise exec -- cargo metadata --no-deps --format-version 1 | jq -r --arg version "$release_version" '.packages[] | select(.version != $version) | "\(.name)=\(.version)"')"
           python_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml)"
-          if [ "$RELEASE_TAG" = "$release_version" ] || [ "$cargo_version" != "$release_version" ] || [ "$python_version" != "$release_version" ]; then
-            echo "ERROR: tag $RELEASE_TAG, Cargo $cargo_version and Python $python_version must use the same vMAJOR.MINOR.PATCH version." >&2
+          if [ "$RELEASE_TAG" = "$release_version" ] || [ -n "$cargo_mismatches" ] || [ "$python_version" != "$release_version" ]; then
+            echo "ERROR: tag $RELEASE_TAG, every Cargo package and Python $python_version must use version $release_version." >&2
+            if [ -n "$cargo_mismatches" ]; then
+              printf 'Mismatched Cargo package: %s\n' "$cargo_mismatches" >&2
+            fi
             exit 1
           fi
 
