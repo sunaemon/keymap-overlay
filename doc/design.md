@@ -144,11 +144,13 @@ without polling. The C++ side builds keys, encoders, and labels as Qt Quick
 items. The client exits cleanly under GNOME unless `KEYMAP_OVERLAY_FORCE_QT` is
 set, preventing two renderers from drawing the same layer.
 
-The QML window uses KDE LayerShellQt's attached `Window` API. It requests the
-overlay layer, no keyboard interaction, no exclusive zone, and placement on the
-active screen. `Qt::WindowTransparentForInput` makes the surface click-through.
-No plain Wayland application window can supply those semantics: the compositor
-must grant the layer-surface role.
+On Wayland, the QML window uses KDE LayerShellQt's attached `Window` API. It
+requests the overlay layer, no keyboard interaction, no exclusive zone, and
+placement on the active screen. On X11, the renderer omits the LayerShellQt
+import and centres a conventional native overlay on the pointer's screen.
+`Qt::WindowTransparentForInput` makes either surface click-through. No plain
+Wayland application window can supply those semantics: the compositor must
+grant the layer-surface role.
 
 The Qt client is a standalone CMake application with no Rust/C++ boundary. The
 Rust daemon retains HID access, protocol handling, transition state, and model

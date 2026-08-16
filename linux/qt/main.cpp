@@ -38,10 +38,13 @@ bool is_gnome_desktop() {
   return false;
 }
 
-constexpr auto overlay_qml = R"QML(
+constexpr auto LayerShellImportMarker = "// LAYER_SHELL_IMPORT";
+constexpr auto LayerShellPropertiesMarker = "    // LAYER_SHELL_PROPERTIES";
+
+constexpr auto OverlayQml = R"QML(
 import QtQuick
 import QtQuick.Window
-import org.kde.layershell 1.0 as LayerShell
+// LAYER_SHELL_IMPORT
 
 Window {
     id: root
@@ -55,12 +58,7 @@ Window {
     width: overlayModel.width || 1
     height: overlayModel.height || 1
 
-    LayerShell.Window.anchors: LayerShell.Window.AnchorNone
-    LayerShell.Window.exclusionZone: -1
-    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
-    LayerShell.Window.layer: LayerShell.Window.LayerOverlay
-    LayerShell.Window.scope: "keymap-overlay"
-    LayerShell.Window.wantsToBeOnActiveScreen: true
+    // LAYER_SHELL_PROPERTIES
 
     Rectangle {
         anchors.fill: parent
@@ -152,6 +150,27 @@ Window {
     }
 }
 )QML";
+
+QByteArray overlay_qml() {
+  auto source = QByteArray(OverlayQml);
+  if (QGuiApplication::platformName().startsWith(QStringLiteral("wayland"))) {
+    source.replace(LayerShellImportMarker,
+                   "import org.kde.layershell 1.0 as LayerShell");
+    source.replace(
+        LayerShellPropertiesMarker,
+        "    LayerShell.Window.anchors: LayerShell.Window.AnchorNone\n"
+        "    LayerShell.Window.exclusionZone: -1\n"
+        "    LayerShell.Window.keyboardInteractivity: "
+        "LayerShell.Window.KeyboardInteractivityNone\n"
+        "    LayerShell.Window.layer: LayerShell.Window.LayerOverlay\n"
+        "    LayerShell.Window.scope: \"keymap-overlay\"\n"
+        "    LayerShell.Window.wantsToBeOnActiveScreen: true");
+  } else {
+    source.replace(LayerShellImportMarker, "");
+    source.replace(LayerShellPropertiesMarker, "");
+  }
+  return source;
+}
 
 std::runtime_error qml_error(const QQmlComponent &component) {
   QStringList errors;
@@ -306,7 +325,7 @@ int main(int argc, char *argv[]) {
   try {
     QQmlEngine engine;
     QQmlComponent component(&engine);
-    component.setData(overlay_qml,
+    component.setData(overlay_qml(),
                       QUrl(QStringLiteral("qrc:/keymap-overlay.qml")));
     if (component.isError()) {
       throw qml_error(component);

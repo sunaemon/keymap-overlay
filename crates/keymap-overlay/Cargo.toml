@@ -33,6 +33,7 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
   "NSCell",
   "NSColor",
   "NSControl",
+  "NSEvent",
   "NSGlassEffectView",
   "NSGraphics",
   "NSFont",
@@ -47,7 +48,9 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
   "NSWindow",
 ] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
+  "NSArray",
   "NSDate",
+  "NSEnumerator",
   "NSGeometry",
   "NSObjCRuntime",
   "NSRunLoop",
