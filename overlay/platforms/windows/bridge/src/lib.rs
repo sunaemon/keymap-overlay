@@ -1,7 +1,7 @@
 //! Narrow C ABI between the WPF frontend and the shared Rust HID runtime.
 
 use keymap_overlay_runtime::{
-    LayerEventSink, ListenerEvent, LogDestination, PendingTransition, RawHidListenerHandle,
+    LayerEvent, LayerEventSink, LogDestination, PendingTransition, RawHidListenerHandle,
     Transition, default_log_file, initialize_logging, spawn_raw_hid_listener,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -28,7 +28,7 @@ struct SharedState {
 }
 
 impl LayerEventSink for BridgeSink {
-    fn send(&self, event: ListenerEvent) -> bool {
+    fn send(&self, event: LayerEvent) -> bool {
         self.state
             .pending
             .lock()

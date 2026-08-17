@@ -1,7 +1,8 @@
-//! The Raw HID protocol shared by the firmware and the overlay.
+//! The Raw HID protocol and active-layer state machine.
 //!
 //! The firmware sends a 32-byte report on every momentary layer press and
-//! release; see `docs/design.md` for the wire format.
+//! release. The reducer folds those reports and device disconnections into the
+//! final active-layer change; see `docs/design.md` for the wire format.
 
 pub const RAW_HID_REPORT_MAGIC: [u8; 3] = *b"KMO";
 pub const RAW_HID_REPORT_VERSION: u8 = 1;
@@ -14,8 +15,16 @@ pub struct RawLayerEvent {
     pub pressed: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// An input to the active-layer state machine.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LayerEvent {
+    Report(RawLayerEvent),
+    Disconnected { keyboard_id: Option<u8> },
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum ActiveLayerChange {
+    #[default]
     Unchanged,
     Changed(Option<ActiveLayerState>),
 }
@@ -26,8 +35,44 @@ pub struct ActiveLayerState {
     pub layers: Vec<u8>,
 }
 
+/// Held layers and the final state change waiting to be consumed.
+///
+/// Several inputs can arrive before a UI loop handles them. Intermediate
+/// restores and switches are reduced here so consumers observe only the final
+/// active-layer state.
+#[derive(Default)]
+pub struct PendingLayerChange {
+    held_keys: Vec<(u8, u8)>,
+    pending: ActiveLayerChange,
+}
+
+impl PendingLayerChange {
+    /// Folds one input into the held-layer state and keeps its latest change.
+    pub fn push(&mut self, event: LayerEvent) {
+        let change = transition_for_event(&mut self.held_keys, event);
+        if change != ActiveLayerChange::Unchanged {
+            self.pending = change;
+        }
+    }
+
+    /// Takes the final state change, leaving no pending change behind.
+    pub fn take(&mut self) -> ActiveLayerChange {
+        std::mem::take(&mut self.pending)
+    }
+}
+
+/// Updates held momentary layers for one report or device disconnection.
+fn transition_for_event(held_keys: &mut Vec<(u8, u8)>, event: LayerEvent) -> ActiveLayerChange {
+    match event {
+        LayerEvent::Report(event) => transition_for(held_keys, event),
+        LayerEvent::Disconnected { keyboard_id } => {
+            transition_for_disconnect(held_keys, keyboard_id)
+        }
+    }
+}
+
 /// Updates held momentary layers and reports whether the active layer changed.
-pub fn transition_for(held_keys: &mut Vec<(u8, u8)>, event: RawLayerEvent) -> ActiveLayerChange {
+fn transition_for(held_keys: &mut Vec<(u8, u8)>, event: RawLayerEvent) -> ActiveLayerChange {
     let previous = active_layer_state(held_keys);
     let key = (event.keyboard_id, event.layer);
     if event.pressed {
@@ -42,7 +87,7 @@ pub fn transition_for(held_keys: &mut Vec<(u8, u8)>, event: RawLayerEvent) -> Ac
 }
 
 /// Removes held layers belonging to a disconnected keyboard.
-pub fn transition_for_disconnect(
+fn transition_for_disconnect(
     held_keys: &mut Vec<(u8, u8)>,
     keyboard_id: Option<u8>,
 ) -> ActiveLayerChange {
@@ -261,6 +306,41 @@ mod tests {
             ActiveLayerChange::Unchanged
         );
         assert_eq!(held_keys, vec![(1, 2)]);
+    }
+
+    #[test]
+    fn queued_events_only_expose_their_final_state() {
+        let mut pending = PendingLayerChange::default();
+        pending.push(LayerEvent::Report(event(1, 2, true)));
+        assert_eq!(pending.take(), ActiveLayerChange::Changed(state(1, &[2])));
+
+        for event in [event(1, 3, true), event(1, 3, false), event(1, 2, false)] {
+            pending.push(LayerEvent::Report(event));
+        }
+
+        assert_eq!(pending.take(), ActiveLayerChange::Changed(None));
+    }
+
+    /// Taking a change must not hand the same update out a second time.
+    #[test]
+    fn nothing_is_pending_once_a_change_has_been_taken() {
+        let mut pending = PendingLayerChange::default();
+        pending.push(LayerEvent::Report(event(1, 2, true)));
+
+        assert_eq!(pending.take(), ActiveLayerChange::Changed(state(1, &[2])));
+        assert_eq!(pending.take(), ActiveLayerChange::Unchanged);
+    }
+
+    /// An unchanged input must not clear a state change waiting to be consumed.
+    #[test]
+    fn an_unchanged_event_leaves_an_earlier_change_pending() {
+        let mut pending = PendingLayerChange::default();
+        pending.push(LayerEvent::Report(event(1, 2, true)));
+        pending.push(LayerEvent::Disconnected {
+            keyboard_id: Some(9),
+        });
+
+        assert_eq!(pending.take(), ActiveLayerChange::Changed(state(1, &[2])));
     }
 
     #[test]

@@ -80,8 +80,11 @@ available even while another keyboard remains active.
 
 ## Native Overlay
 
-`overlay/keymap-overlay-runtime` is a library that shares the keyboard
-listener, transition reducer, asset model, command-line handling, and logging.
+`overlay/keymap-core` owns the Raw HID protocol and the pure active-layer state
+reducer, including coalescing queued reports and device disconnections into the
+final state change. `overlay/keymap-overlay-runtime` shares the keyboard
+listener, maps core state changes to overlay transitions, and owns the asset
+model, command-line handling, and logging.
 Each platform owns its executable, device-arrival integration, and presentation
 boundary. macOS owns an AppKit process, Windows owns a WPF process, and Linux
 separates its HID daemon from replaceable renderer clients.
@@ -100,13 +103,13 @@ No synthetic function-key events or Hammerspoon configuration are required.
 
 On **Windows**, `overlay/platforms/windows/wpf` owns the process and builds a native
 WPF visual tree from each installed JSON model. A narrow C ABI bridge loads the
-shared Rust HID listener and transition reducer. Rust invokes only a wake
+shared Rust HID listener and core state reducer. Rust invokes only a wake
 callback; the WPF dispatcher calls back to take the final queued transition, so
 bursts collapse before anything is drawn.
 
 An experimental sibling executable in `overlay/platforms/windows/winui` exercises a
 pure-Rust WinUI 3 frontend through Microsoft's unreleased `windows-reactor`
-crate. It calls the shared listener, reducer, model loader, and composer
+crate. It calls the shared listener, core reducer, model loader, and composer
 directly, so it has no C ABI bridge. `make build-winui-overlay` builds it on
 Windows; normal builds, installation, and releases intentionally continue to
 use WPF. Because WinUI 3 does not officially support transparent top-level

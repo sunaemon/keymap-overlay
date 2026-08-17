@@ -5,8 +5,8 @@ mod native;
 
 use anyhow::{Context, Result};
 use keymap_overlay_runtime::{
-    Arguments, LayerEventSink, ListenerEvent, LogDestination, ModelCache, OverlayModel,
-    Parser as _, PendingTransition, Transition, compose_model, default_asset_dir, default_log_file,
+    Arguments, LayerEvent, LayerEventSink, LogDestination, ModelCache, OverlayModel, Parser as _,
+    PendingTransition, Transition, compose_model, default_asset_dir, default_log_file,
     initialize_logging, load_model_cache, spawn_raw_hid_listener, write_notice,
 };
 use std::sync::{Arc, Mutex};
@@ -70,7 +70,7 @@ struct WinUiSink {
 }
 
 impl LayerEventSink for WinUiSink {
-    fn send(&self, event: ListenerEvent) -> bool {
+    fn send(&self, event: LayerEvent) -> bool {
         let transition = {
             let mut pending = self
                 .pending
