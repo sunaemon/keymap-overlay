@@ -281,8 +281,11 @@ untracked files, and they stay next to the checkout they came from instead of
 in some sibling directory.
 
 A new worktree starts with its submodules empty: run
-`git submodule update --init --recursive` inside it before building or
-flashing, otherwise `firmware/vendor/qmk/` is missing. `build/`, `target/` and
+`make setup-firmware` inside it before building or flashing. This initializes
+the Vial QMK checkout and only the ChibiOS, LUFA, and Pico SDK dependencies
+required by the tracked keyboards; a recursive update downloads unrelated MCU
+and UI libraries. Adding an unknown processor warns and safely falls back to a
+recursive update. `build/`, `target/` and
 `.venv/` are not shared between worktrees either, so the first build in one is
 a cold build.
 
@@ -367,7 +370,7 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
 - `tools/`: Repository-wide development checks.
 - `docs/`: Design documentation and README images.
 - `build/`: Generated JSON models. Not checked in.
-- `firmware/vendor/qmk/`: The QMK firmware submodule.
+- `firmware/vendor/vial-qmk/`: The Vial QMK firmware submodule.
 
 ## Important Files
 

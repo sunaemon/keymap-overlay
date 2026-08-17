@@ -95,7 +95,7 @@ If the installed firmware cannot enter the bootloader:
 ### 1. Prepare the source checkout
 
 ```bash
-git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+git clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 curl https://mise.run | sh
 ```
@@ -107,6 +107,11 @@ install the pinned tools and QMK toolchain:
 ```bash
 make setup
 ```
+
+`make setup` initializes Vial QMK shallowly and downloads only ChibiOS, LUFA,
+and the Pico SDK, which are the nested firmware dependencies used by the
+tracked STM32F103 and RP2040 keyboards. A keyboard with an unknown processor
+produces a warning and falls back to initializing every nested submodule.
 
 On Linux, `make setup` supports `pacman`, `apt-get`, and `dnf` and may request
 `sudo` while installing system packages. Ubuntu 24.04 does not provide
@@ -247,12 +252,12 @@ sudo apt-get update
 sudo apt-get install --yes build-essential curl git usbutils
 curl https://mise.run/bash | sh
 exec bash
-git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+git clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 make setup
 sudo groupadd --force qmk
 sudo usermod --append --groups qmk "$USER"
-sed 's/TAG+="uaccess"/GROUP="qmk", MODE="0660"/' firmware/vendor/qmk/util/udev/50-qmk.rules |
+sed 's/TAG+="uaccess"/GROUP="qmk", MODE="0660"/' firmware/vendor/vial-qmk/util/udev/50-qmk.rules |
   sudo tee /etc/udev/rules.d/50-qmk-wsl.rules >/dev/null
 sudo udevadm control --reload
 newgrp qmk
@@ -330,8 +335,8 @@ user's `KeymapOverlay` Run value, and starts the overlay.
 The source checkout remains authoritative:
 
 ```bash
-git pull --recurse-submodules
-git submodule update --init --recursive
+git pull
+make setup-firmware
 make flash KEYBOARD_ID=<keyboard-id>
 make install-assets
 ```
@@ -480,7 +485,7 @@ pacman -Syu
 pacman -S --needed mingw-w64-ucrt-x86_64-git make
 WINDOWS_HOME="$(cygpath -u "$USERPROFILE")"
 cd "$WINDOWS_HOME"
-git -c core.autocrlf=false clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+git -c core.autocrlf=false clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 make setup
 make test

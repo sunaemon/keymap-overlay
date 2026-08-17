@@ -8,6 +8,34 @@ from pathlib import Path
 import pytest
 
 
+def test_firmware_setup_initializes_only_required_qmk_submodules() -> None:
+    """Resolve nested firmware dependencies from the configured keyboards."""
+    result = subprocess.run(
+        ["make", "-n", "setup-firmware", "OS_FAMILY=linux"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parents[2],
+    )
+
+    assert "firmware.tools.resolve_qmk_submodules" in result.stdout
+    assert '"firmware/examples"' in result.stdout
+    assert "--recursive)" in result.stdout
+
+
+def test_qmk_builds_do_not_populate_missing_optional_submodules() -> None:
+    """Tell QMK not to undo the selective firmware setup during compilation."""
+    result = subprocess.run(
+        ["make", "-n", "compile", "KEYBOARD_ID=1"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parents[2],
+    )
+
+    assert "-e SKIP_GIT=yes" in result.stdout
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")
 def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
     """Install only current assets and remove stale layers in both locations."""

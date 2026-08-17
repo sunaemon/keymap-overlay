@@ -19,7 +19,7 @@ dev = ["pytest>=9.0.3"]
 
 [tool.pytest.ini_options]
 testpaths = ["model/tests", "installer/tests", "firmware/tests", "tools/tests"]
-norecursedirs = ["firmware/vendor/qmk", ".venv"]
+norecursedirs = ["firmware/vendor/vial-qmk", ".venv"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -31,7 +31,7 @@ exclude = ["model/tests"]
 [tool.ruff]
 line-length = 88
 target-version = "py312"
-extend-exclude = ["firmware/vendor/qmk/*"]
+extend-exclude = ["firmware/vendor/vial-qmk/*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "ANN", "C90"]
@@ -44,7 +44,7 @@ max-complexity = 10
 known-first-party = ["firmware", "installer", "model", "tools"]
 
 [tool.ty.src]
-exclude = ["firmware/vendor/qmk"]
+exclude = ["firmware/vendor/vial-qmk"]
 
 [build-system]
 requires = ["hatchling>=1.31.0"]

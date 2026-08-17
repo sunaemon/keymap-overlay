@@ -11,7 +11,7 @@ from model.src.types import KeycodesJson, QmkKeycodesSpec
 
 GenerateWithSpec = Callable[[dict[str, dict[str, object]]], KeycodesJson]
 
-QMK_DIR = Path("firmware/vendor/qmk")
+QMK_DIR = Path("firmware/vendor/vial-qmk")
 
 
 @pytest.fixture

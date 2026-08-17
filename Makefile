@@ -148,10 +148,11 @@ env MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
 endef
 
 # ================= QMK CONFIGURATION =================
-QMK_HOME := firmware/vendor/qmk
+QMK_HOME := firmware/vendor/vial-qmk
 export QMK_HOME := $(QMK_HOME)
 
 QMK_KEYMAP ?= keymap
+QMK_FLAGS += -e SKIP_GIT=yes
 
 KEYBOARDS_DIR ?= firmware/examples
 
@@ -335,7 +336,9 @@ format:
 .PHONY: setup
 setup:
 	@$(MAKE) _setup_toolchain_$(OS_FAMILY)
-	git submodule update --init --recursive
+ifneq ($(OS_FAMILY),windows)
+	@$(MAKE) setup-firmware
+endif
 	$(MISE) trust
 ifeq ($(OS_FAMILY),windows)
 	# Assets are generated in WSL. Installing just Rust and lefthook keeps the
@@ -347,6 +350,21 @@ else
 	$(UV) sync
 endif
 	@$(MAKE) install-hooks
+
+# Resolve nested dependencies from the configured processors. Unknown
+# processors deliberately fall back to all submodules: a larger checkout is
+# safer than guessing and leaving a newly added keyboard unable to compile.
+.PHONY: setup-firmware
+setup-firmware:
+ifeq ($(OS_FAMILY),windows)
+	$(error setup-firmware $(WINDOWS_FIRMWARE_ERROR))
+endif
+	git submodule update --init --depth 1 "$(QMK_HOME)"
+	@submodules="$$( $(UV) run python -m firmware.tools.resolve_qmk_submodules "$(KEYBOARDS_DIR)" )" || exit 1; \
+	case "$$submodules" in \
+		--recursive) git -C "$(QMK_HOME)" submodule update --init --depth 1 --recursive ;; \
+		*) git -C "$(QMK_HOME)" submodule update --init --depth 1 $$submodules ;; \
+	esac
 
 .PHONY: _setup_toolchain_macos
 _setup_toolchain_macos:
@@ -856,7 +874,7 @@ _flash_macos:
 
 # An rp2040 board flashes by copying a UF2 onto the mass storage volume its
 # bootloader exposes, and qmk only ever looks for that volume already mounted
-# (firmware/vendor/qmk/util/uf2conv.py). Nothing on a Linux box mounts it on its own:
+# (firmware/vendor/vial-qmk/util/uf2conv.py). Nothing on a Linux box mounts it on its own:
 # Plasma does not auto-mount by default, and udisks refuses a remote session
 # or mounts under /run/media/root, so qmk waits forever. Mount it first, with
 # sudo, and qmk's wait loop finds it immediately. WSL keeps the USB mass-storage

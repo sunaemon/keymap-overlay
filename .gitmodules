@@ -1,4 +1,5 @@
-[submodule "qmk_firmware"]
-	path = firmware/vendor/qmk
+[submodule "firmware/vendor/vial-qmk"]
+	path = firmware/vendor/vial-qmk
 	url = https://github.com/vial-kb/vial-qmk.git
 	ignore = dirty
+	shallow = true

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
-# firmware/vendor/qmk/util/uf2conv.py only deploys to volumes mounted under
+# firmware/vendor/vial-qmk/util/uf2conv.py only deploys to volumes mounted under
 # /media, /media/$USER or /run/media/$USER, and only when the volume holds
 # this file. A volume mounted anywhere else is invisible to it.
 UF2_INFO_FILE = "INFO_UF2.TXT"
