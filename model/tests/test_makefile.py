@@ -26,7 +26,7 @@ def test_firmware_setup_initializes_only_required_qmk_submodules() -> None:
 def test_qmk_builds_do_not_populate_missing_optional_submodules() -> None:
     """Tell QMK not to undo the selective firmware setup during compilation."""
     result = subprocess.run(
-        ["make", "-n", "compile", "KEYBOARD_ID=1"],
+        ["make", "-n", "compile", "KEYBOARD_ID=1", "OS_FAMILY=linux"],
         check=True,
         capture_output=True,
         text=True,
