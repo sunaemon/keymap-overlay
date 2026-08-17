@@ -359,7 +359,7 @@ setup-firmware:
 ifeq ($(OS_FAMILY),windows)
 	$(error setup-firmware $(WINDOWS_FIRMWARE_ERROR))
 endif
-	git submodule update --init --depth 1 "$(QMK_HOME)"
+	git submodule update --init --checkout --depth 1 "$(QMK_HOME)"
 	@submodules="$$( $(UV) run python -m firmware.tools.resolve_qmk_submodules "$(KEYBOARDS_DIR)" )" || exit 1; \
 	case "$$submodules" in \
 		--recursive) git -C "$(QMK_HOME)" submodule update --init --depth 1 --recursive ;; \

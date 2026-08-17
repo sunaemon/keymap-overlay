@@ -112,6 +112,9 @@ make setup
 and the Pico SDK, which are the nested firmware dependencies used by the
 tracked STM32F103 and RP2040 keyboards. A keyboard with an unknown processor
 produces a warning and falls back to initializing every nested submodule.
+The firmware submodule opts out of Git's automatic updates, so cloning with
+`--recurse-submodules` is also safe: Git skips firmware until `make setup`
+selects its dependencies.
 
 On Linux, `make setup` supports `pacman`, `apt-get`, and `dnf` and may request
 `sudo` while installing system packages. Ubuntu 24.04 does not provide

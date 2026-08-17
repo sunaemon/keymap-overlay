@@ -20,13 +20,38 @@ def test_firmware_setup_initializes_only_required_qmk_submodules() -> None:
 
     assert "firmware.tools.resolve_qmk_submodules" in result.stdout
     assert '"firmware/examples"' in result.stdout
+    assert (
+        'submodule update --init --checkout --depth 1 "firmware/vendor/vial-qmk"'
+        in (result.stdout)
+    )
     assert "--recursive)" in result.stdout
 
 
-def test_qmk_builds_do_not_populate_missing_optional_submodules() -> None:
-    """Tell QMK not to undo the selective firmware setup during compilation."""
+def test_recursive_clone_skips_firmware_submodule() -> None:
+    """Keep recursive clones from populating every nested QMK dependency."""
+    gitmodules = Path(__file__).parents[2] / ".gitmodules"
+
     result = subprocess.run(
-        ["make", "-n", "compile", "KEYBOARD_ID=1", "OS_FAMILY=linux"],
+        [
+            "git",
+            "config",
+            "--file",
+            str(gitmodules),
+            "--get",
+            "submodule.firmware/vendor/vial-qmk.update",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == "none"
+
+
+def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
+    """Tell QMK not to undo the selective firmware setup during a build."""
+    result = subprocess.run(
+        ["make", "-n", "_flash_macos", "KEYBOARD_ID=1"],
         check=True,
         capture_output=True,
         text=True,
