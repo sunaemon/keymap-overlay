@@ -1,0 +1,17 @@
+[package]
+name = "keymap-overlay-windows-bridge"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+# The exported Windows ABI requires unsafe attributes, while the public surface
+# contains only safe scalar values and a wake callback.
+[lints.rust]
+unsafe_code = "allow"
+
+[dependencies]
+keymap-overlay-runtime = { path = "../../../keymap-overlay-runtime" }

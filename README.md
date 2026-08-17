@@ -11,14 +11,14 @@ QMK Keymap Overlay shows the active momentary keyboard layer while its
 native overlay draws the matching keys, encoders, and labels on macOS, Linux,
 or Windows.
 
-![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](doc/images/overlay.png)
+![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](docs/images/overlay.png)
 
 ## Project Status
 
 > [!NOTE]
 > This is beta software tested on the maintainer's systems. Compatibility and
 > installation behavior may change before 1.0. See the
-> [compatibility policy](doc/compatibility.md) and report problems through
+> [compatibility policy](docs/compatibility.md) and report problems through
 > [GitHub Issues](https://github.com/sunaemon/keymap-overlay/issues).
 
 ## Choose Your Path
@@ -31,7 +31,7 @@ or Windows.
 - [Install on Windows](#install-on-windows)
 - [Update a keymap or the overlay](#everyday-operations)
 - [Use a VIAL keymap](#vial-keymaps)
-- [Add your own keyboard](doc/custom-keyboards.md)
+- [Add your own keyboard](docs/custom-keyboards.md)
 - [Develop keymap-overlay](#development)
 
 ## How It Works
@@ -43,12 +43,12 @@ Installation has three parts:
 3. Install the released native overlay and its login service.
 
 Firmware and layer models come from this source checkout because they depend on
-the keyboard files under `example/`. The native overlay comes from GitHub
+the keyboard files under `firmware/examples/`. The native overlay comes from GitHub
 Releases, so a normal installation does not compile Rust locally. Release
 archives contain the executable, MIT license, and third-party notices, but no
 keyboard firmware or layer models.
 
-See [doc/design.md](doc/design.md) for the Raw HID protocol, data flow, layer
+See [docs/design.md](docs/design.md) for the Raw HID protocol, data flow, layer
 composition rules, and native window design.
 
 ## Platform Support
@@ -76,10 +76,10 @@ tested matrix. Cinnamon does not load the GNOME extension.
 | `1` | `salicylic_acid3/insixty_en` | hold `L1` (right of `RSFT`), then press `Q` |
 | `2` | `doio/kb16/rev2`             | hold `MO(3)` (bottom left), then press `1`  |
 
-Each directory under `example/` is named with its `KEYBOARD_ID`. The ID is
+Each directory under `firmware/examples/` is named with its `KEYBOARD_ID`. The ID is
 compiled into firmware and used as the layer-model filename prefix; it must be
 an integer from 0 through 255. Other keyboards require a small configuration;
-see [Custom Keyboard Configuration](doc/custom-keyboards.md).
+see [Custom Keyboard Configuration](docs/custom-keyboards.md).
 
 If the installed firmware cannot enter the bootloader:
 
@@ -95,7 +95,7 @@ If the installed firmware cannot enter the bootloader:
 ### 1. Prepare the source checkout
 
 ```bash
-git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+git clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 curl https://mise.run | sh
 ```
@@ -107,6 +107,14 @@ install the pinned tools and QMK toolchain:
 ```bash
 make setup
 ```
+
+`make setup` initializes Vial QMK shallowly and downloads only ChibiOS, LUFA,
+and the Pico SDK, which are the nested firmware dependencies used by the
+tracked STM32F103 and RP2040 keyboards. A keyboard with an unknown processor
+produces a warning and falls back to initializing every nested submodule.
+The firmware submodule opts out of Git's automatic updates, so cloning with
+`--recurse-submodules` is also safe: Git skips firmware until `make setup`
+selects its dependencies.
 
 On Linux, `make setup` supports `pacman`, `apt-get`, and `dnf` and may request
 `sudo` while installing system packages. Ubuntu 24.04 does not provide
@@ -247,12 +255,12 @@ sudo apt-get update
 sudo apt-get install --yes build-essential curl git usbutils
 curl https://mise.run/bash | sh
 exec bash
-git clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+git clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 make setup
 sudo groupadd --force qmk
 sudo usermod --append --groups qmk "$USER"
-sed 's/TAG+="uaccess"/GROUP="qmk", MODE="0660"/' qmk_firmware/util/udev/50-qmk.rules |
+sed 's/TAG+="uaccess"/GROUP="qmk", MODE="0660"/' firmware/vendor/vial-qmk/util/udev/50-qmk.rules |
   sudo tee /etc/udev/rules.d/50-qmk-wsl.rules >/dev/null
 sudo udevadm control --reload
 newgrp qmk
@@ -330,8 +338,8 @@ user's `KeymapOverlay` Run value, and starts the overlay.
 The source checkout remains authoritative:
 
 ```bash
-git pull --recurse-submodules
-git submodule update --init --recursive
+git pull
+make setup-firmware
 make flash KEYBOARD_ID=<keyboard-id>
 make install-assets
 ```
@@ -434,7 +442,7 @@ lower layers.
 
 To add a keyboard, place encoder geometry, custom labels, and keymap source in
 an external configuration directory or a fork. The complete workflow is in
-[doc/custom-keyboards.md](doc/custom-keyboards.md).
+[docs/custom-keyboards.md](docs/custom-keyboards.md).
 
 ## Development
 
@@ -480,7 +488,7 @@ pacman -Syu
 pacman -S --needed mingw-w64-ucrt-x86_64-git make
 WINDOWS_HOME="$(cygpath -u "$USERPROFILE")"
 cd "$WINDOWS_HOME"
-git -c core.autocrlf=false clone --recurse-submodules https://github.com/sunaemon/keymap-overlay.git
+git -c core.autocrlf=false clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 make setup
 make test
@@ -495,7 +503,7 @@ profile by WSL. Firmware and asset targets intentionally stop in MSYS2.
 After changing the Windows bridge, also run:
 
 ```bash
-cargo clippy --manifest-path crates/keymap-overlay-windows-bridge/Cargo.toml -- -D warnings
+cargo clippy --manifest-path overlay/platforms/windows/bridge/Cargo.toml -- -D warnings
 ```
 
 ### Verification
@@ -515,13 +523,13 @@ that the overlay never takes focus: type into an editor while repeatedly
 holding a layer key and confirm every keystroke remains in the editor.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and
-[doc/releasing.md](doc/releasing.md) for the release checklist.
+[docs/releasing.md](docs/releasing.md) for the release checklist.
 
 ## License
 
-Firmware under `firmware/` and keyboard files under `example/` are
+Firmware under `firmware/` and keyboard files under `firmware/examples/` are
 GPL-2.0-or-later. The tools and application are MIT licensed. See
-[LICENSE.md](LICENSE.md), [example/LICENSE](example/LICENSE), and the generated
+[LICENSE.md](LICENSE.md), [firmware/examples/LICENSE](firmware/examples/LICENSE), and the generated
 [third-party license notices](THIRD-PARTY-LICENSES.html).
 
 The installed overlay embeds the first and the last of those, so a binary copied

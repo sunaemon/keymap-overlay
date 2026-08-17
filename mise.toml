@@ -41,7 +41,7 @@ run = """
 set -e
 uv sync
 ruff check --fix .
-ty check --extra-search-path typings .
-shellcheck install.sh tests/test_install_sh.sh
+ty check --extra-search-path model/typings .
+shellcheck installer/install.sh installer/tests/test_install_sh.sh
 cargo clippy --workspace --all-targets -- -D warnings
 """

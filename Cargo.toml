@@ -1,10 +1,12 @@
 [workspace]
 members = [
-  "crates/keymap-core",
-  "crates/keymap-overlay-linux-protocol",
-  "crates/keymap-overlay",
-  "crates/keymap-overlay-winui",
-  "crates/keymap-overlay-windows-bridge",
+  "overlay/keymap-core",
+  "overlay/keymap-overlay-runtime",
+  "overlay/platforms/macos/appkit",
+  "overlay/platforms/linux/daemon",
+  "overlay/platforms/linux/protocol",
+  "overlay/platforms/windows/bridge",
+  "overlay/platforms/windows/winui",
 ]
 resolver = "2"
 

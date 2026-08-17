@@ -3,7 +3,7 @@
 Welcome to the `keymap-overlay` project. This document covers the architecture,
 tools, and conventions you need to contribute to the codebase.
 
-Read `doc/design.md` first: it is the authoritative description of the data
+Read `docs/design.md` first: it is the authoritative description of the data
 flow, the Raw HID protocol, and the installation model. This guide describes
 how to work in the repository, not how the system is designed.
 
@@ -19,16 +19,16 @@ targets that would do so stop with a message pointing at WSL, macOS or Linux.
 
 There are three parts:
 
-1. **Python scripts** (`scripts/`, `src/`) that build the shared display model
-   and push keymaps to VIAL devices.
-2. **Native applications** (`crates/`, `linux/qt/`, and `windows/`) that
-   implement the Raw HID protocol, native macOS window, Linux D-Bus daemon and
+1. **Display model tooling** (`model/`) that builds the shared display model
+   and pushes keymaps to VIAL devices.
+2. **Native overlay** (`overlay/`) that implements the Raw HID protocol,
+   native macOS window, Linux D-Bus daemon and
    Qt client, and Windows bridge.
-3. **Firmware glue** (`firmware/`, `example/`) that sends the Raw HID reports.
+3. **Firmware glue** (`firmware/`) that sends the Raw HID reports.
 
 ## Core Components
 
-### 1. Keymap Data Generation (`scripts/`)
+### 1. Keymap Data Generation (`model/`)
 
 - `count_layers.py`: Counts the number of layers in a QMK keymap JSON.
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
@@ -44,8 +44,6 @@ There are three parts:
   flashing.
 - `generate_qmk_keymap_from_vitaly.py`: Converts a VIAL dump back to QMK keymap
   JSON (the `VIAL=true` path).
-- `mount_uf2_volume.py`: Linux only. Waits for the `RPI-RP2` volume an rp2040
-  bootloader exposes and mounts it, with `sudo`, where `qmk` looks for it.
 - `vitaly`: external tool that reads and writes VIAL keymaps over HID.
 
 Transparency resolution is for **display only**. `KC_TRNS` must survive intact
@@ -63,25 +61,31 @@ Quick, or WPF. An
 encoder placed at a matrix position replaces that push key with one circular
 control showing counter-clockwise, clockwise, and push actions.
 
-### 3. Rust Crates (`crates/`)
+### 3. Native Overlay (`overlay/`)
 
-- `keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and its
+- `overlay/keymap-core`: the Raw HID wire format
+  (`parse_raw_layer_event`) and its
   tests. Pure logic, no I/O, so it stays unit-testable.
-- `keymap-overlay-linux-protocol`: the typed Linux renderer D-Bus contract
+- `overlay/keymap-overlay-runtime`: the shared listener, transition
+  reducer, model composition, logging code, and frontend-facing library API.
+- `overlay/platforms/macos/appkit`: the native macOS executable and
+  IOHIDManager arrival watcher.
+- `overlay/platforms/linux/daemon`: the Linux HID and D-Bus service executable.
+- `overlay/platforms/linux/protocol`: the typed Linux renderer D-Bus contract
   implemented by the daemon and consumed by both native renderers.
-- `keymap-overlay`: the shared listener, transition reducer, model composition,
-  logging code, and native macOS/Linux executable.
-- `keymap-overlay-windows-bridge`: the audited Windows C ABI boundary. WPF
+- `overlay/platforms/windows/bridge`: the audited Windows C ABI boundary. WPF
   supplies a wake callback and takes the final reduced show/hide transition.
 
-`lib.rs` holds everything the systems share — the listener, transitions, model
-composition, and rotating log — while each native frontend owns its window:
+The runtime library holds everything the systems share — the listener,
+transitions, model composition, and rotating log — while each platform owns its
+executable and integration code:
 
-- `ui/appkit.rs`: the native macOS AppKit window and semantic JSON renderer.
-- `windows/KeymapOverlay.Wpf`: the native WPF window. Win32 styles make it
+- `overlay/platforms/macos/appkit`: the native macOS AppKit window and semantic
+  JSON renderer.
+- `overlay/platforms/windows/wpf`: the native WPF window. Win32 styles make it
   transparent, click-through, topmost, and non-activating. A self-contained
   single-file publish embeds the Rust bridge DLL for automatic extraction.
-- `ui/linux.rs`: reduces HID events, loads the final semantic model, and
+- `overlay/platforms/linux/daemon`: reduces HID events, loads the final semantic model, and
   publishes renderer state over session D-Bus. The GNOME Shell extension
   consumes it directly; the separate `keymap-overlay-qt` client receives it
   through QtDBus. KDE LayerShellQt supplies the Wayland overlay surface outside
@@ -99,13 +103,17 @@ no polling loop and no periodic repaint.
 Do not reintroduce one: this process runs from login to logout, so idle cost
 matters.
 
-### 4. Firmware (`firmware/`, `example/`)
+### 4. Firmware (`firmware/`, `firmware/examples/`)
 
 `firmware/layer_notify.h` is the shared header copied into the QMK keymap at
 build time. It owns both the report format and the momentary-layer detection
 (`keymap_overlay_notify_momentary_layer`). Keymaps call it from
 `process_record_user` and must still return `true` so QMK performs the layer
 switch itself.
+
+`firmware/tools/mount_uf2_volume.py` is Linux-only. It waits for the
+`RPI-RP2` volume an rp2040 bootloader exposes and mounts it, with `sudo`, where
+`qmk` looks for it.
 
 Only momentary (`MO`) layers are reported. `TO`/`TG`/`LT`/`LM` are deliberately
 ignored: the overlay hides on the matching release, and a layer that stays on
@@ -256,7 +264,7 @@ skips when there is nothing new to push.
 Commit subjects must be at most 72 characters and must not end with a period,
 and a body must be separated from its subject by a blank line. The subjects git
 writes itself (`Merge `, `Revert `, `fixup!`, `squash!`) are exempt. The rules
-live in `scripts/check_commit_message.py` and are tested like any other script.
+live in `tools/check_commit_message.py` and are tested like any other script.
 
 Set `LEFTHOOK=0` to skip hooks for a single command, e.g. `LEFTHOOK=0 git commit`.
 
@@ -273,8 +281,11 @@ untracked files, and they stay next to the checkout they came from instead of
 in some sibling directory.
 
 A new worktree starts with its submodules empty: run
-`git submodule update --init --recursive` inside it before building or
-flashing, otherwise `qmk_firmware/` is missing. `build/`, `target/` and
+`make setup-firmware` inside it before building or flashing. This initializes
+the Vial QMK checkout and only the ChibiOS, LUFA, and Pico SDK dependencies
+required by the tracked keyboards; a recursive update downloads unrelated MCU
+and UI libraries. Adding an unknown processor warns and safely falls back to a
+recursive update. `build/`, `target/` and
 `.venv/` are not shared between worktrees either, so the first build in one is
 a cold build.
 
@@ -317,7 +328,8 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
 
 - Use `pathlib.Path` for all path manipulations. Do not use string concatenation or `os.path`.
 - Use `Typer` for all CLI scripts.
-- Scripts are internal; invoke them via `python -m scripts.<name>` from the Makefile and do not add `[project.scripts]` entrypoints.
+- Scripts are internal; invoke them by their fully qualified module path from
+  the Makefile and do not add `[project.scripts]` entrypoints.
 - Prefer `Annotated[...]` style for Typer CLI parameters (e.g., `Annotated[Path, typer.Option(...)]`) for consistent typing and CLI metadata.
 - Use `logger.info` for status messages, `logger.warning` for non-fatal issues, `logger.error` for recoverable errors, `logger.exception` inside `except` blocks to include stack traces, and `logger.critical` for fatal errors. Initialize logging in CLI entrypoints with `src.util.initialize_logging()`. The default log level is `INFO`.
 - Use modern type hints (Python 3.10+):
@@ -338,35 +350,37 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
   audited Windows bridge is the only exception because its exported C ABI uses
   unsafe attributes.
 - Keep protocol and other pure logic in `keymap-core` where it can be tested
-  without hardware, and confine I/O to `keymap-overlay`.
+  without hardware. Shared I/O belongs in `keymap-overlay-runtime`; operating
+  system integration belongs in the matching platform crate.
 - Use `anyhow::Context` to attach the path or device to an error rather than
   logging and discarding it.
 
 ## Directory Structure
 
-- `crates/`: Rust workspace (`keymap-core`, `keymap-overlay`); the overlay's
-  per-system windows live in `crates/keymap-overlay/src/ui/`.
-- `firmware/`: Shared QMK header copied into keymaps at build time.
-- `linux/`: Standalone Qt renderer and GNOME Shell extension.
-- `example/`: Local keyboard configurations and keymaps, one numbered directory
+- `model/`: Python display-model library, utility scripts, tests, and type stubs.
+- `overlay/keymap-core/`: Platform-neutral Rust protocol and transition logic.
+- `overlay/keymap-overlay-runtime/`: Library-only shared listener, model
+  composition, transitions, command-line handling, and logging.
+- `overlay/platforms/`: Platform-owned protocols, bridges, and native frontends.
+- `firmware/`: First-party QMK integration, local keyboard configurations, and
+  vendored firmware dependencies.
+- `firmware/examples/`: One numbered directory
   per keyboard (configurable via `KEYBOARDS_DIR`).
-- `scripts/`: Python utility scripts.
-- `src/`: Shared Python models (`types.py`) and helpers (`util.py`).
-- `typings/`: Type stubs for Python libraries.
-- `tests/`: pytest suite and its JSON fixtures.
-- `doc/`: Design documentation and README images.
+- `installer/`: Verified release installers, release automation, and their tests.
+- `tools/`: Repository-wide development checks.
+- `docs/`: Design documentation and README images.
 - `build/`: Generated JSON models. Not checked in.
-- `qmk_firmware/`: The QMK firmware submodule.
+- `firmware/vendor/vial-qmk/`: The Vial QMK firmware submodule.
 
 ## Important Files
 
 - `Makefile`: The primary entry point for all automation.
-- `doc/design.md`: Data flow, Raw HID protocol, and installation model.
+- `docs/design.md`: Data flow, Raw HID protocol, and installation model.
 - `lefthook.yml`: The git hooks and the make targets they run.
 - `mise.toml`: Pinned tool versions and the `format`/`lint` tasks.
 - `firmware/layer_notify.h`: Raw HID report construction and MO detection.
 - `pyproject.toml`: Python dependencies and tool configurations.
-- `install.sh`, `install.ps1`: verified release install, upgrade, rollback, and
+- `installer/install.sh`, `installer/install.ps1`: verified release install, upgrade, rollback, and
   uninstall paths.
 - `.github/workflows/release.yml`: cross-platform archives, checksums,
   attestations, and publishing.
