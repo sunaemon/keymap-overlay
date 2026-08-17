@@ -48,6 +48,7 @@ def test_recursive_clone_skips_firmware_submodule() -> None:
     assert result.stdout.strip() == "none"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Firmware builds are unsupported")
 def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
     """Tell QMK not to undo the selective firmware setup during a build."""
     result = subprocess.run(
