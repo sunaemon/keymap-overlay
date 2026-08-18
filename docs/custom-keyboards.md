@@ -89,8 +89,11 @@ make -C keymap-overlay \
 
 make -C keymap-overlay \
   KEYBOARDS_DIR="$PWD/keyboards" \
-  install-assets
+  install-assets KEYBOARD_ID=2
 ```
+
+Omit `KEYBOARD_ID` only when every configured keyboard is connected; the
+default VIAL-backed path reads each device in turn.
 
 The released binary installer does not change. Every runtime reads the
 generated JSON layer models from the platform configuration directory.

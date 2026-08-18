@@ -310,12 +310,13 @@ recompiling. `VIAL=false` renders straight from `keymap.c` instead, with no
 device connected — useful for keyboards whose keymap is never edited outside
 source.
 
-`keymap.c` stays the source firmware is compiled and flashed from either way,
-and `generate_vial.py` embeds each custom keycode's name and single-character
-display glyph into the `vial.json` compiled into that firmware (starting at
-Vial's fixed `QK_KB_0` keycode range) — but once a keyboard has been flashed,
-deleting `keymap.c` does not prevent `make install-assets` from rendering it
-correctly.
+`keymap.c` remains the source that firmware is compiled and flashed from either
+way, and `generate_vial.py` embeds each custom keycode's name and
+single-character display glyph into the `vial.json` compiled into that firmware
+(starting at Vial's fixed `QK_KB_0` keycode range). Once a keyboard has been
+flashed, VIAL-mode rendering reads its keymap and custom-keycode metadata from
+the device rather than from the contents of `keymap.c`; the source file must
+still remain present as a Make dependency.
 
 ### Shared Display Model
 
