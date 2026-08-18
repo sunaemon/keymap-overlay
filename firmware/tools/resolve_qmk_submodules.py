@@ -15,11 +15,16 @@ logger = logging.getLogger(__name__)
 app = typer.Typer()
 
 FULL_RECURSION = "--recursive"
+# Every processor here builds on ChibiOS, not AVR, so none of them has its own
+# platforms/<platform>/printf.mk; builddefs/common_features.mk falls back to
+# lib/printf whenever that file is missing.
 PROCESSOR_SUBMODULES = {
     "RP2040": frozenset(
-        {"lib/chibios", "lib/chibios-contrib", "lib/lufa", "lib/pico-sdk"}
+        {"lib/chibios", "lib/chibios-contrib", "lib/lufa", "lib/pico-sdk", "lib/printf"}
     ),
-    "STM32F103": frozenset({"lib/chibios", "lib/chibios-contrib", "lib/lufa"}),
+    "STM32F103": frozenset(
+        {"lib/chibios", "lib/chibios-contrib", "lib/lufa", "lib/printf"}
+    ),
 }
 
 
