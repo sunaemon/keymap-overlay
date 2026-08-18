@@ -9,6 +9,7 @@ import typer
 from model.src.types import KeycodesJson, VialJson, parse_json, print_json
 from model.src.util import (
     CUSTOM_KEYCODE_BASE_NAMES,
+    VIAL_CUSTOM_KEYCODE_BASE,
     initialize_logging,
     parse_custom_keycode_names,
     parse_hex_keycode,
@@ -17,10 +18,6 @@ from model.src.util import (
 logger = logging.getLogger(__name__)
 
 app = typer.Typer()
-
-# Vial requires custom keycodes to be assigned starting at QK_KB_0; a device's
-# embedded definition carries no numeric base of its own to look up.
-VIAL_CUSTOM_KEYCODE_BASE = 0x7E00
 
 
 @app.command()

@@ -9,6 +9,7 @@ from model.src.util import (
     parse_custom_keycode_short_names,
     parse_hex_keycode,
     parse_keycode_value,
+    parse_qk_kb_keycode,
     strip_c_comments,
 )
 
@@ -59,6 +60,21 @@ def test_parse_keycode_value_accepts_hex_and_decimal(
     key: str, expected: int | None
 ) -> None:
     assert parse_keycode_value(key) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("QK_KB_0", 0x7E00),
+        ("QK_KB_23", 0x7E17),
+        # vitaly has no keyboard-specific names, only this generic one.
+        ("KC_ALPHA", None),
+        ("QK_KB_", None),
+        ("", None),
+    ],
+)
+def test_parse_qk_kb_keycode(name: str, expected: int | None) -> None:
+    assert parse_qk_kb_keycode(name) == expected
 
 
 def test_load_layout_keys_returns_the_named_layout() -> None:

@@ -260,6 +260,53 @@ def test_vial_definition_json_labels_custom_keycodes(tmp_path: Path) -> None:
     assert model.keys[0].label == ["α"]
 
 
+def test_vial_definition_json_labels_custom_keycodes_from_vitaly_generic_name(
+    tmp_path: Path,
+) -> None:
+    """vitaly has no keyboard-specific names, so it emits generic QK_KB_<n>."""
+    keymap = _write(
+        tmp_path / "keymap.json",
+        {"layout": "LAYOUT", "layers": [["QK_KB_0"]]},
+    )
+    keyboard = _write(
+        tmp_path / "keyboard.json",
+        {
+            "keyboard_name": "Test",
+            "usb": {"vid": "0x0001", "pid": "0x0002", "device_version": "1.0.0"},
+            "matrix_pins": {"rows": ["A0"], "cols": ["A1"]},
+            "layouts": {"LAYOUT": {"layout": [{"matrix": [0, 0], "x": 0, "y": 0}]}},
+        },
+    )
+    config = _write(tmp_path / "config.json", {"qmk_keyboard": "test"})
+    custom = _write(tmp_path / "custom.json", {"0x7E00": "KC_ALPHA"})
+    vitaly_json = _write(tmp_path / "vitaly.json", {"layout": [[["QK_KB_0"]]]})
+    vial_definition_json = _write(
+        tmp_path / "vial_definition.json",
+        {
+            "name": "Test",
+            "vendorId": "0xFEED",
+            "productId": "0x0001",
+            "matrix": {"rows": 1, "cols": 1},
+            "layouts": {"keymap": [["0,0"]]},
+            "customKeycodes": [{"name": "KC_ALPHA", "title": "", "shortName": "α"}],
+        },
+    )
+
+    model = build_overlay_model(
+        keymap,
+        keyboard,
+        config,
+        custom,
+        "LAYOUT",
+        0,
+        64,
+        vitaly_json=vitaly_json,
+        vial_definition_json=vial_definition_json,
+    )
+
+    assert model.keys[0].label == ["α"]
+
+
 def test_resolves_display_layer_without_changing_raw_keymap() -> None:
     keymap = QmkKeymapJson(layers=[["0x0004", "KC_B"], ["KC_TRNS", "0x0004"]])
     custom = KeycodesJson({"0x0004": "KC_ALPHA"})

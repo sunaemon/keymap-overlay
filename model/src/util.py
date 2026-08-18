@@ -13,6 +13,17 @@ from model.src.types import KeyboardJson, LayoutKey, parse_json
 # the previous entry's value.
 CUSTOM_KEYCODE_BASE_NAMES = {"SAFE_RANGE", "QK_USER_0", "QK_KB_0"}
 
+# Vial requires custom keycodes to be assigned starting at QK_KB_0; a device's
+# embedded definition carries no numeric base of its own to look up.
+VIAL_CUSTOM_KEYCODE_BASE = 0x7E00
+_QK_KB_KEYCODE_PATTERN = re.compile(r"QK_KB_(\d+)")
+
+
+def parse_qk_kb_keycode(name: str) -> int | None:
+    """Parse vitaly's generic QK_KB_<n> keycode name into its numeric value."""
+    match = _QK_KB_KEYCODE_PATTERN.fullmatch(name.strip())
+    return VIAL_CUSTOM_KEYCODE_BASE + int(match.group(1)) if match else None
+
 
 def initialize_logging() -> None:
     """Initialize logging to stderr for CLI scripts."""

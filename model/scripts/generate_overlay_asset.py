@@ -27,6 +27,7 @@ from model.src.util import (
     initialize_logging,
     parse_custom_keycode_short_names,
     parse_keycode_value,
+    parse_qk_kb_keycode,
 )
 
 logger = logging.getLogger(__name__)
@@ -381,7 +382,12 @@ def _encoder_pairs_for_layer(
 
 
 def _resolve_custom_keycode(keycode: str, custom_keycodes: KeycodesJson) -> str:
+    # A vitaly-sourced layer (VIAL=true) has no keyboard-specific name table of
+    # its own, so it renders any keycode in Vial's custom range generically as
+    # QK_KB_<n> rather than as a hex value.
     numeric = parse_keycode_value(keycode)
+    if numeric is None:
+        numeric = parse_qk_kb_keycode(keycode)
     if numeric is None:
         return keycode
     return custom_keycodes.root.get(f"0x{numeric:04X}", keycode)
