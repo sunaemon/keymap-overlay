@@ -255,12 +255,21 @@ class VialLayouts(BaseModelAllow):
     keymap: KleLayout
 
 
+class VialCustomKeycode(BaseModelAllow):
+    """One QK_KB_0-based custom keycode, in enum declaration order."""
+
+    name: str
+    title: str = ""
+    shortName: str = ""
+
+
 class VialJson(BaseModelAllow):
     name: str
     vendorId: str
     productId: str
     matrix: VialMatrix
     layouts: VialLayouts
+    customKeycodes: list[VialCustomKeycode] | None = None
 
 
 class VitalyJson(BaseModelAllow):

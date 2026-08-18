@@ -1,99 +1,95 @@
 # Copyright 2025 sunaemon
 # SPDX-License-Identifier: MIT
 import logging
-import re
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from model.src.types import KeycodesJson, parse_json, print_json
-from model.src.util import initialize_logging, parse_hex_keycode, strip_c_comments
+from model.src.types import KeycodesJson, VialJson, parse_json, print_json
+from model.src.util import (
+    CUSTOM_KEYCODE_BASE_NAMES,
+    initialize_logging,
+    parse_custom_keycode_names,
+    parse_hex_keycode,
+)
 
 logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
-SAFE_RANGE_NAMES = {"SAFE_RANGE", "QK_USER_0"}
+# Vial requires custom keycodes to be assigned starting at QK_KB_0; a device's
+# embedded definition carries no numeric base of its own to look up.
+VIAL_CUSTOM_KEYCODE_BASE = 0x7E00
 
 
 @app.command()
 def main(
-    keymap_c: Annotated[Path, typer.Argument(help="Path to keymap.c")],
+    keymap_c: Annotated[Path | None, typer.Option(help="Path to keymap.c")] = None,
     keycodes_json: Annotated[
-        Path,
-        typer.Option(help="Path to keycodes.json to read SAFE_RANGE"),
-    ],
+        Path | None,
+        typer.Option(help="Path to keycodes.json to read SAFE_RANGE/QK_KB_0"),
+    ] = None,
+    vial_definition_json: Annotated[
+        Path | None,
+        typer.Option(help="Device-fetched Vial definition containing customKeycodes"),
+    ] = None,
 ) -> None:
-    """Sync custom keycodes from keymap.c and emit JSON to stdout."""
+    """Sync custom keycodes from keymap.c or a device Vial definition."""
     initialize_logging()
     try:
-        custom_keycodes = generate_custom_keycodes(keymap_c, keycodes_json)
+        custom_keycodes = generate_custom_keycodes(
+            keymap_c=keymap_c,
+            keycodes_json=keycodes_json,
+            vial_definition_json=vial_definition_json,
+        )
         print_json(custom_keycodes)
         logger.info("Generated %d custom keycodes.", len(custom_keycodes.root))
     except Exception:
-        logger.exception("Failed to sync custom keycodes from %s", keymap_c)
+        logger.exception("Failed to generate custom keycodes")
         raise typer.Exit(code=1) from None
 
 
-def generate_custom_keycodes(keymap_c: Path, keycodes_json: Path) -> KeycodesJson:
-    """Generate custom keycodes JSON from keymap.c and keycodes.json."""
-    safe_range_start = _get_safe_range_start(keycodes_json)
-    return _parse_keymap_c(keymap_c, safe_range_start)
+def generate_custom_keycodes(
+    *,
+    keymap_c: Path | None = None,
+    keycodes_json: Path | None = None,
+    vial_definition_json: Path | None = None,
+) -> KeycodesJson:
+    """Generate custom keycodes JSON from keymap.c or a device Vial definition."""
+    if vial_definition_json is not None:
+        return _from_vial_definition(vial_definition_json)
+    if keymap_c is None or keycodes_json is None:
+        raise ValueError("Provide keymap_c and keycodes_json, or vial_definition_json")
+    base = _get_custom_keycode_base(keycodes_json)
+    names = parse_custom_keycode_names(keymap_c)
+    return KeycodesJson.model_validate(
+        {f"0x{base + i:04X}": name for i, name in enumerate(names)}
+    )
 
 
-def _get_safe_range_start(keycodes_json: Path) -> int:
+def _from_vial_definition(vial_definition_json: Path) -> KeycodesJson:
+    definition = parse_json(VialJson, vial_definition_json)
+    return KeycodesJson.model_validate(
+        {
+            f"0x{VIAL_CUSTOM_KEYCODE_BASE + i:04X}": keycode.name
+            for i, keycode in enumerate(definition.customKeycodes or [])
+        }
+    )
+
+
+def _get_custom_keycode_base(keycodes_json: Path) -> int:
     keycodes_data = parse_json(KeycodesJson, keycodes_json)
 
     for code, name in keycodes_data.root.items():
-        if name in SAFE_RANGE_NAMES:
+        if name in CUSTOM_KEYCODE_BASE_NAMES:
             parsed = parse_hex_keycode(code)
             if parsed is None:
-                raise ValueError(f"Invalid SAFE_RANGE keycode: {code}")
+                raise ValueError(f"Invalid {name} keycode: {code}")
             return parsed
     raise ValueError(
-        f"SAFE_RANGE not found in {keycodes_json}; QK_USER_0 is also absent"
+        f"None of {sorted(CUSTOM_KEYCODE_BASE_NAMES)} found in {keycodes_json}"
     )
-
-
-def _parse_keymap_c(keymap_path: Path, safe_range_start: int) -> KeycodesJson:
-    content = keymap_path.read_text(encoding="utf-8")
-
-    pattern = re.compile(
-        r"enum\s+custom_keycodes\s*\{([^}]*)\};", re.DOTALL | re.MULTILINE
-    )
-    match = pattern.search(content)
-
-    if match is None:
-        raise ValueError("enum custom_keycodes not found in keymap.c")
-
-    enum_block = match.group(1)
-
-    current_code: int = safe_range_start
-    keycodes: dict[str, str] = {}
-
-    enum_block = strip_c_comments(enum_block)
-
-    entries: list[str] = [e.strip() for e in enum_block.split(",") if e.strip()]
-
-    for entry in entries:
-        if "=" in entry:
-            parts: list[str] = [x.strip() for x in entry.split("=", 1)]
-            name = parts[0]
-            value: str = parts[1]
-            if value in SAFE_RANGE_NAMES:
-                current_code = safe_range_start
-            else:
-                raise ValueError(
-                    f"Explicit keycode assignment is not supported: {entry}"
-                )
-        else:
-            name = entry
-
-        keycodes[f"0x{current_code:04X}"] = name
-        current_code += 1
-
-    return KeycodesJson.model_validate(keycodes)
 
 
 if __name__ == "__main__":

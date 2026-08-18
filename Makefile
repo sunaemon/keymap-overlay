@@ -223,15 +223,16 @@ QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
 # Used by: the overlay asset generator for name resolution.
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
-# Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from keymap.c.
+# Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from
+# keymap.c, or from the device's embedded Vial definition under VIAL=true.
 # Type: model/src/types.py:KeycodesJson
-# Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c'.
+# Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c' or $(VIAL_DEFINITION_JSON).
 # Used by: the overlay asset generator and 'generate_vitaly_layout.py'.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 
-# VIAL-compatible keyboard definition (matrix, layout, VID/PID).
+# VIAL-compatible keyboard definition (matrix, layout, VID/PID, customKeycodes).
 # Type: model/src/types.py:VialJson
-# Generated from: 'generate_vial.py' using keyboard.json.
+# Generated from: 'generate_vial.py' using keyboard.json and keymap.c.
 # Used by: 'qmk compile' (embedded in firmware) for VIAL support.
 VIAL_JSON := $(BUILD_DIR)/vial.json
 
@@ -240,6 +241,14 @@ VIAL_JSON := $(BUILD_DIR)/vial.json
 # Generated from: 'vitaly save' (downloaded from device).
 # Used by: 'generate_qmk_keymap_from_vitaly.py' (source for rebuild), 'generate_vitaly_layout.py' (base for merge).
 VITALY_JSON := $(BUILD_DIR)/vitaly.json
+
+# The connected device's own embedded Vial definition, decompressed. Custom
+# keycode identity for VIAL=true rendering comes from here, not keymap.c, so
+# deleting keymap.c after flashing does not break 'make install-assets VIAL=true'.
+# Type: model/src/types.py:VialJson
+# Generated from: 'fetch_vial_definition.py' (downloaded from device).
+# Used by: $(CUSTOM_KEYCODES_JSON) and the overlay asset generator, under VIAL=true.
+VIAL_DEFINITION_JSON := $(BUILD_DIR)/vial_definition.json
 
 # Same lazy-and-cached treatment as DEVICE_PID. These are only meaningful once
 # $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
@@ -841,7 +850,7 @@ endif
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h"
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json"
 	install -C firmware/layer_notify.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/layer_notify.h"
-	$(call WRITE_OUTPUT,$(VIAL_JSON),$(UV) run python -m model.scripts.generate_vial --keyboard-json $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json --layout-name "$(LAYOUT_NAME)")
+	$(call WRITE_OUTPUT,$(VIAL_JSON),$(UV) run python -m model.scripts.generate_vial --keyboard-json $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json --layout-name "$(LAYOUT_NAME)" --keymap-c "$(QMK_KEYMAP_C)")
 	install -C $(VIAL_JSON) "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/vial.json"
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/* "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/"
 
@@ -966,6 +975,7 @@ print-vars:
 	@echo "CUSTOM_KEYCODES_JSON=$(CUSTOM_KEYCODES_JSON)"
 	@echo "VIAL_JSON=$(VIAL_JSON)"
 	@echo "VITALY_JSON=$(VITALY_JSON)"
+	@echo "VIAL_DEFINITION_JSON=$(VIAL_DEFINITION_JSON)"
 	@echo "LAYERS=$(LAYERS)"
 	@echo "ASSETS=$(ASSETS)"
 	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
@@ -1004,10 +1014,14 @@ $(BUILD_DIR):
 $(ASSET_BUILD_DIR):
 	mkdir -p $(ASSET_BUILD_DIR)
 
-RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) $(QMK_KEYMAP_C) model/scripts/encoder_map.py model/scripts/generate_overlay_asset.py model/src/types.py model/src/util.py
+RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) model/scripts/encoder_map.py model/scripts/generate_overlay_asset.py model/src/types.py model/src/util.py
 ifeq ($(VIAL),true)
-RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)" --vitaly-json "$(VITALY_JSON)"
+# Sourced from the connected device's own embedded Vial definition, not
+# keymap.c, so deleting keymap.c after flashing does not break rendering.
+RENDER_ASSET_DEPS += $(VIAL_DEFINITION_JSON)
+RENDER_ENCODER_INPUT := --vitaly-json "$(VITALY_JSON)" --vial-definition-json "$(VIAL_DEFINITION_JSON)"
 else
+RENDER_ASSET_DEPS += $(QMK_KEYMAP_C)
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
 endif
 
@@ -1055,5 +1069,14 @@ endif
 $(KEYCODES_JSON): model/scripts/generate_keycodes.py | $(BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_keycodes --qmk-dir "$(QMK_HOME)")
 
+ifeq ($(VIAL),true)
+# Re-fetched from the device on every build, same as $(VITALY_JSON) above.
+$(VIAL_DEFINITION_JSON): _force_build model/scripts/fetch_vial_definition.py | $(BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.fetch_vial_definition --keyboard-json "$(KEYBOARD_JSON)")
+
+$(CUSTOM_KEYCODES_JSON): $(VIAL_DEFINITION_JSON) model/scripts/generate_custom_keycodes.py | $(BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_custom_keycodes --vial-definition-json "$(VIAL_DEFINITION_JSON)")
+else
 $(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) model/scripts/generate_custom_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_custom_keycodes "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)")
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_custom_keycodes --keymap-c "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)")
+endif

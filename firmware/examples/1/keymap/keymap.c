@@ -19,30 +19,30 @@
 #include "layer_notify.h"
 
 enum custom_keycodes {
-  KC_ALPHA = SAFE_RANGE, // α
-  KC_BETA,               // β
-  KC_GAMMA,              // γ
-  KC_DELTA,              // δ
-  KC_EPSILON,            // ε
-  KC_ZETA,               // ζ
-  KC_ETA,                // η
-  KC_THETA,              // θ
-  KC_IOTA,               // ι
-  KC_KAPPA,              // κ
-  KC_LAMBDA,             // λ
-  KC_MU,                 // μ
-  KC_NU,                 // ν
-  KC_XI,                 // ξ
-  KC_OMICRON,            // ο
-  KC_PI,                 // π
-  KC_RHO,                // ρ
-  KC_SIGMA,              // σ
-  KC_TAU,                // τ
-  KC_UPSILON,            // υ
-  KC_PHI,                // φ
-  KC_CHI,                // χ
-  KC_PSI,                // ψ
-  KC_OMEGA               // ω
+  KC_ALPHA = QK_KB_0, // α
+  KC_BETA,            // β
+  KC_GAMMA,           // γ
+  KC_DELTA,           // δ
+  KC_EPSILON,         // ε
+  KC_ZETA,            // ζ
+  KC_ETA,             // η
+  KC_THETA,           // θ
+  KC_IOTA,            // ι
+  KC_KAPPA,           // κ
+  KC_LAMBDA,          // λ
+  KC_MU,              // μ
+  KC_NU,              // ν
+  KC_XI,              // ξ
+  KC_OMICRON,         // ο
+  KC_PI,              // π
+  KC_RHO,             // ρ
+  KC_SIGMA,           // σ
+  KC_TAU,             // τ
+  KC_UPSILON,         // υ
+  KC_PHI,             // φ
+  KC_CHI,             // χ
+  KC_PSI,             // ψ
+  KC_OMEGA            // ω
 };
 
 // clang-format off

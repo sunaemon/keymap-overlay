@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from model.scripts.generate_vial import VIAL_ENCODER_LEGEND_SUFFIX, generate_vial
-from model.src.types import KleKeyProps
+from model.src.types import KleKeyProps, VialCustomKeycode
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -14,6 +14,30 @@ def test_generate_vial_without_encoders() -> None:
     vial = generate_vial(DATA_DIR / "keyboard.json", "LAYOUT")
 
     assert vial.layouts.keymap == [["0,0", "0,1"]]
+    assert vial.customKeycodes is None
+
+
+def test_generate_vial_embeds_custom_keycodes_from_keymap_c(tmp_path: Path) -> None:
+    """The compiled firmware carries each custom keycode's name and glyph."""
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        """
+        enum custom_keycodes {
+          KC_ALPHA = SAFE_RANGE, // α
+          KC_BETA,               // β
+          KC_INTERNAL            // a longer explanation is not a label
+        };
+        """,
+        encoding="utf-8",
+    )
+
+    vial = generate_vial(DATA_DIR / "keyboard.json", "LAYOUT", keymap_c=keymap_c)
+
+    assert vial.customKeycodes == [
+        VialCustomKeycode(name="KC_ALPHA", shortName="α"),
+        VialCustomKeycode(name="KC_BETA", shortName="β"),
+        VialCustomKeycode(name="KC_INTERNAL", shortName=""),
+    ]
 
 
 def test_generate_vial_with_encoder_directions(tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ import pytest
 
 from model.src.util import (
     load_layout_keys,
+    parse_custom_keycode_short_names,
     parse_hex_keycode,
     parse_keycode_value,
     strip_c_comments,
@@ -69,3 +70,24 @@ def test_load_layout_keys_returns_the_named_layout() -> None:
 def test_load_layout_keys_rejects_an_unknown_layout() -> None:
     with pytest.raises(ValueError, match="Layout LAYOUT_MISSING not found"):
         load_layout_keys(DATA_DIR / "keyboard.json", "LAYOUT_MISSING")
+
+
+def test_parse_custom_keycode_short_names_uses_single_character_comments(
+    tmp_path: Path,
+) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        """
+        enum custom_keycodes {
+          KC_ALPHA = SAFE_RANGE, // α
+          KC_BETA,               // β
+          KC_INTERNAL            // a longer explanation is not a label
+        };
+        """,
+        encoding="utf-8",
+    )
+
+    assert parse_custom_keycode_short_names(keymap_c) == {
+        "KC_ALPHA": "α",
+        "KC_BETA": "β",
+    }

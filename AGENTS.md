@@ -32,19 +32,26 @@ There are three parts:
 
 - `count_layers.py`: Counts the number of layers in a QMK keymap JSON.
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
-- `generate_custom_keycodes.py`: Extracts the `custom_keycodes` enum from
-  `keymap.c` and assigns each entry its numeric value.
+- `generate_custom_keycodes.py`: Assigns each `custom_keycodes` enum entry its
+  numeric value from `keymap.c`, or reads them directly off a device-fetched
+  Vial definition under `VIAL=true`.
 - `generate_overlay_asset.py`: Builds the shared display model and emits JSON
   for all three native renderers, including encoder rotation and push actions.
-  It resolves custom keycode names, preserves `KC_TRNS` as display-only
-  transparency metadata, and labels custom keycodes from single-character
-  comments in `keymap.c`. Generic and platform-specific key aliases are its
-  own built-in tables, not `keymap.c` content.
-- `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`.
+  It resolves custom keycode names and preserves `KC_TRNS` as display-only
+  transparency metadata. Custom keycodes get their display glyph from a
+  single-character comment in `keymap.c`, or from the device's embedded
+  `customKeycodes` under `VIAL=true`; generic and platform-specific key
+  aliases are its own built-in tables, not `keymap.c` content.
+- `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`,
+  embedding each `keymap.c` custom keycode's name and display glyph so the
+  compiled firmware is self-describing.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
 - `generate_qmk_keymap_from_vitaly.py`: Converts a VIAL dump back to QMK keymap
   JSON (the `VIAL=true` path).
+- `fetch_vial_definition.py`: Reads and decompresses the connected device's
+  own embedded Vial definition over Raw HID, so `VIAL=true` rendering never
+  needs `keymap.c`.
 - `vitaly`: external tool that reads and writes VIAL keymaps over HID.
 
 Transparency resolution is for **display only**. `KC_TRNS` must survive intact
@@ -128,7 +135,9 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 ## Tech Stack
 
 - **Python**: keymap data extraction and processing.
-  - `uv`: package manager. `pydantic` for validation, `typer` for CLIs.
+  - `uv`: package manager. `pydantic` for validation, `typer` for CLIs, the
+    `hidapi` PyPI package (a bundled native extension, no system library) for
+    `fetch_vial_definition.py`'s device queries.
 - **Rust/C++/C#/GJS**: the overlay (AppKit on macOS, WPF on Windows, GNOME
   Shell or Qt Quick plus KDE LayerShellQt on Linux, and `hidapi`).
 - **Makefile**: orchestrates build, installation, and flashing.
