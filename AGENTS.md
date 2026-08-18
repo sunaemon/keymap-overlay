@@ -310,7 +310,8 @@ make flash-keymap   # Parse keymap.c and write the keymap to EEPROM
 
 Dumps the device configuration with `vitaly`, merges the QMK keymap into it,
 and loads it back. Iterates all keyboards unless `KEYBOARD_ID` is set. It
-rejects `VIAL=true`, which would read the device and write it straight back.
+always reads `keymap.c`, regardless of `VIAL`'s default, and rejects an
+explicit `VIAL=true`, which would read the device and write it straight back.
 
 ## Coding Standards
 

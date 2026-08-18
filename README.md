@@ -335,7 +335,8 @@ user's `KeymapOverlay` Run value, and starts the overlay.
 
 ### Update a keymap
 
-The source checkout remains authoritative:
+Edit `keymap.c`, flash it, then render the layer models from the connected
+keyboard:
 
 ```bash
 git pull
@@ -423,10 +424,13 @@ models and rotated logs are retained.
 
 ## VIAL Keymaps
 
-Generate layer models from the keymap currently stored in VIAL EEPROM:
+By default, `make install-assets` and `make draw-layers` read the keymap
+currently stored in the connected keyboard's VIAL EEPROM — including edits
+made live in the Vial app, not just what `keymap.c` last compiled to. To
+render straight from `keymap.c` instead, with no keyboard connected:
 
 ```bash
-make install-assets VIAL=true
+make install-assets VIAL=false
 ```
 
 Parse `keymap.c` and write it to EEPROM without rebuilding firmware:

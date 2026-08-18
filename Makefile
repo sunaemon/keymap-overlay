@@ -47,9 +47,11 @@ WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WS
 
 # ================= VIA CONFIGURATION =================
 
-# If VIAL is enabled, the keymap will load from the VIAL EEPROM dump in `make install-assets` and `make draw-layers`.
-# If VIAL is disabled, the keymap will be compiled from the firmware source.
-VIAL ?= false
+# By default, `make install-assets` and `make draw-layers` load the keymap
+# from the connected keyboard's VIAL EEPROM dump: it reflects live edits made
+# in the Vial GUI, not just what keymap.c last compiled to. Set VIAL=false to
+# render straight from keymap.c instead, with no device connected.
+VIAL ?= true
 
 # ================= TOOLS CONFIGURATION =================
 MISE ?= mise
@@ -918,11 +920,16 @@ flash-keymap:
 ifeq ($(OS_FAMILY),windows)
 	$(error flash-keymap $(WINDOWS_FIRMWARE_ERROR))
 endif
+# Only an explicit VIAL=true is an error here, not the plain default: VIAL=true
+# would read the device and write it straight back, but flash-keymap always
+# reads keymap.c regardless of the default, via the VIAL=false below.
 ifeq ($(VIAL),true)
+ifneq ($(origin VIAL),file)
 	$(error flash-keymap writes keymap.c to the device; VIAL=true would read the device and write it straight back)
 endif
+endif
 ifdef KEYBOARD_ID
-	@$(MAKE) $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
+	@$(MAKE) VIAL=false $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
 	@echo "Fetching current configuration from device..."
 	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)
 	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)

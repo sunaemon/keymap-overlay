@@ -6,7 +6,7 @@ momentary layer in a native overlay, on macOS, Linux and Windows.
 ## Display Asset Generation
 
 ```text
-keymap.c (or VIAL EEPROM with VIAL=true)
+VIAL EEPROM (or keymap.c with VIAL=false)
   ↓ QMK c2json / Vitaly export
 build/<keyboard>/qmk-keymap.json
   + keyboard.json + config.json + encoder map
@@ -298,21 +298,24 @@ everything else natively.
 ### VIAL over VIA
 
 The project uses VIAL because `vitaly` can read and write VIAL keymap data for
-the EEPROM-based workflow. This is optional: the default image-generation
-path reads the keymap source compiled into the firmware.
+the EEPROM-based workflow, and because the connected keyboard is the default
+source of truth for both halves of the display model: `vitaly save` reads the
+dynamic keymap out of EEPROM, and `fetch_vial_definition.py` reads the
+keyboard's own embedded Vial definition — including the identity of its
+custom keycodes — directly from the device over the same two Vial commands
+vitaly itself uses internally to interpret that dump
+(`CMD_VIAL_GET_SIZE`/`CMD_VIAL_GET_DEFINITION`). `keymap.c` is not consulted
+for either, so a live edit made in the Vial app is reflected without
+recompiling. `VIAL=false` renders straight from `keymap.c` instead, with no
+device connected — useful for keyboards whose keymap is never edited outside
+source.
 
-Under `VIAL=true`, the connected keyboard is the source of truth for both
-halves of the display model: `vitaly save` reads the dynamic keymap out of
-EEPROM, and `fetch_vial_definition.py` reads the keyboard's own embedded Vial
-definition — including the identity of its custom keycodes — directly from
-the device over the same two Vial commands vitaly itself uses internally to
-interpret that dump (`CMD_VIAL_GET_SIZE`/`CMD_VIAL_GET_DEFINITION`). `keymap.c`
-is not consulted for either. It stays the source firmware is compiled and
-flashed from, and `generate_vial.py` embeds each custom keycode's name and
-single-character display glyph into the `vial.json` compiled into that
-firmware (starting at Vial's fixed `QK_KB_0` keycode range) — but once a
-keyboard has been flashed, deleting `keymap.c` does not prevent
-`make install-assets VIAL=true` from rendering it correctly.
+`keymap.c` stays the source firmware is compiled and flashed from either way,
+and `generate_vial.py` embeds each custom keycode's name and single-character
+display glyph into the `vial.json` compiled into that firmware (starting at
+Vial's fixed `QK_KB_0` keycode range) — but once a keyboard has been flashed,
+deleting `keymap.c` does not prevent `make install-assets` from rendering it
+correctly.
 
 ### Shared Display Model
 
