@@ -37,8 +37,9 @@ There are three parts:
 - `generate_overlay_asset.py`: Builds the shared display model and emits JSON
   for all three native renderers, including encoder rotation and push actions.
   It resolves custom keycode names, preserves `KC_TRNS` as display-only
-  transparency metadata, and reads Unicode label annotations
-  from common and platform-specific blocks in `keymap.c`.
+  transparency metadata, and labels custom keycodes from single-character
+  comments in `keymap.c`. Generic and platform-specific key aliases are its
+  own built-in tables, not `keymap.c` content.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
