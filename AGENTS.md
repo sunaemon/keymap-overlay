@@ -63,11 +63,10 @@ control showing counter-clockwise, clockwise, and push actions.
 
 ### 3. Native Overlay (`overlay/`)
 
-- `overlay/keymap-core`: the Raw HID wire format
-  (`parse_raw_layer_event`) and its
-  tests. Pure logic, no I/O, so it stays unit-testable.
-- `overlay/keymap-overlay-runtime`: the shared listener, transition
-  reducer, model composition, logging code, and frontend-facing library API.
+- `overlay/keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and
+  active-layer state reducer. Pure logic, no I/O, so it stays unit-testable.
+- `overlay/keymap-overlay-runtime`: the shared listener, overlay transition
+  adapter, model composition, logging code, and frontend-facing library API.
 - `overlay/platforms/macos/appkit`: the native macOS executable and
   IOHIDManager arrival watcher.
 - `overlay/platforms/linux/daemon`: the Linux HID and D-Bus service executable.
@@ -76,8 +75,9 @@ control showing counter-clockwise, clockwise, and push actions.
 - `overlay/platforms/windows/bridge`: the audited Windows C ABI boundary. WPF
   supplies a wake callback and takes the final reduced show/hide transition.
 
-The runtime library holds everything the systems share — the listener,
-transitions, model composition, and rotating log — while each platform owns its
+The core library owns protocol and active-layer state semantics. The runtime
+library holds the shared listener, overlay transitions, model composition, and
+rotating log, while each platform owns its
 executable and integration code:
 
 - `overlay/platforms/macos/appkit`: the native macOS AppKit window and semantic

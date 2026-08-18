@@ -11,7 +11,7 @@ use dispatch::Queue;
 use iohidmanager::async_api::ManagerDeviceMatchingStream;
 use iohidmanager::{HidManager, HidUsage};
 use keymap_overlay_runtime::{
-    DisplayEncoder, LayerEventSink, ListenerEvent, ModelCache, OverlayModel, PendingTransition,
+    DisplayEncoder, LayerEvent, LayerEventSink, ModelCache, OverlayModel, PendingTransition,
     RAW_USAGE_ID, RAW_USAGE_PAGE, RawHidListenerHandle, Transition, compose_model,
     load_model_cache, spawn_raw_hid_listener,
 };
@@ -69,10 +69,10 @@ impl AppearanceView {
 }
 
 #[derive(Clone)]
-struct ChannelSink(Sender<ListenerEvent>);
+struct ChannelSink(Sender<LayerEvent>);
 
 impl LayerEventSink for ChannelSink {
-    fn send(&self, event: ListenerEvent) -> bool {
+    fn send(&self, event: LayerEvent) -> bool {
         if self.0.send(event).is_err() {
             return false;
         }
@@ -87,7 +87,7 @@ struct NativeLayer {
 }
 
 struct OverlayApp {
-    receiver: Receiver<ListenerEvent>,
+    receiver: Receiver<LayerEvent>,
     pending: PendingTransition,
     models: ModelCache,
     layers: HashMap<(u8, Vec<u8>), NativeLayer>,

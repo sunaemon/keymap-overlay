@@ -10,7 +10,7 @@ use keymap_overlay_linux_protocol::{
     BUS_NAME, OBJECT_PATH, RENDERER_INTERFACE, RendererService, RendererStateStore,
 };
 use keymap_overlay_runtime::{
-    LayerEventSink, ListenerEvent, ModelCache, PendingTransition, RawHidListenerHandle, Transition,
+    LayerEvent, LayerEventSink, ModelCache, PendingTransition, RawHidListenerHandle, Transition,
     compose_model, load_model_cache, spawn_raw_hid_listener,
 };
 use log::{info, warn};
@@ -23,10 +23,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zbus::blocking::Connection;
 
 #[derive(Clone)]
-struct ChannelSink(Sender<ListenerEvent>);
+struct ChannelSink(Sender<LayerEvent>);
 
 impl LayerEventSink for ChannelSink {
-    fn send(&self, event: ListenerEvent) -> bool {
+    fn send(&self, event: LayerEvent) -> bool {
         self.0.send(event).is_ok()
     }
 }
@@ -205,8 +205,8 @@ fn wait_readable(socket: &udev::MonitorSocket) -> Result<()> {
 }
 
 fn reduce_queued_events(
-    first: ListenerEvent,
-    receiver: &Receiver<ListenerEvent>,
+    first: LayerEvent,
+    receiver: &Receiver<LayerEvent>,
     pending: &mut PendingTransition,
 ) -> Transition {
     pending.push(first);
@@ -240,20 +240,20 @@ mod tests {
     fn queued_events_are_reduced_before_the_daemon_publishes() {
         let (sender, receiver) = mpsc::channel();
         let mut pending = PendingTransition::default();
-        let first = ListenerEvent::Layer(RawLayerEvent {
+        let first = LayerEvent::Report(RawLayerEvent {
             keyboard_id: 1,
             layer: 2,
             pressed: true,
         });
         sender
-            .send(ListenerEvent::Layer(RawLayerEvent {
+            .send(LayerEvent::Report(RawLayerEvent {
                 keyboard_id: 1,
                 layer: 3,
                 pressed: true,
             }))
             .expect("queue layer press");
         sender
-            .send(ListenerEvent::Layer(RawLayerEvent {
+            .send(LayerEvent::Report(RawLayerEvent {
                 keyboard_id: 1,
                 layer: 3,
                 pressed: false,
@@ -269,13 +269,13 @@ mod tests {
         );
 
         let (sender, receiver) = mpsc::channel();
-        let second_keyboard = ListenerEvent::Layer(RawLayerEvent {
+        let second_keyboard = LayerEvent::Report(RawLayerEvent {
             keyboard_id: 2,
             layer: 4,
             pressed: true,
         });
         sender
-            .send(ListenerEvent::Disconnected {
+            .send(LayerEvent::Disconnected {
                 keyboard_id: Some(2),
             })
             .expect("queue keyboard disconnect");

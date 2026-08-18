@@ -3,11 +3,11 @@ use anyhow::{Context, Result};
 // clap dependency of its own.
 pub use clap::Parser;
 use hidapi::{HidApi, HidDevice};
-pub use keymap_core::RawLayerEvent;
 use keymap_core::{
-    ActiveLayerChange, ActiveLayerState, carries_report_magic, parse_raw_layer_event,
-    transition_for, transition_for_disconnect,
+    ActiveLayerChange, ActiveLayerState, PendingLayerChange, carries_report_magic,
+    parse_raw_layer_event,
 };
+pub use keymap_core::{LayerEvent, RawLayerEvent};
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -152,14 +152,7 @@ pub fn write_notice(text: &str) -> Result<()> {
 pub trait LayerEventSink: Clone + Send {
     /// Returns whether the receiving end is still there; a reader stops once
     /// it is not.
-    fn send(&self, event: ListenerEvent) -> bool;
-}
-
-/// An event from the HID listener, including loss of the device itself.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ListenerEvent {
-    Layer(RawLayerEvent),
-    Disconnected { keyboard_id: Option<u8> },
+    fn send(&self, event: LayerEvent) -> bool;
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -289,43 +282,28 @@ pub enum Transition {
     Ignore,
 }
 
-/// The held layers, and the one window update the events seen so far call for.
+/// Adapts the core reducer's final active-layer change for an overlay window.
 ///
-/// Every backend needs the same reduction: several events can pile up before a
-/// UI loop gets to act on them, and only their final state should ever reach the
-/// screen. Intermediate restores and switches are not drawn on the way to a
-/// newer layer or a hide.
-///
-/// It accumulates rather than folding an iterator because every backend can
-/// receive several HID events before its UI callback runs.
+/// Core keeps only the final state change from queued events; this adapter
+/// translates it to show, hide, or ignore when the frontend consumes it.
 #[derive(Default)]
 pub struct PendingTransition {
-    held_keys: Vec<(u8, u8)>,
-    transition: Transition,
+    pending: PendingLayerChange,
 }
 
 impl PendingTransition {
     /// Folds one event in, keeping the latest transition that changes anything.
-    pub fn push(&mut self, event: ListenerEvent) {
-        let transition = transition_for_event(&mut self.held_keys, event);
-        if transition != Transition::Ignore {
-            self.transition = transition;
-        }
+    pub fn push(&mut self, event: LayerEvent) {
+        self.pending.push(event);
     }
 
     /// Takes what the window should do now, leaving nothing pending behind.
     pub fn take(&mut self) -> Transition {
-        std::mem::take(&mut self.transition)
+        transition_for_change(self.pending.take())
     }
 }
 
-pub fn transition_for_event(held_keys: &mut Vec<(u8, u8)>, event: ListenerEvent) -> Transition {
-    let change = match event {
-        ListenerEvent::Layer(event) => transition_for(held_keys, event),
-        ListenerEvent::Disconnected { keyboard_id } => {
-            transition_for_disconnect(held_keys, keyboard_id)
-        }
-    };
+fn transition_for_change(change: ActiveLayerChange) -> Transition {
     match change {
         ActiveLayerChange::Unchanged => Transition::Ignore,
         ActiveLayerChange::Changed(Some(ActiveLayerState {
@@ -640,7 +618,7 @@ fn receive_from_device(device: &HidDevice, path: &str, sink: &impl LayerEventSin
                 // A bootloader transition can remove the keyboard before it
                 // sends the matching layer release. Clear the UI state rather
                 // than leaving the last layer visible until reconnect.
-                sink.send(ListenerEvent::Disconnected { keyboard_id });
+                sink.send(LayerEvent::Disconnected { keyboard_id });
                 return Err(error).with_context(|| format!("Failed to read Raw HID device {path}"));
             }
         };
@@ -659,7 +637,7 @@ fn receive_from_device(device: &HidDevice, path: &str, sink: &impl LayerEventSin
             event.keyboard_id, event.layer, event.pressed
         );
         keyboard_id = Some(event.keyboard_id);
-        if !sink.send(ListenerEvent::Layer(event)) {
+        if !sink.send(LayerEvent::Report(event)) {
             return Ok(());
         }
     }
@@ -823,35 +801,21 @@ mod tests {
     #[test]
     fn active_layer_changes_are_translated_for_the_ui() {
         assert_eq!(
-            transition_for_event(
-                &mut vec![],
-                ListenerEvent::Layer(RawLayerEvent {
-                    keyboard_id: 1,
-                    layer: 2,
-                    pressed: true,
-                }),
-            ),
+            transition_for_change(ActiveLayerChange::Changed(Some(ActiveLayerState {
+                keyboard_id: 1,
+                layers: vec![2],
+            }))),
             Transition::Show {
                 keyboard_id: 1,
                 layers: vec![2],
             }
         );
         assert_eq!(
-            transition_for_event(
-                &mut vec![(1, 2)],
-                ListenerEvent::Disconnected {
-                    keyboard_id: Some(1),
-                },
-            ),
+            transition_for_change(ActiveLayerChange::Changed(None)),
             Transition::Hide
         );
         assert_eq!(
-            transition_for_event(
-                &mut vec![(1, 2)],
-                ListenerEvent::Disconnected {
-                    keyboard_id: Some(2),
-                },
-            ),
+            transition_for_change(ActiveLayerChange::Unchanged),
             Transition::Ignore
         );
     }
@@ -898,80 +862,6 @@ mod tests {
 
         let without_layer_one = compose_model(&models, 1, &[3]).expect("composed model");
         assert_eq!(without_layer_one.keys[0].label, ["BASE A"]);
-    }
-
-    #[test]
-    fn queued_events_only_expose_their_final_state_to_the_ui() {
-        let mut pending = PendingTransition {
-            held_keys: vec![(1, 2)],
-            transition: Transition::Ignore,
-        };
-        let events = [
-            ListenerEvent::Layer(RawLayerEvent {
-                keyboard_id: 1,
-                layer: 3,
-                pressed: true,
-            }),
-            ListenerEvent::Layer(RawLayerEvent {
-                keyboard_id: 1,
-                layer: 3,
-                pressed: false,
-            }),
-            ListenerEvent::Layer(RawLayerEvent {
-                keyboard_id: 1,
-                layer: 2,
-                pressed: false,
-            }),
-        ];
-        for event in events {
-            pending.push(event);
-        }
-
-        assert_eq!(pending.take(), Transition::Hide);
-        assert!(pending.held_keys.is_empty());
-    }
-
-    /// Taking the transition must not hand the same update out a second time.
-    #[test]
-    fn nothing_is_pending_once_it_has_been_taken() {
-        let mut pending = PendingTransition::default();
-        pending.push(ListenerEvent::Layer(RawLayerEvent {
-            keyboard_id: 1,
-            layer: 2,
-            pressed: true,
-        }));
-
-        assert_eq!(
-            pending.take(),
-            Transition::Show {
-                keyboard_id: 1,
-                layers: vec![2],
-            }
-        );
-        assert_eq!(pending.take(), Transition::Ignore);
-    }
-
-    /// An event that changes nothing must not clear a transition still waiting
-    /// to be drawn.
-    #[test]
-    fn an_ignored_event_leaves_an_earlier_transition_pending() {
-        let mut pending = PendingTransition::default();
-        pending.push(ListenerEvent::Layer(RawLayerEvent {
-            keyboard_id: 1,
-            layer: 2,
-            pressed: true,
-        }));
-        pending.push(ListenerEvent::Disconnected {
-            keyboard_id: Some(9),
-        });
-
-        assert_eq!(
-            pending.take(),
-            Transition::Show {
-                keyboard_id: 1,
-                layers: vec![2],
-            }
-        );
     }
 
     /// Each system is asked where its own per-user data belongs.
