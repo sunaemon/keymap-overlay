@@ -23,6 +23,7 @@ def test_existing_processors_select_only_their_required_submodules(
         "lib/chibios-contrib",
         "lib/lufa",
         "lib/pico-sdk",
+        "lib/printf",
     ]
     assert unknown == []
 
@@ -32,7 +33,12 @@ def test_stm32_does_not_require_the_pico_sdk(tmp_path: Path) -> None:
 
     submodules, unknown = resolve_qmk_submodules([path])
 
-    assert submodules == ["lib/chibios", "lib/chibios-contrib", "lib/lufa"]
+    assert submodules == [
+        "lib/chibios",
+        "lib/chibios-contrib",
+        "lib/lufa",
+        "lib/printf",
+    ]
     assert unknown == []
 
 
