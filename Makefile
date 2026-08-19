@@ -460,8 +460,11 @@ doctor:
 	status=$${PIPESTATUS[0]}; \
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
-# Because LAYERS depends on $(QMK_KEYMAP_JSON), install-assets and draw-layers
-# build the QMK JSON in a first make invocation, then re-enter make to expand assets.
+# Under VIAL=false, LAYERS depends on $(QMK_KEYMAP_JSON), so install-assets
+# and draw-layers build the QMK JSON in a first make invocation, then re-enter
+# make to expand assets. Under VIAL=true the native generator (FILE RULES)
+# determines its own layer count from the device, so this first pass — and
+# the extra device read building $(QMK_KEYMAP_JSON) would cost — is skipped.
 ifeq ($(OS_FAMILY),windows)
 .PHONY: install-assets
 install-assets:
@@ -473,8 +476,12 @@ install-assets:
 else
 install-assets:
 ifdef KEYBOARD_ID
+ifeq ($(VIAL),true)
+	@$(MAKE) _internal_install
+else
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
+endif
 else
 	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
 endif
@@ -488,8 +495,12 @@ install: install-assets
 .PHONY: draw-layers
 draw-layers:
 ifdef KEYBOARD_ID
+ifeq ($(VIAL),true)
+	@$(MAKE) _internal_draw_layers
+else
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_draw_layers
+endif
 else
 	+@$(call FOR_EACH_KEYBOARD,drawing layers for,Drawing layers for,draw-layers)
 endif
@@ -1020,7 +1031,10 @@ print-vars:
 
 .PHONY: _internal_install
 _internal_install: $(CONSOLIDATED_ASSET)
-	@if [ "$(LAYERS)" -eq "0" ]; then \
+# Under VIAL=true the generator already refuses to produce a zero-layer file
+# (Make would have stopped above), so $(LAYERS) — which needs
+# $(QMK_KEYMAP_JSON), deliberately not built on this path — is skipped here.
+	@if [ "$(VIAL)" != "true" ] && [ "$(LAYERS)" -eq "0" ]; then \
 		echo "ERROR: No layers found even after generation."; \
 		exit 1; \
 	fi

@@ -80,10 +80,9 @@ from `keymap.c`) and for firmware compile/flash JSON, which is unconditionally
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
 - `generate_qmk_keymap_from_vitaly.py`: Converts a VIAL dump back to QMK
-  keymap JSON. Still used to compute `$(QMK_KEYMAP_JSON)` (and so `$(LAYERS)`,
-  for the "no layers found" sanity check) even under `VIAL=true`, ahead of the
-  native generator's own independent device read — a known redundant second
-  HID session left as a follow-up, not yet removed.
+  keymap JSON, only reachable by invoking it directly now — `install-assets`
+  and `draw-layers` skip `$(QMK_KEYMAP_JSON)` entirely under `VIAL=true`, so
+  this no longer costs a second HID session on that path.
 - `fetch_vial_definition.py`: Reads and decompresses the connected device's
   own embedded Vial definition over Raw HID. Only reachable by invoking it
   directly now; useful as a standalone diagnostic for inspecting a device's
