@@ -22,6 +22,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
+mod self_heal;
+
 /// Vendor-defined usage page carrying keymap overlay reports.
 pub const RAW_USAGE_PAGE: u16 = 0xFF60;
 /// Usage within [`RAW_USAGE_PAGE`] carrying keymap overlay reports.
@@ -75,6 +77,13 @@ pub struct Arguments {
     #[arg(long, value_name = "PATH")]
     pub asset_dir: Option<PathBuf>,
 
+    /// Directory of per-keyboard keyboard.json/config.json sources; if set,
+    /// any keyboard missing from --asset-dir is generated at startup before
+    /// the listener starts (never on the keypress hot path). A keyboard that
+    /// isn't currently connected is skipped with a warning, not a failure.
+    #[arg(long, value_name = "PATH")]
+    pub keyboard_config_dir: Option<PathBuf>,
+
     /// Write the log to this file, rotating it, instead of to stderr
     #[arg(long, value_name = "PATH")]
     pub log_out: Option<PathBuf>,
@@ -117,7 +126,14 @@ pub fn run_overlay(frontend: impl FnOnce(PathBuf) -> Result<()>) -> Result<()> {
         .asset_dir
         .clone()
         .map_or_else(default_asset_dir, Ok)?;
+    let keyboard_config_dir = arguments.keyboard_config_dir.clone();
     initialize_logging(arguments.log_destination())?;
+
+    if let Some(keyboard_config_dir) = &keyboard_config_dir
+        && let Err(error) = self_heal::fill_missing_models(&directory, keyboard_config_dir)
+    {
+        warn!("Self-heal skipped: {error:#}");
+    }
 
     if let Err(error) = frontend(directory) {
         error!("Keymap overlay stopped: {error:#}");

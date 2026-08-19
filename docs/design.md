@@ -73,6 +73,20 @@ held layers use QMK's numeric precedence and transparent keys fall through the
 other active layers before the base layer. Between keyboards, the most recently
 used keyboard owns the overlay. It hides once no momentary layers remain held.
 
+### Startup Self-Heal
+
+Before the listener starts (never on the keypress hot path above), the
+runtime optionally fills in any keyboard missing from `--asset-dir`: given
+`--keyboard-config-dir` (the Makefile passes `KEYBOARDS_DIR`), it shells out
+to `keymap-overlay-generator` — installed alongside the frontend, not linked
+in, for the same reason `keymap-overlay-generator` is its own Cargo
+workspace — once per keyboard subdirectory whose `<id>.json` doesn't exist
+yet. A keyboard that isn't currently connected is skipped with a log warning,
+not a startup failure; it's picked up on the next restart once it is. This
+only covers the Makefile-driven install (`install-overlay`); the generic
+`install.sh`/`install.ps1` release installer has no equivalent
+`--keyboard-config-dir` to point at, since it's a private, per-user path.
+
 ## Raw HID Protocol
 
 The firmware sends a 32-byte report over QMK's Raw HID interface when a

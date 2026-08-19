@@ -157,6 +157,9 @@ QMK_KEYMAP ?= keymap
 QMK_FLAGS += -e SKIP_GIT=yes
 
 KEYBOARDS_DIR ?= firmware/examples
+# The installed service passes this to the overlay for startup self-heal
+# (FILE RULES); it needs to survive being launched with an unrelated cwd.
+KEYBOARDS_DIR_ABS := $(abspath $(KEYBOARDS_DIR))
 
 # Every configured keyboard, by KEYBOARD_ID. A directory counts once it has a
 # config.json, which is the file the ID and QMK_KEYBOARD are read from.
@@ -630,6 +633,12 @@ endif
 # underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
+ifneq ($(OS_FAMILY),windows)
+# Installed alongside the frontend so self-heal (FILE RULES) can shell out to
+# it by relative path at startup; not verified on Windows, so not wired there.
+	@$(MAKE) _build_generator
+	install -C "$(GENERATOR_BINARY)" "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
+endif
 	@$(MAKE) _install_renderer_$(OS_FAMILY)
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
@@ -684,6 +693,8 @@ _install_service_macos:
 		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_BINARY))</string>' \
 		'    <string>--asset-dir</string>' \
 		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_DIR))</string>' \
+		'    <string>--keyboard-config-dir</string>' \
+		'    <string>$(call xml_escape,$(KEYBOARDS_DIR_ABS))</string>' \
 		'    <string>--log-out</string>' \
 		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_LOG_FILE))</string>' \
 		'  </array>' \
@@ -720,7 +731,7 @@ _install_service_linux:
 		'' \
 		'[Service]' \
 		'Type=simple' \
-		'ExecStart="$(KEYMAP_OVERLAY_BINARY)" --asset-dir "$(KEYMAP_OVERLAY_DIR)"' \
+		'ExecStart="$(KEYMAP_OVERLAY_BINARY)" --asset-dir "$(KEYMAP_OVERLAY_DIR)" --keyboard-config-dir "$(KEYBOARDS_DIR_ABS)"' \
 		'# The log is left on stderr for journald, which timestamps, rotates' \
 		'# and retains it: journalctl --user -u keymap-overlay' \
 		'SyslogIdentifier=keymap-overlay' \
@@ -797,6 +808,7 @@ _install_service_windows:
 uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_BINARY)"
+	rm -f "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	@$(MAKE) _uninstall_renderer_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.png
 	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.json
