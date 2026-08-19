@@ -465,6 +465,16 @@ doctor:
 	status=$${PIPESTATUS[0]}; \
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
+# On macOS and Linux this is no longer part of the normal workflow: the
+# running overlay owns ~/.cache/keymap-overlay itself (startup self-heal,
+# --keyboard-config-dir) and install-overlay no longer calls this target.
+# It still exists for two things that have no self-heal equivalent: the
+# WSL-to-Windows cross-generation workflow (WSL reports OS_FAMILY=linux too,
+# so it takes the same branch below, passing an explicit KEYMAP_OVERLAY_DIR
+# pointing at the Windows-side path — see README's Setup on Windows), and a
+# manual force-refresh on macOS/Linux when self-heal's fill-if-missing
+# wouldn't otherwise pick up a keymap.c edit.
+#
 # Under VIAL=false, LAYERS depends on $(QMK_KEYMAP_JSON), so install-assets
 # and draw-layers build the QMK JSON in a first make invocation, then re-enter
 # make to expand assets. Under VIAL=true the native generator (FILE RULES)
@@ -625,7 +635,12 @@ install-overlay: build-overlay
 		exit 1; \
 	fi
 else
-install-overlay: install-assets build-overlay
+# Not install-assets: startup self-heal (FILE RULES, --keyboard-config-dir
+# below) now generates any keyboard missing from $(KEYMAP_OVERLAY_DIR) itself
+# once the service starts, so installing doesn't need to write there too.
+# Run `make install-assets` by hand to force a refresh — e.g. after editing
+# keymap.c — since self-heal only fills in what's missing, not what's stale.
+install-overlay: build-overlay
 endif
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
 # Windows holds an open executable locked, so the running overlay has to go
@@ -635,7 +650,12 @@ endif
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
 ifneq ($(OS_FAMILY),windows)
 # Installed alongside the frontend so self-heal (FILE RULES) can shell out to
-# it by relative path at startup; not verified on Windows, so not wired there.
+# it by relative path at startup.
+# TODO(windows): self_heal.rs is already cross-platform (PLATFORM="windows",
+# .exe handling in generator_binary_path) but untested here — no Windows
+# machine to verify against. Wiring this up would mean installing
+# keymap-overlay-generator.exe beside the WPF binary (mirroring this block)
+# and adding --keyboard-config-dir to the Run-key command below.
 	@$(MAKE) _build_generator
 	install -C "$(GENERATOR_BINARY)" "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 endif
@@ -798,6 +818,13 @@ _install_service_windows:
 # $ErrorActionPreference so PowerShell's non-terminating errors become failures
 # make can see: without it, Set-ItemProperty or Start-Process can fail while
 # powershell.exe still exits 0 and install-overlay reports success.
+#
+# TODO(windows): self_heal.rs is already cross-platform (PLATFORM="windows",
+# .exe handling in generator_binary_path) but untested here — no Windows
+# machine to verify against. Wiring this up would mean installing
+# keymap-overlay-generator.exe beside the WPF binary (mirroring the
+# install-overlay generator-binary block) and adding --keyboard-config-dir to
+# both command lines built below, alongside --asset-dir.
 	@set -e; \
 	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
 	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)")"; \

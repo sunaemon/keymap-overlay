@@ -191,9 +191,15 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 ```bash
 make setup              # Install system dependencies and toolchains
 make install-udev-rules # Linux only: grant Raw HID access to the login user
-make install-assets     # Generate and copy platform layer assets
 make install-overlay    # Build and install the login service
 ```
+
+`install-overlay` no longer depends on `install-assets` on macOS or Linux: the
+running overlay fills in any layer model missing from `~/.cache/keymap-overlay`
+itself at startup (Startup Self-Heal in `docs/design.md`). Run
+`make install-assets` by hand only to force a refresh after editing
+`keymap.c` — self-heal fills in what's missing, not what's stale — or for the
+WSL-to-Windows cross-generation workflow, which has no self-heal fallback yet.
 
 `make setup` and everything that installs or starts the overlay dispatch on
 `OS_FAMILY`, derived from `uname -s` at the top of the Makefile — `windows`
