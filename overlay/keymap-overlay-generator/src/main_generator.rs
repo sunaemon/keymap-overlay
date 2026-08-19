@@ -1,16 +1,11 @@
-mod custom_keycodes;
-mod device;
-mod labels;
-mod model;
-mod types;
-
 use anyhow::{Context, Result};
 use clap::Parser;
 use hidapi::HidApi;
-use labels::Platform;
+use keymap_overlay_generator::labels::Platform;
+use keymap_overlay_generator::types::{KeyboardConfig, KeyboardJson};
+use keymap_overlay_generator::{device, read_json};
 use std::io::Write;
 use std::path::PathBuf;
-use types::{KeyboardConfig, KeyboardJson};
 
 /// Reads a connected VIAL device and prints its installed overlay display
 /// model (one keyboard, every layer) as JSON to stdout.
@@ -61,10 +56,4 @@ fn main() -> Result<()> {
     lock.write_all(json.as_bytes())?;
     lock.write_all(b"\n")?;
     Ok(())
-}
-
-fn read_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Result<T> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read {}", path.display()))?;
-    serde_json::from_str(&text).with_context(|| format!("Failed to parse {}", path.display()))
 }

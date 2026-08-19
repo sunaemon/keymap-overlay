@@ -277,6 +277,8 @@ endif
 # Cargo.lock would unify those feature sets across every workspace member.
 GENERATOR_MANIFEST := overlay/keymap-overlay-generator/Cargo.toml
 GENERATOR_BINARY := overlay/keymap-overlay-generator/target/release/keymap-overlay-generator$(EXE_SUFFIX)
+# Second [[bin]] in the same crate/build, built together by _build_generator.
+FLASHER_BINARY := overlay/keymap-overlay-generator/target/release/keymap-overlay-flash-keymap$(EXE_SUFFIX)
 
 .PHONY: _build_generator
 _build_generator:
@@ -962,16 +964,15 @@ ifneq ($(origin VIAL),file)
 endif
 endif
 ifdef KEYBOARD_ID
-	@$(MAKE) VIAL=false $(QMK_KEYMAP_JSON) $(CUSTOM_KEYCODES_JSON)
-	@echo "Fetching current configuration from device..."
-	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)
-	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
-	@echo "Merging QMK keymap into Vitaly configuration..."
-	@# The renderer resolves KC_TRNS only in memory. This source JSON remains raw,
-	@# so writing it to EEPROM preserves transparent-key inheritance.
-	$(call WRITE_OUTPUT,$(BUILD_DIR)/vitaly_ready.json,$(UV) run python -m model.scripts.generate_vitaly_layout --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --vitaly-json "$(VITALY_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)")
-	@echo "Loading new configuration to device..."
-	$(VITALY) -i $(DEVICE_PID) load -f $(BUILD_DIR)/vitaly_ready.json
+	@$(MAKE) VIAL=false $(QMK_KEYMAP_JSON)
+	@$(MAKE) _build_generator
+# The renderer resolves KC_TRNS only in memory; the flasher writes qmk
+# c2json's output as-is, so EEPROM keeps the literal transparent marker and
+# transparent-key inheritance keeps working. It writes the keymap and
+# encoders directly (vitaly::protocol::set_keymap/set_encoder) — no
+# read-current-state-and-merge round trip, since nothing else is touched.
+	@echo "Writing keymap.c to the device..."
+	"$(FLASHER_BINARY)" --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)"
 else
 	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
 endif
