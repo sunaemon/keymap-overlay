@@ -261,6 +261,11 @@ STALE_ASSET_EXTENSION := png
 ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)
 ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%g.$(ASSET_EXTENSION)" 0 $$(( $(LAYERS) - 1 )); fi))$(ASSETS)
 
+# The per-layer files above stay a build-time intermediate; installing and
+# reading them is one keyboard, one file, since a keyboard's layers are always
+# generated and read together.
+CONSOLIDATED_ASSET := $(ASSET_BUILD_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)
+
 endif
 
 # ================= OVERLAY CONFIGURATION =================
@@ -288,7 +293,10 @@ KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/keymap-overlay/logs
 # PATH.
 KEYMAP_OVERLAY_BIN_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/Programs/keymap-overlay
 else
-KEYMAP_OVERLAY_DIR := $(HOME)/.config/keymap-overlay
+# The installed models are a regenerable cache of what a VIAL-flashed device
+# already knows, not configuration, so they sit under .cache rather than
+# .config.
+KEYMAP_OVERLAY_DIR := $(HOME)/.cache/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
 # systemd puts this on PATH for user services and the distro profiles add it for
 # login shells, so `keymap-overlay-qt` can be run by hand to diagnose the
@@ -580,7 +588,7 @@ endif
 ifeq ($(OS_FAMILY),windows)
 .PHONY: install-overlay
 install-overlay: build-overlay
-	@set -- "$(KEYMAP_OVERLAY_DIR)"/*_L*.json; \
+	@set -- "$(KEYMAP_OVERLAY_DIR)"/[0-9]*.json; \
 	if ! test -e "$$1"; then \
 		echo "ERROR: no layer JSON models found in $(KEYMAP_OVERLAY_DIR)."; \
 		echo "Generate them in WSL with the command in README's Setup on Windows section first."; \
@@ -985,6 +993,7 @@ print-vars:
 	@echo "VIAL_DEFINITION_JSON=$(VIAL_DEFINITION_JSON)"
 	@echo "LAYERS=$(LAYERS)"
 	@echo "ASSETS=$(ASSETS)"
+	@echo "CONSOLIDATED_ASSET=$(CONSOLIDATED_ASSET)"
 	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
 	@echo ""
 	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
@@ -995,7 +1004,7 @@ print-vars:
 # ================= INTERNAL TARGETS =================
 
 .PHONY: _internal_install
-_internal_install: $(ASSETS)
+_internal_install: $(CONSOLIDATED_ASSET)
 	@if [ "$(LAYERS)" -eq "0" ]; then \
 		echo "ERROR: No layers found even after generation."; \
 		exit 1; \
@@ -1005,13 +1014,14 @@ _internal_install: $(ASSETS)
 	@for asset in "$(ASSET_BUILD_DIR)"/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION); do \
 		case " $(ASSETS) " in *" $$asset "*) ;; *) rm -f "$$asset" ;; esac; \
 		done
+	@cp "$(CONSOLIDATED_ASSET)" "$(KEYMAP_OVERLAY_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)"
+# Stale leftovers from the previous one-file-per-layer format, if any.
 	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION)
-	@cp $(ASSETS) "$(KEYMAP_OVERLAY_DIR)/"
 	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(STALE_ASSET_EXTENSION)
 	@echo "✔ Overlay assets installed; run 'make run-overlay' to start the native app"
 
 .PHONY: _internal_draw_layers
-_internal_draw_layers: $(ASSETS)
+_internal_draw_layers: $(CONSOLIDATED_ASSET)
 
 # ================= FILE RULES =================
 
@@ -1034,6 +1044,11 @@ endif
 
 $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(ASSET_BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
+
+# Passed the exact current $(ASSETS) paths, not a directory to glob, so a
+# leftover from a shrunk layer count can never sneak into the installed file.
+$(CONSOLIDATED_ASSET): $(ASSETS) model/scripts/consolidate_layer_models.py | $(ASSET_BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.consolidate_layer_models --keyboard-id "$(KEYBOARD_ID)" $(foreach asset,$(ASSETS),--layer-json "$(asset)"))
 
 .PHONY: _force_build
 _force_build:

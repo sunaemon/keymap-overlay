@@ -10,19 +10,25 @@ VIAL EEPROM (or keymap.c with VIAL=false)
   ↓ QMK c2json / Vitaly export
 build/<keyboard>/qmk-keymap.json
   + keyboard.json + config.json + encoder map
-  ↓ first-party display-model generator
+  ↓ first-party display-model generator, one process per layer
 platform-neutral geometry, labels, transparency, and state (one model per layer)
   ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
   ├─ Linux: build/<keyboard>/assets/linux/<keyboard>_L<n>.json
   └─ Windows: build/<keyboard>/assets/windows/<keyboard>_L<n>.json
+  ↓ consolidate_layer_models.py, one keyboard's layers combined
+build/<keyboard>/assets/<platform>/<keyboard>.json
   ↓ make install-assets
-platform configuration directory/<keyboard>_L<n>.json
+installed models directory/<keyboard>.json
 ```
 
+The per-layer files are a build-time intermediate; only the combined
+`<keyboard>.json` — every layer keyed by number, in one file — is installed.
 `make install-assets` is the platform-independent model-generation and copy
 target. It installs JSON on every platform. On Windows, generate models from
 WSL with `make install-assets`, then run native `make install-overlay`; WSL
-writes them directly to `%LOCALAPPDATA%/keymap-overlay/`.
+writes them directly to `%LOCALAPPDATA%/keymap-overlay/`. On macOS and Linux
+the installed models directory is `~/.cache/keymap-overlay`: a regenerable
+cache of what the connected device already knows, not configuration.
 
 ## Runtime Data Flow
 
@@ -40,7 +46,7 @@ native transparent window
     └─ Qt Quick + KDE LayerShellQt (other desktops)
   Windows: WPF
   ↓
-active <keyboard>_L<layer> assets are composed and displayed
+active keyboard/layer models are composed and displayed
   ↓
 matching layer key released
   ↓

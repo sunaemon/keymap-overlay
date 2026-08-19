@@ -139,8 +139,8 @@ desktop already mounts it, or set `UF2_VOLUME_LABEL` for another label.
 make install-assets
 ```
 
-This installs files such as `1_L1.json` under
-`~/.config/keymap-overlay`. Run it again whenever the keymap changes.
+This installs one file per keyboard, such as `1.json`, under
+`~/.cache/keymap-overlay`. Run it again whenever the keymap changes.
 
 ### 4. Install the released overlay
 
@@ -159,7 +159,7 @@ available, it also verifies the artifact attestation.
 
 On macOS and Linux the executable is installed to `~/.local/bin/keymap-overlay`,
 with the Qt renderer beside it, while the generated layer models stay in
-`~/.config/keymap-overlay`. The login service names the binary by absolute path,
+`~/.cache/keymap-overlay`. The login service names the binary by absolute path,
 so it works whether or not `~/.local/bin` is on your `PATH`; drop the directory
 prefix below once it is. Its license terms are built in:
 

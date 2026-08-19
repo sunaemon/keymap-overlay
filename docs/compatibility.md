@@ -24,11 +24,12 @@ are not currently release targets.
 
 Each system uses its own convention for per-user files:
 
-|              | macOS and Linux                                               | Windows                                  |
-| ------------ | ------------------------------------------------------------- | ---------------------------------------- |
-| Executables  | `~/.local/bin`                                                | `%LOCALAPPDATA%\Programs\keymap-overlay` |
-| Layer models | `~/.config/keymap-overlay`                                    | `%LOCALAPPDATA%\keymap-overlay`          |
-| Logs         | journald on Linux; `~/.local/var/log/keymap-overlay` on macOS | `%LOCALAPPDATA%\keymap-overlay\logs`     |
+|                       | macOS and Linux                                               | Windows                                  |
+| --------------------- | ------------------------------------------------------------- | ---------------------------------------- |
+| Executables           | `~/.local/bin`                                                | `%LOCALAPPDATA%\Programs\keymap-overlay` |
+| Layer models          | `~/.cache/keymap-overlay`                                     | `%LOCALAPPDATA%\keymap-overlay`          |
+| Installer bookkeeping | `~/.config/keymap-overlay`                                    | `%LOCALAPPDATA%\keymap-overlay`          |
+| Logs                  | journald on Linux; `~/.local/var/log/keymap-overlay` on macOS | `%LOCALAPPDATA%\keymap-overlay\logs`     |
 
 > [!WARNING]
 > Releases up to 0.0.5 cannot update themselves to this layout. Their installed
@@ -40,6 +41,17 @@ Each system uses its own convention for per-user files:
 > fresh installation rewrites the login service but leaves the old
 > `~/.config/keymap-overlay` or `%USERPROFILE%\.config\keymap-overlay` directory
 > in place; delete that directory by hand after the new overlay starts.
+>
+> The same releases also install one JSON file per layer (`<keyboard>_L<n>.json`)
+> under `~/.config/keymap-overlay` on macOS and Linux. This layout instead
+> installs one file per keyboard (`<keyboard>.json`) under `~/.cache/keymap-overlay`,
+> since the models are a regenerable cache of what a VIAL-flashed device already
+> knows, not configuration. `install.sh` itself still copies to
+> `~/.config/keymap-overlay` — only the installer's own bookkeeping, not the
+> models, since it backs the documented uninstall command and should not
+> disappear if a cache directory is cleared. Delete the stale
+> `~/.config/keymap-overlay/*_L*.json` files by hand; nothing reads them anymore.
+> Windows is unaffected: both concerns already shared `%LOCALAPPDATA%\keymap-overlay`.
 
 On macOS and Linux the MIT terms and the generated third-party notices are
 embedded in the executable and printed by `keymap-overlay --license` and

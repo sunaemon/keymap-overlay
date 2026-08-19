@@ -25,6 +25,16 @@ def parse_qk_kb_keycode(name: str) -> int | None:
     return VIAL_CUSTOM_KEYCODE_BASE + int(match.group(1)) if match else None
 
 
+def write_stdout_bytes(data: bytes) -> None:
+    """Writes raw bytes to stdout, bypassing the locale codepage on Windows."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        raise OSError("Binary stdout is unavailable")
+    sys.stdout.flush()
+    buffer.write(data)
+    buffer.flush()
+
+
 def initialize_logging() -> None:
     """Initialize logging to stderr for CLI scripts."""
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()

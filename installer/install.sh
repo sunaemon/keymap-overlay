@@ -3,11 +3,16 @@
 set -eu
 
 REPOSITORY='sunaemon/keymap-overlay'
-ASSET_DIRECTORY="${HOME}/.config/keymap-overlay"
+# The layer JSON models are a regenerable cache of what a VIAL-flashed device
+# already knows, not configuration, so they live under .cache. The installer's
+# own bookkeeping (its self-copy, used by the documented uninstall command)
+# is not regenerable the same way, so it stays under .config.
+CACHE_DIRECTORY="${HOME}/.cache/keymap-overlay"
+STATE_DIRECTORY="${HOME}/.config/keymap-overlay"
 BIN_DIRECTORY="${HOME}/.local/bin"
 BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay"
 QT_BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay-qt"
-INSTALLER_PATH="${ASSET_DIRECTORY}/install.sh"
+INSTALLER_PATH="${STATE_DIRECTORY}/install.sh"
 LOG_DIRECTORY="${HOME}/.local/var/log/keymap-overlay"
 QT_SERVICE_PATH="${HOME}/.config/systemd/user/keymap-overlay-qt.service"
 GNOME_EXTENSION_UUID='keymap-overlay@sunaemon'
@@ -40,7 +45,7 @@ install_release() {
   temporary_directory="$(mktemp -d)"
   trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
   stage_release
-  mkdir -p "$ASSET_DIRECTORY" "$BIN_DIRECTORY" "$LOG_DIRECTORY"
+  mkdir -p "$CACHE_DIRECTORY" "$STATE_DIRECTORY" "$BIN_DIRECTORY" "$LOG_DIRECTORY"
   backup_installation
   stop_service
 
@@ -66,7 +71,7 @@ uninstall_release() {
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
-  echo "Kept layer assets: ${ASSET_DIRECTORY}"
+  echo "Kept layer assets: ${CACHE_DIRECTORY}"
   echo "Kept logs: ${LOG_DIRECTORY}"
 }
 
@@ -119,9 +124,9 @@ require_command() {
 }
 
 require_layer_assets() {
-  if [ ! -d "$ASSET_DIRECTORY" ] ||
-    ! find "$ASSET_DIRECTORY" -maxdepth 1 -type f -name "*_L*.${asset_extension}" -print -quit | grep -q .; then
-    echo "ERROR: no layer ${asset_extension} assets found in ${ASSET_DIRECTORY}." >&2
+  if [ ! -d "$CACHE_DIRECTORY" ] ||
+    ! find "$CACHE_DIRECTORY" -maxdepth 1 -type f -name "[0-9]*.${asset_extension}" -print -quit | grep -q .; then
+    echo "ERROR: no layer ${asset_extension} assets found in ${CACHE_DIRECTORY}." >&2
     echo 'Generate assets from a source checkout before installing the binary.' >&2
     exit 1
   fi
@@ -352,7 +357,7 @@ xml_escape() {
 install_macos_service() {
   label='com.sunaemon.keymap-overlay'
   binary_xml="$(xml_escape "$BINARY_PATH")"
-  assets_xml="$(xml_escape "$ASSET_DIRECTORY")"
+  assets_xml="$(xml_escape "$CACHE_DIRECTORY")"
   log_xml="$(xml_escape "${LOG_DIRECTORY}/overlay.log")"
   mkdir -p "$(dirname "$service_path")" || return
   cat >"${service_path}.tmp" <<EOF
@@ -408,7 +413,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart="${BINARY_PATH}" --asset-dir "${ASSET_DIRECTORY}"
+ExecStart="${BINARY_PATH}" --asset-dir "${CACHE_DIRECTORY}"
 # The log is left on stderr for journald, which timestamps, rotates and retains
 # it: journalctl --user -u keymap-overlay
 SyslogIdentifier=keymap-overlay
@@ -520,7 +525,7 @@ print_installed_files() {
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
-  echo "Using existing layer assets: ${ASSET_DIRECTORY}"
+  echo "Using existing layer assets: ${CACHE_DIRECTORY}"
   echo "Logs: ${LOG_DIRECTORY}"
   echo "Licenses: ${BINARY_PATH} --license, --third-party-licenses"
   echo "Verified release: ${release_tag}"

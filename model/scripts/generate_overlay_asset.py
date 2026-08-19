@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from textwrap import wrap
@@ -28,6 +27,7 @@ from model.src.util import (
     parse_custom_keycode_short_names,
     parse_keycode_value,
     parse_qk_kb_keycode,
+    write_stdout_bytes,
 )
 
 logger = logging.getLogger(__name__)
@@ -209,7 +209,7 @@ def main(
             vial_definition_json=vial_definition_json,
             platform=platform,
         )
-        _write_stdout(
+        write_stdout_bytes(
             (
                 json.dumps(asdict(model), ensure_ascii=False, separators=(",", ":"))
                 + "\n"
@@ -618,15 +618,6 @@ def _square_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     center_x, center_y = _center(box)
     half = size // 2
     return center_x - half, center_y - half, center_x + half, center_y + half
-
-
-def _write_stdout(data: bytes) -> None:
-    buffer = getattr(sys.stdout, "buffer", None)
-    if buffer is None:
-        raise OSError("Binary stdout is unavailable")
-    sys.stdout.flush()
-    buffer.write(data)
-    buffer.flush()
 
 
 if __name__ == "__main__":

@@ -64,16 +64,23 @@ def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")
 def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
-    """Install only current assets and remove stale layers in both locations."""
+    """Install one consolidated file and remove stale artifacts in both locations."""
     build = tmp_path / "build"
     installed = tmp_path / "installed"
     build.mkdir()
     installed.mkdir()
-    current = [build / "7_L0.json", build / "7_L1.json"]
-    stale_build = build / "7_L2.json"
-    stale_installed = installed / "7_L2.json"
-    stale_png = installed / "7_L0.png"
-    for path in [*current, stale_build, stale_installed, stale_png]:
+    # KEYBOARD_ID must name a real firmware/examples/<id> directory (an
+    # unconditional Makefile guard reads its config.json), so this reuses
+    # bundled keyboard 1 rather than an arbitrary id.
+    current = [build / "1_L0.json", build / "1_L1.json"]
+    current[0].write_text('{"layer": 0}', encoding="utf-8")
+    current[1].write_text('{"layer": 1}', encoding="utf-8")
+    # Leftovers from a shrunk layer count and the pre-consolidation format,
+    # which the install step must not resurrect.
+    stale_build = build / "1_L2.json"
+    stale_installed = installed / "1_L2.json"
+    stale_png = installed / "1_L0.png"
+    for path in [stale_build, stale_installed, stale_png]:
         path.write_text("{}", encoding="utf-8")
 
     subprocess.run(
@@ -86,7 +93,6 @@ def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
             f"ASSETS={' '.join(map(str, current))}",
             "RENDER_ASSET_DEPS=",
             f"KEYMAP_OVERLAY_DIR={installed}",
-            "KEYMAP_PREFIX=7_",
             "ASSET_EXTENSION=json",
             "STALE_ASSET_EXTENSION=png",
         ],
@@ -94,10 +100,7 @@ def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
         cwd=Path(__file__).parents[2],
     )
 
-    assert sorted(path.name for path in installed.iterdir()) == [
-        "7_L0.json",
-        "7_L1.json",
-    ]
+    assert sorted(path.name for path in installed.iterdir()) == ["1.json"]
     assert not stale_build.exists()
 
 
