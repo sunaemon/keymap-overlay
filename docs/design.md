@@ -5,30 +5,45 @@ momentary layer in a native overlay, on macOS, Linux and Windows.
 
 ## Display Asset Generation
 
+Under the default `VIAL=true`, generation reads the connected device
+directly and needs no Python:
+
 ```text
-VIAL EEPROM (or keymap.c with VIAL=false)
-  ↓ QMK c2json / Vitaly export
+VIAL EEPROM (live device, over Raw HID)
+  ↓ keymap-overlay-generator (Rust; vitaly as a library, one HID session)
+  + keyboard.json + config.json
+build/<keyboard>/assets/<platform>/<keyboard>.json — every layer, one file
+  ↓ make install-assets
+installed models directory/<keyboard>.json
+```
+
+`VIAL=false` (render straight from `keymap.c`, no device connected) keeps the
+original Python pipeline, one process per layer, then consolidated:
+
+```text
+keymap.c
+  ↓ QMK c2json
 build/<keyboard>/qmk-keymap.json
   + keyboard.json + config.json + encoder map
-  ↓ first-party display-model generator, one process per layer
-platform-neutral geometry, labels, transparency, and state (one model per layer)
+  ↓ generate_overlay_asset.py, one process per layer
   ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
   ├─ Linux: build/<keyboard>/assets/linux/<keyboard>_L<n>.json
   └─ Windows: build/<keyboard>/assets/windows/<keyboard>_L<n>.json
-  ↓ consolidate_layer_models.py, one keyboard's layers combined
+  ↓ consolidate_layer_models.py
 build/<keyboard>/assets/<platform>/<keyboard>.json
   ↓ make install-assets
 installed models directory/<keyboard>.json
 ```
 
-The per-layer files are a build-time intermediate; only the combined
-`<keyboard>.json` — every layer keyed by number, in one file — is installed.
-`make install-assets` is the platform-independent model-generation and copy
-target. It installs JSON on every platform. On Windows, generate models from
-WSL with `make install-assets`, then run native `make install-overlay`; WSL
-writes them directly to `%LOCALAPPDATA%/keymap-overlay/`. On macOS and Linux
-the installed models directory is `~/.cache/keymap-overlay`: a regenerable
-cache of what the connected device already knows, not configuration.
+Either way, only the combined `<keyboard>.json` — every layer keyed by
+number, in one file — is installed; any per-layer file on the `VIAL=false`
+path is a build-time intermediate. `make install-assets` is the
+platform-independent model-generation and copy target on both paths. It
+installs JSON on every platform. On Windows, generate models from WSL with
+`make install-assets`, then run native `make install-overlay`; WSL writes
+them directly to `%LOCALAPPDATA%/keymap-overlay/`. On macOS and Linux the
+installed models directory is `~/.cache/keymap-overlay`: a regenerable cache
+of what the connected device already knows, not configuration.
 
 ## Runtime Data Flow
 
@@ -305,16 +320,17 @@ everything else natively.
 
 The project uses VIAL because `vitaly` can read and write VIAL keymap data for
 the EEPROM-based workflow, and because the connected keyboard is the default
-source of truth for both halves of the display model: `vitaly save` reads the
-dynamic keymap out of EEPROM, and `fetch_vial_definition.py` reads the
+source of truth for both halves of the display model. `keymap-overlay-generator`
+(`overlay/keymap-overlay-generator`) depends on `vitaly` as a Rust library,
+not just its CLI: `vitaly::protocol::load_layers_keys` reads the dynamic
+keymap out of EEPROM and `vitaly::protocol::load_vial_meta` reads the
 keyboard's own embedded Vial definition — including the identity of its
-custom keycodes — directly from the device over the same two Vial commands
-vitaly itself uses internally to interpret that dump
-(`CMD_VIAL_GET_SIZE`/`CMD_VIAL_GET_DEFINITION`). `keymap.c` is not consulted
-for either, so a live edit made in the Vial app is reflected without
-recompiling. `VIAL=false` renders straight from `keymap.c` instead, with no
-device connected — useful for keyboards whose keymap is never edited outside
-source.
+custom keycodes — directly from the device, in the same HID session.
+`keymap.c` is not consulted for either, so a live edit made in the Vial app is
+reflected without recompiling. `VIAL=false` renders straight from `keymap.c`
+instead, with no device connected and no Rust involved — useful for keyboards
+whose keymap is never edited outside source; that path stays the Python
+pipeline described above.
 
 `keymap.c` remains the source that firmware is compiled and flashed from either
 way, and `generate_vial.py` embeds each custom keycode's name and
@@ -326,8 +342,9 @@ still remain present as a Make dependency.
 
 ### Shared Display Model
 
-The Python generator converts QMK's keymap and keyboard JSON into one small,
-versioned display model per layer. The model contains only canvas geometry,
+The generator — native Rust under `VIAL=true`, Python under `VIAL=false` —
+converts QMK's keymap and keyboard JSON into one small, versioned display
+model per layer. The model contains only canvas geometry,
 labels, transparency metadata, held-state metadata, and encoder actions; it
 contains no toolkit-specific objects and does not pass through keymap-drawer,
 YAML, SVG, or another schema. All three platforms install these models as JSON,
@@ -339,8 +356,10 @@ key alone receives its pale tint. Display-only Unicode labels for custom
 keycodes come from single-character comments on `custom_keycodes` entries in
 `keymap.c`. Generic and platform-specific aliases — arrow glyphs, ⌘/Super/⊞ for
 the GUI key, and so on — are overlay-owned presentation policy, not keyboard
-data: they live in `generate_overlay_asset.py`'s built-in label tables, keyed
-by `OVERLAY_PLATFORM`, which defaults to the current host. Encoder placement
+data: they live in built-in label tables keyed by `OVERLAY_PLATFORM` (which
+defaults to the current host) — `generate_overlay_asset.py`'s under
+`VIAL=false`, `keymap-overlay-generator`'s `labels.rs` under `VIAL=true`, kept
+in sync by hand. Encoder placement
 is the only project-specific geometry: QMK knows the encoder count and pins
 but not where knobs sit, so `config.json`
 maps each encoder to its push-switch matrix position or to explicit `x`/`y`

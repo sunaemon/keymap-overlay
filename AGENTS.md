@@ -17,59 +17,96 @@ Rust application listens for those reports and updates the window.
 Firmware is the exception: it is not compiled or flashed on Windows, and the
 targets that would do so stop with a message pointing at WSL, macOS or Linux.
 
-There are three parts:
+There are four parts:
 
 1. **Display model tooling** (`model/`) that builds the shared display model
-   and pushes keymaps to VIAL devices.
-2. **Native overlay** (`overlay/`) that implements the Raw HID protocol,
+   under `VIAL=false` and pushes keymaps to VIAL devices for flashing.
+2. **Native asset generator** (`overlay/keymap-overlay-generator`) that builds
+   the same display model under `VIAL=true` (the default), reading a
+   connected device directly — no Python involved on this path.
+3. **Native overlay** (`overlay/`) that implements the Raw HID protocol,
    native macOS window, Linux D-Bus daemon and
    Qt client, and Windows bridge.
-3. **Firmware glue** (`firmware/`) that sends the Raw HID reports.
+4. **Firmware glue** (`firmware/`) that sends the Raw HID reports.
 
 ## Core Components
 
-### 1. Keymap Data Generation (`model/`)
+### 1. Native Display Model Generation (`overlay/keymap-overlay-generator`)
+
+The default (`VIAL=true`) `install-assets`/`draw-layers` path. A standalone
+Cargo workspace, not a root workspace member — see its `Cargo.toml` for why
+(hidapi feature isolation from the platform overlay crates). Depends on
+`vitaly` as a Rust library (not its CLI): `vitaly::protocol::load_vial_meta`
+and `load_layers_keys` read the device's embedded Vial definition and dynamic
+keymap directly, in one HID session, replacing what `fetch_vial_definition.py`
+and `vitaly save` + `generate_qmk_keymap_from_vitaly.py` did over two separate
+device connections. `vitaly::keycodes::is_custom` resolves a raw keycode to
+its custom-keycode index directly, avoiding the string round-trip through
+vitaly's generic `QK_KB_<n>` naming that `model/src/util.py`'s
+`parse_qk_kb_keycode` works around on the Python path. `model.rs` is a
+line-for-line port of `generate_overlay_asset.py`'s geometry/label logic
+(`labels.rs` mirrors its `KEYCODE_LABELS`/`PLATFORM_KEYCODE_LABELS` tables by
+hand — keep both in sync); `types.rs` mirrors `model/src/types.py`'s
+`keyboard.json`/`config.json` structs. Verified byte-for-byte against the
+Python pipeline's output on real hardware when it was introduced.
+
+### 2. Keymap Data Generation (`model/`)
+
+Used for `VIAL=false` display-model rendering (no device connected, straight
+from `keymap.c`) and for firmware compile/flash JSON, which is unconditionally
+`keymap.c`-based regardless of the outer `VIAL` default.
 
 - `count_layers.py`: Counts the number of layers in a QMK keymap JSON.
 - `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
 - `generate_custom_keycodes.py`: Assigns each `custom_keycodes` enum entry its
   numeric value from `keymap.c`, or reads them directly off a device-fetched
-  Vial definition under `VIAL=true`.
+  Vial definition — the latter mode is only reachable by invoking this script
+  directly now; `install-assets`/`draw-layers` under `VIAL=true` use the
+  native generator above instead, and `flash-keymap` always forces
+  `VIAL=false`.
 - `generate_overlay_asset.py`: Builds the shared display model and emits JSON
-  for all three native renderers, including encoder rotation and push actions.
-  It resolves custom keycode names and preserves `KC_TRNS` as display-only
-  transparency metadata. Custom keycodes get their display glyph from a
-  single-character comment in `keymap.c`, or from the device's embedded
-  `customKeycodes` under `VIAL=true`; generic and platform-specific key
-  aliases are its own built-in tables, not `keymap.c` content.
+  for all three native renderers, including encoder rotation and push actions,
+  under `VIAL=false`. It resolves custom keycode names and preserves
+  `KC_TRNS` as display-only transparency metadata. Custom keycodes get their
+  display glyph from a single-character comment in `keymap.c`; generic and
+  platform-specific key aliases are its own built-in tables, not `keymap.c`
+  content.
+- `consolidate_layer_models.py`: Combines one keyboard's rendered per-layer
+  files (the `VIAL=false` path only now) into the single installed
+  `<keyboard>.json`.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`,
   embedding each `keymap.c` custom keycode's name and display glyph so the
   compiled firmware is self-describing.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
-- `generate_qmk_keymap_from_vitaly.py`: Converts a VIAL dump back to QMK keymap
-  JSON (the `VIAL=true` path).
+- `generate_qmk_keymap_from_vitaly.py`: Converts a VIAL dump back to QMK
+  keymap JSON. Still used to compute `$(QMK_KEYMAP_JSON)` (and so `$(LAYERS)`,
+  for the "no layers found" sanity check) even under `VIAL=true`, ahead of the
+  native generator's own independent device read — a known redundant second
+  HID session left as a follow-up, not yet removed.
 - `fetch_vial_definition.py`: Reads and decompresses the connected device's
-  own embedded Vial definition over Raw HID, so `VIAL=true` rendering never
-  needs `keymap.c`.
-- `vitaly`: external tool that reads and writes VIAL keymaps over HID.
+  own embedded Vial definition over Raw HID. Only reachable by invoking it
+  directly now; useful as a standalone diagnostic for inspecting a device's
+  raw Vial meta.
+- `vitaly`: Rust crate (github.com/bskaplou/vitaly) that reads and writes VIAL
+  keymaps over HID; used as an external CLI here, and as a library dependency
+  by `keymap-overlay-generator` above.
 
 Transparency resolution is for **display only**. `KC_TRNS` must survive intact
 on the path that writes to the device, otherwise layers stop inheriting from
 layer 0 in EEPROM. `flash-keymap` and the renderer therefore consume the same
 raw QMK JSON; only the overlay resolves transparency, in memory.
 
-### 2. Visualization
+### 3. Visualization
 
-The first-party generator produces a platform-neutral model from QMK
-`keyboard.json`; encoder positions come from each keyboard's project
-`config.json`, because QMK describes encoder pins but not their physical layout.
-All three systems install JSON and draw the model with AppKit, GNOME Shell, Qt
-Quick, or WPF. An
+The generator produces a platform-neutral model from QMK `keyboard.json`;
+encoder positions come from each keyboard's project `config.json`, because QMK
+describes encoder pins but not their physical layout. All three systems
+install JSON and draw the model with AppKit, GNOME Shell, Qt Quick, or WPF. An
 encoder placed at a matrix position replaces that push key with one circular
 control showing counter-clockwise, clockwise, and push actions.
 
-### 3. Native Overlay (`overlay/`)
+### 4. Native Overlay (`overlay/`)
 
 - `overlay/keymap-core`: the Raw HID wire format (`parse_raw_layer_event`) and
   active-layer state reducer. Pure logic, no I/O, so it stays unit-testable.
@@ -111,7 +148,7 @@ no polling loop and no periodic repaint.
 Do not reintroduce one: this process runs from login to logout, so idle cost
 matters.
 
-### 4. Firmware (`firmware/`, `firmware/examples/`)
+### 5. Firmware (`firmware/`, `firmware/examples/`)
 
 `firmware/layer_notify.h` is the shared header copied into the QMK keymap at
 build time. It owns both the report format and the momentary-layer detection
@@ -134,12 +171,15 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 
 ## Tech Stack
 
-- **Python**: keymap data extraction and processing.
+- **Python**: keymap data extraction and processing, on the `VIAL=false`
+  display-model path and for firmware compile/flash JSON.
   - `uv`: package manager. `pydantic` for validation, `typer` for CLIs, the
     `hidapi` PyPI package (a bundled native extension, no system library) for
     `fetch_vial_definition.py`'s device queries.
 - **Rust/C++/C#/GJS**: the overlay (AppKit on macOS, WPF on Windows, GNOME
-  Shell or Qt Quick plus KDE LayerShellQt on Linux, and `hidapi`).
+  Shell or Qt Quick plus KDE LayerShellQt on Linux, and `hidapi`), and the
+  native `VIAL=true` display-model generator (`overlay/keymap-overlay-generator`,
+  depending on the `vitaly` crate).
 - **Makefile**: orchestrates build, installation, and flashing.
 - **mise**: pins every tool version, including formatters and linters.
 - **lefthook**: manages the git hooks declared in `lefthook.yml`.
@@ -372,6 +412,9 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
 - `overlay/keymap-core/`: Platform-neutral Rust protocol and transition logic.
 - `overlay/keymap-overlay-runtime/`: Library-only shared listener, model
   composition, transitions, command-line handling, and logging.
+- `overlay/keymap-overlay-generator/`: Standalone Cargo workspace (not a root
+  member) that builds the display model natively under `VIAL=true`, reading a
+  connected device via the `vitaly` crate.
 - `overlay/platforms/`: Platform-owned protocols, bridges, and native frontends.
 - `firmware/`: First-party QMK integration, local keyboard configurations, and
   vendored firmware dependencies.

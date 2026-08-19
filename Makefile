@@ -263,10 +263,24 @@ ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(ASSET_B
 
 # The per-layer files above stay a build-time intermediate; installing and
 # reading them is one keyboard, one file, since a keyboard's layers are always
-# generated and read together.
+# generated and read together. Under VIAL=true they are not built at all: the
+# native generator reads the device directly in one session (see FILE RULES).
 CONSOLIDATED_ASSET := $(ASSET_BUILD_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)
 
 endif
+
+# ================= NATIVE ASSET GENERATOR =================
+# Standalone Cargo workspace (see its Cargo.toml), not a root workspace
+# member: vitaly wants hidapi's default features, while the platform overlay
+# crates need a specific backend (Linux hidraw, not the libusb default, which
+# detaches the kernel driver and stops the keyboard from typing). A shared
+# Cargo.lock would unify those feature sets across every workspace member.
+GENERATOR_MANIFEST := overlay/keymap-overlay-generator/Cargo.toml
+GENERATOR_BINARY := overlay/keymap-overlay-generator/target/release/keymap-overlay-generator$(EXE_SUFFIX)
+
+.PHONY: _build_generator
+_build_generator:
+	$(CARGO) build --release --manifest-path "$(GENERATOR_MANIFEST)"
 
 # ================= OVERLAY CONFIGURATION =================
 ifeq ($(OS_FAMILY),windows)
@@ -994,6 +1008,7 @@ print-vars:
 	@echo "LAYERS=$(LAYERS)"
 	@echo "ASSETS=$(ASSETS)"
 	@echo "CONSOLIDATED_ASSET=$(CONSOLIDATED_ASSET)"
+	@echo "GENERATOR_BINARY=$(GENERATOR_BINARY)"
 	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
 	@echo ""
 	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
@@ -1045,10 +1060,19 @@ endif
 $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(ASSET_BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
 
+ifeq ($(VIAL),true)
+# Reads the connected device directly in one HID session (customKeycodes,
+# every layer, every encoder) and renders straight to the consolidated file;
+# there is no per-layer file or separate consolidation step on this path.
+$(CONSOLIDATED_ASSET): $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(shell find overlay/keymap-overlay-generator/src -name '*.rs') | $(ASSET_BUILD_DIR)
+	@$(MAKE) _build_generator
+	$(call WRITE_OUTPUT,$@,"$(GENERATOR_BINARY)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --layout-name "$(LAYOUT_NAME)" --keyboard-id "$(KEYBOARD_ID)" --platform "$(OVERLAY_PLATFORM)" --pixels-per-unit "$(PIXELS_PER_UNIT)")
+else
 # Passed the exact current $(ASSETS) paths, not a directory to glob, so a
 # leftover from a shrunk layer count can never sneak into the installed file.
 $(CONSOLIDATED_ASSET): $(ASSETS) model/scripts/consolidate_layer_models.py | $(ASSET_BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.consolidate_layer_models --keyboard-id "$(KEYBOARD_ID)" $(foreach asset,$(ASSETS),--layer-json "$(asset)"))
+endif
 
 .PHONY: _force_build
 _force_build:
