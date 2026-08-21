@@ -53,6 +53,10 @@ WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WS
 # render straight from keymap.c instead, with no device connected.
 VIAL ?= true
 
+# Set DRY_RUN=true to have flash-keymap resolve and print what it would write
+# without touching the device's EEPROM.
+DRY_RUN ?= false
+
 # ================= TOOLS CONFIGURATION =================
 MISE ?= mise
 # Format and lint tools are pinned in mise.dev.toml, which mise only loads when
@@ -1010,8 +1014,12 @@ ifdef KEYBOARD_ID
 # transparent-key inheritance keeps working. It writes the keymap and
 # encoders directly (vitaly::protocol::set_keymap/set_encoder) — no
 # read-current-state-and-merge round trip, since nothing else is touched.
+ifeq ($(DRY_RUN),true)
+	@echo "Resolving keymap.c for the device (dry run, nothing will be written)..."
+else
 	@echo "Writing keymap.c to the device..."
-	"$(FLASHER_BINARY)" --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)"
+endif
+	"$(FLASHER_BINARY)" --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)" $(if $(filter true,$(DRY_RUN)),--dry-run)
 else
 	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
 endif

@@ -350,13 +350,20 @@ than deleting the directory, so its administrative files go too.
 ### Keymap Flashing (VIAL/Vitaly)
 
 ```bash
-make flash-keymap   # Parse keymap.c and write the keymap to EEPROM
+make flash-keymap                 # Parse keymap.c and write the keymap to EEPROM
+make flash-keymap DRY_RUN=true    # Resolve and print what would be written, untouched device
 ```
 
-Dumps the device configuration with `vitaly`, merges the QMK keymap into it,
-and loads it back. Iterates all keyboards unless `KEYBOARD_ID` is set. It
-always reads `keymap.c`, regardless of `VIAL`'s default, and rejects an
-explicit `VIAL=true`, which would read the device and write it straight back.
+Builds `keymap.c` through `qmk c2json`, then the native
+`keymap-overlay-flash-keymap` binary (`overlay/keymap-overlay-generator`,
+`vitaly` as a library) writes the keymap and encoder bindings straight to the
+device in one HID session — no read-current-state-and-merge round trip, since
+nothing else (macros, RGB, combos) is ever touched. Iterates all keyboards
+unless `KEYBOARD_ID` is set. It always reads `keymap.c`, regardless of
+`VIAL`'s default, and rejects an explicit `VIAL=true`, which would read the
+device and write it straight back. `DRY_RUN=true` resolves and prints the
+layout and encoder layout it would write, without opening a write session —
+use it before ever running this against real hardware for the first time.
 
 ## Coding Standards
 
