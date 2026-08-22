@@ -474,6 +474,9 @@ make install-overlay
 On Linux, `make test-e2e-linux` builds the release binaries and exercises the
 daemon and Qt renderer together on an isolated D-Bus session, including a
 golden-image comparison of the rendered Qt Quick overlay.
+`make test-hid-dbus-e2e-linux` additionally creates a virtual device through
+`/dev/uhid`, sends Raw HID layer reports through the kernel `hidraw` path, and
+asserts the daemon's public D-Bus state. It requires the `uhid` kernel module.
 
 To exercise the complete native overlay without a physical keyboard, name a
 generated keyboard and momentary layer:
@@ -539,6 +542,7 @@ make test
 make test-rust
 make build-overlay
 make test-e2e-linux # Linux only: daemon + Qt renderer over an isolated D-Bus session
+make test-hid-dbus-e2e-linux # Linux only: virtual Raw HID device + daemon D-Bus state
 make audit
 make test-installer-sh
 ```
