@@ -241,7 +241,7 @@ MSYS2 and Visual Studio Build Tools are needed only for development.
 Install Windows Terminal first, in an administrator PowerShell:
 
 ```powershell
-winget install --interactive --exact Microsoft.WindowsTerminal
+winget install --interactive --exact --source winget Microsoft.WindowsTerminal
 ```
 
 ### 1. Prepare WSL
@@ -249,8 +249,13 @@ winget install --interactive --exact Microsoft.WindowsTerminal
 In an administrator PowerShell:
 
 ```powershell
-winget install --interactive --exact dorssel.usbipd-win
+winget install --interactive --exact --source winget dorssel.usbipd-win
 wsl.exe --install --no-distribution
+```
+
+Restart if requested. In a new administrator PowerShell:
+
+```powershell
 wsl --update
 wsl --install -d Ubuntu --name keymap-firmware
 ```
