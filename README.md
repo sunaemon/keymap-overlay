@@ -238,12 +238,24 @@ Windows uses two environments:
 
 MSYS2 and Visual Studio Build Tools are needed only for development.
 
+Install Windows Terminal first, in an administrator PowerShell:
+
+```powershell
+winget install --interactive --exact --source winget Microsoft.WindowsTerminal
+```
+
 ### 1. Prepare WSL
 
 In an administrator PowerShell:
 
 ```powershell
-winget install --interactive --exact dorssel.usbipd-win
+winget install --interactive --exact --source winget dorssel.usbipd-win
+wsl.exe --install --no-distribution
+```
+
+Restart if requested. In a new administrator PowerShell:
+
+```powershell
 wsl --update
 wsl --install -d Ubuntu --name keymap-firmware
 ```
@@ -501,9 +513,9 @@ must already have been generated and installed with `make install-assets`.
 Develop the native Windows overlay in MSYS2 UCRT64, not WSL. In PowerShell:
 
 ```powershell
-winget install --id MSYS2.MSYS2 -e
-winget install --id jdx.mise -e
-winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+winget install --id MSYS2.MSYS2 -e --source winget
+winget install --id jdx.mise -e --source winget
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
 Create a Windows Terminal profile that runs:
