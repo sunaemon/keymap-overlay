@@ -421,6 +421,9 @@ can compose Liquid Glass and native controls directly while Windows needs the ma
 non-activating behaviour described above.
 
 The cost is three windows to maintain, each exercised only by the CI job for
-its own system. What CI can prove is that each compiles and that the shared
-logic passes; that a window stays on top, passes clicks through and never takes
+its own system. Linux CI also runs the release daemon and Qt renderer on an
+isolated D-Bus session with an installed-model fixture and `--simulate`, then
+asserts the visible, hidden, and visible-again states through the public D-Bus
+contract and compares the software-rendered Qt Quick output with a golden PNG.
+That a window stays on top, passes clicks through and never takes
 focus still needs a real machine.

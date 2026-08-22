@@ -471,6 +471,10 @@ make install-overlay
 `make install-overlay` exercises the source-built installation path. Use
 `make run-overlay` for a foreground UI session.
 
+On Linux, `make test-e2e-linux` builds the release binaries and exercises the
+daemon and Qt renderer together on an isolated D-Bus session, including a
+golden-image comparison of the rendered Qt Quick overlay.
+
 To exercise the complete native overlay without a physical keyboard, name a
 generated keyboard and momentary layer:
 
@@ -534,6 +538,7 @@ make lint
 make test
 make test-rust
 make build-overlay
+make test-e2e-linux # Linux only: daemon + Qt renderer over an isolated D-Bus session
 make audit
 make test-installer-sh
 ```

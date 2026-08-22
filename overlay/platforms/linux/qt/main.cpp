@@ -1,19 +1,23 @@
 #include <QByteArray>
+#include <QColor>
 #include <QCursor>
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusMessage>
 #include <QDBusServiceWatcher>
 #include <QDebug>
+#include <QFont>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QObject>
+#include <QPalette>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickWindow>
 #include <QScreen>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QVariant>
 #include <QtGlobal>
@@ -216,6 +220,35 @@ void apply_state(QQuickWindow &window, bool visible,
   window.show();
 }
 
+void capture_golden_render(QQuickWindow &window) {
+  const auto output = qEnvironmentVariable("KEYMAP_OVERLAY_GOLDEN_OUTPUT");
+  if (output.isEmpty()) {
+    return;
+  }
+  QTimer::singleShot(100, &window, [&window, output]() {
+    if (!window.grabWindow().save(output)) {
+      qCritical() << "Failed to save the golden render to" << output;
+      QGuiApplication::exit(1);
+    }
+  });
+}
+
+void configure_golden_rendering(QGuiApplication &application) {
+  if (!qEnvironmentVariableIsSet("KEYMAP_OVERLAY_GOLDEN_OUTPUT")) {
+    return;
+  }
+  application.setFont(QFont(QStringLiteral("Noto Sans")));
+  QPalette palette;
+  palette.setColor(QPalette::Window, QColor(QStringLiteral("#f6f5f4")));
+  palette.setColor(QPalette::WindowText, QColor(QStringLiteral("#2e3436")));
+  palette.setColor(QPalette::Button, QColor(QStringLiteral("#deddda")));
+  palette.setColor(QPalette::ButtonText, QColor(QStringLiteral("#2e3436")));
+  palette.setColor(QPalette::Mid, QColor(QStringLiteral("#9a9996")));
+  palette.setColor(QPalette::Highlight, QColor(QStringLiteral("#3584e4")));
+  palette.setColor(QPalette::HighlightedText, Qt::white);
+  application.setPalette(palette);
+}
+
 class RendererClient final : public QObject {
   Q_OBJECT
 
@@ -299,6 +332,10 @@ private:
     }
     generation_ = generation;
     apply_state(window_, visible, model_json);
+    if (visible && !captured_golden_render_) {
+      captured_golden_render_ = true;
+      capture_golden_render(window_);
+    }
   }
 
   static void fail(const std::exception &error) {
@@ -310,6 +347,7 @@ private:
   QDBusConnection connection_;
   QDBusServiceWatcher owner_watcher_;
   qulonglong generation_ = 0;
+  bool captured_golden_render_ = false;
 };
 
 } // namespace
@@ -321,6 +359,7 @@ int main(int argc, char *argv[]) {
   }
 
   QGuiApplication application(argc, argv);
+  configure_golden_rendering(application);
 
   try {
     QQmlEngine engine;
