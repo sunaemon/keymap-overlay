@@ -33,6 +33,7 @@ def test_generate_report_invokes_cargo_about_and_normalizes_output(
 
 
 def test_generate_report_accepts_a_standalone_manifest(tmp_path: Path) -> None:
+    """Pass a standalone Cargo manifest to cargo-about."""
     commands: list[list[str]] = []
     template = tmp_path / "licenses.hbs"
     template.write_text("template")
@@ -41,6 +42,7 @@ def test_generate_report_accepts_a_standalone_manifest(tmp_path: Path) -> None:
     manifest = tmp_path / "standalone/Cargo.toml"
 
     def capture_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+        """Record the cargo-about command before returning its test report."""
         commands.append(command)
         return report_runner(command)
 

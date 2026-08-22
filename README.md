@@ -625,8 +625,10 @@ GPL-2.0-or-later. The tools and application are MIT licensed. See
 [overlay dependency notices](THIRD-PARTY-LICENSES.html) and
 [model-generator dependency notices](GENERATOR-THIRD-PARTY-LICENSES.html).
 
-The installed overlay embeds its MIT license and dependency notices, so a
-binary copied away from its install directory can still state its terms: run
-`keymap-overlay --license` or `keymap-overlay --third-party-licenses`. The
-generator's separate notice is installed beside its configuration, and all
-license files remain in every release archive for downstream packaging.
+On macOS and Linux, the installed overlay embeds its MIT license and dependency
+notices, so a binary copied away from its install directory can still state its
+terms: run `keymap-overlay --license` or
+`keymap-overlay --third-party-licenses`. On Windows, the notice files must
+remain beside `keymap-overlay.exe`. The generator's separate notice is
+installed beside its configuration, and all license files remain in every
+release archive for downstream packaging.

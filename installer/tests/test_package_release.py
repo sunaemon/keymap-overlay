@@ -13,6 +13,7 @@ from installer.release.package_release import ReleasePackagingError, package_rel
 def test_linux_archive_contains_both_renderers_and_gnome_extension(
     tmp_path: Path,
 ) -> None:
+    """Package the complete Linux release payload."""
     root = create_release_tree(tmp_path)
 
     asset = package_release("Linux", "x86_64", root=root, output_dir=root / "dist")
@@ -34,6 +35,7 @@ def test_linux_archive_contains_both_renderers_and_gnome_extension(
 
 
 def test_macos_archive_contains_the_native_overlay(tmp_path: Path) -> None:
+    """Package the complete macOS release payload."""
     root = create_release_tree(tmp_path)
 
     asset = package_release("macOS", "arm64", root=root, output_dir=root / "dist")
@@ -53,6 +55,7 @@ def test_macos_archive_contains_the_native_overlay(tmp_path: Path) -> None:
 
 
 def test_windows_archive_contains_wpf_and_dotnet_licenses(tmp_path: Path) -> None:
+    """Package the complete Windows release payload and .NET notices."""
     root = create_release_tree(tmp_path)
     dotnet_root = create_dotnet_tree(tmp_path)
 
