@@ -15,6 +15,9 @@ internal static class NativeMethods
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void WakeCallback();
 
+    [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_prepare")]
+    internal static extern int Prepare();
+
     [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_start")]
     internal static extern int Start(WakeCallback wake);
 

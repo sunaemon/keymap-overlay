@@ -13,6 +13,7 @@ from installer.release.package_release import ReleasePackagingError, package_rel
 def test_linux_archive_contains_both_renderers_and_gnome_extension(
     tmp_path: Path,
 ) -> None:
+    """Package the complete Linux release payload."""
     root = create_release_tree(tmp_path)
 
     asset = package_release("Linux", "x86_64", root=root, output_dir=root / "dist")
@@ -21,15 +22,20 @@ def test_linux_archive_contains_both_renderers_and_gnome_extension(
         files = {member.name for member in archive.getmembers() if member.isfile()}
     assert files == {
         "LICENSE",
+        "GENERATOR-THIRD-PARTY-LICENSES.html",
         "THIRD-PARTY-LICENSES.html",
         "example/LICENSE",
         "gnome-shell/extension.js",
         "keymap-overlay",
+        "keymap-overlay-generator",
         "keymap-overlay-qt",
+        "keyboards/1/config.json",
+        "keyboards/1/keyboard.json",
     }
 
 
 def test_macos_archive_contains_the_native_overlay(tmp_path: Path) -> None:
+    """Package the complete macOS release payload."""
     root = create_release_tree(tmp_path)
 
     asset = package_release("macOS", "arm64", root=root, output_dir=root / "dist")
@@ -38,13 +44,18 @@ def test_macos_archive_contains_the_native_overlay(tmp_path: Path) -> None:
         files = {member.name for member in archive.getmembers() if member.isfile()}
     assert files == {
         "LICENSE",
+        "GENERATOR-THIRD-PARTY-LICENSES.html",
         "THIRD-PARTY-LICENSES.html",
         "example/LICENSE",
         "keymap-overlay",
+        "keymap-overlay-generator",
+        "keyboards/1/config.json",
+        "keyboards/1/keyboard.json",
     }
 
 
 def test_windows_archive_contains_wpf_and_dotnet_licenses(tmp_path: Path) -> None:
+    """Package the complete Windows release payload and .NET notices."""
     root = create_release_tree(tmp_path)
     dotnet_root = create_dotnet_tree(tmp_path)
 
@@ -61,12 +72,16 @@ def test_windows_archive_contains_wpf_and_dotnet_licenses(tmp_path: Path) -> Non
         files = set(archive.namelist())
     assert files == {
         "DOTNET-LIBRARY-LICENSE.txt",
+        "GENERATOR-THIRD-PARTY-LICENSES.html",
         "LICENSE",
         "THIRD-PARTY-LICENSES.html",
         "dotnet-runtime-10.0.0-THIRD-PARTY-NOTICES.txt",
         "dotnet-wpf-10.0.0-THIRD-PARTY-NOTICES.txt",
         "example/LICENSE",
         "keymap-overlay.exe",
+        "keymap-overlay-generator.exe",
+        "keyboards/1/config.json",
+        "keyboards/1/keyboard.json",
     }
 
 
@@ -107,9 +122,20 @@ def create_release_tree(tmp_path: Path) -> Path:
     write_file(root / "LICENSE.md")
     write_file(root / "firmware/examples/LICENSE")
     write_file(root / "THIRD-PARTY-LICENSES.html")
+    write_file(root / "GENERATOR-THIRD-PARTY-LICENSES.html")
     write_file(root / "target/release/keymap-overlay")
     write_file(root / "target/release/keymap-overlay-qt")
     write_file(root / "target/wpf-publish/keymap-overlay.exe")
+    write_file(
+        root
+        / "overlay/keymap-overlay-generator/target/release/keymap-overlay-generator"
+    )
+    write_file(
+        root
+        / "overlay/keymap-overlay-generator/target/release/keymap-overlay-generator.exe"
+    )
+    write_file(root / "firmware/examples/1/config.json")
+    write_file(root / "firmware/examples/1/keyboard.json")
     write_file(root / "overlay/platforms/linux/gnome-shell/extension.js")
     return root
 

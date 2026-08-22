@@ -26,8 +26,10 @@ pre-commit:
         - docs/about.toml
         - mise.dev.toml
         - docs/third-party-licenses.hbs
+        - docs/generator-third-party-licenses.hbs
         - installer/release/generate_license_report.py
         - THIRD-PARTY-LICENSES.html
+        - GENERATOR-THIRD-PARTY-LICENSES.html
 
 commit-msg:
   jobs:

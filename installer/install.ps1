@@ -21,7 +21,6 @@ function Main {
 
 function Install-Release {
     Assert-SupportedPlatform
-    Assert-LayerAssets
 
     $temporaryDirectory = Join-Path $env:TEMP "keymap-overlay-$([guid]::NewGuid())"
     New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
@@ -60,10 +59,14 @@ function Install-Release {
 function Uninstall-Release {
     Stop-Overlay
     Remove-ItemProperty -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $binaryPath, $licensePath, $thirdPartyLicensesPath, $installerPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $binaryPath, $generatorPath, $generatorLicensesPath, $licensePath, $thirdPartyLicensesPath, $installerPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $keyboardConfigDirectory -Recurse -Force -ErrorAction SilentlyContinue
 
     Write-Output 'Removed:'
     Write-Output "  binary: $binaryPath"
+    Write-Output "  generator: $generatorPath"
+    Write-Output "  generator licenses: $generatorLicensesPath"
+    Write-Output "  keyboard configs: $keyboardConfigDirectory"
     Write-Output "  licenses: $licensePath, $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
@@ -78,6 +81,9 @@ function Initialize-Paths {
     $script:assetDirectory = Join-Path $env:LOCALAPPDATA 'keymap-overlay'
     $script:programDirectory = Join-Path $env:LOCALAPPDATA 'Programs\keymap-overlay'
     $script:binaryPath = Join-Path $programDirectory 'keymap-overlay.exe'
+    $script:generatorPath = Join-Path $programDirectory 'keymap-overlay-generator.exe'
+    $script:generatorLicensesPath = Join-Path $programDirectory 'GENERATOR-THIRD-PARTY-LICENSES.html'
+    $script:keyboardConfigDirectory = Join-Path $programDirectory 'keyboards'
     $script:licensePath = Join-Path $programDirectory 'LICENSE'
     $script:thirdPartyLicensesPath = Join-Path $programDirectory 'THIRD-PARTY-LICENSES.html'
     $script:installerPath = Join-Path $assetDirectory 'install.ps1'
@@ -108,14 +114,6 @@ function Get-ReleaseArchitecture {
     }
 }
 
-function Assert-LayerAssets {
-    $layerModels = Get-ChildItem -LiteralPath $assetDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.BaseName -match '^\d+$' }
-    if (-not $layerModels) {
-        throw "No layer JSON models found in $assetDirectory. Generate assets from a source checkout before installing the binary."
-    }
-}
-
 function Stage-Release {
     param([string]$TemporaryDirectory)
 
@@ -138,13 +136,32 @@ function Stage-Release {
     Confirm-AttestationsIfAvailable -Paths @($archivePath, $checksumsPath, $stagedInstallerPath)
     Expand-Archive -LiteralPath $archivePath -DestinationPath $TemporaryDirectory
 
-    foreach ($name in @('keymap-overlay.exe', 'LICENSE', 'THIRD-PARTY-LICENSES.html')) {
+    foreach ($name in @('keymap-overlay.exe', 'keymap-overlay-generator.exe', 'GENERATOR-THIRD-PARTY-LICENSES.html', 'LICENSE', 'THIRD-PARTY-LICENSES.html')) {
         if (-not (Test-Path -LiteralPath (Join-Path $TemporaryDirectory $name) -PathType Leaf)) {
             throw "$assetName does not contain $name."
         }
     }
+    Assert-StagedKeyboardConfigs -TemporaryDirectory $TemporaryDirectory -AssetName $assetName
 
     return $releaseTag
+}
+
+function Assert-StagedKeyboardConfigs {
+    param(
+        [string]$TemporaryDirectory,
+        [string]$AssetName
+    )
+
+    $configs = @(Get-ChildItem -LiteralPath (Join-Path $TemporaryDirectory 'keyboards') -Filter 'config.json' -File -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Directory.Name -match '^\d+$' })
+    if ($configs.Count -eq 0) {
+        throw "$AssetName does not contain keyboard configurations."
+    }
+    foreach ($config in $configs) {
+        if (-not (Test-Path -LiteralPath (Join-Path $config.Directory.FullName 'keyboard.json') -PathType Leaf)) {
+            throw "$AssetName has no keyboard.json beside $($config.FullName)."
+        }
+    }
 }
 
 function Confirm-Checksum {
@@ -196,10 +213,13 @@ function Backup-Installation {
     param([string]$BackupDirectory)
 
     New-Item -ItemType Directory -Path $BackupDirectory | Out-Null
-    foreach ($path in @($binaryPath, $licensePath, $thirdPartyLicensesPath, $installerPath)) {
+    foreach ($path in @($binaryPath, $generatorPath, $generatorLicensesPath, $licensePath, $thirdPartyLicensesPath, $installerPath)) {
         if (Test-Path -LiteralPath $path -PathType Leaf) {
             Copy-Item -LiteralPath $path -Destination $BackupDirectory
         }
+    }
+    if (Test-Path -LiteralPath $keyboardConfigDirectory -PathType Container) {
+        Copy-Item -LiteralPath $keyboardConfigDirectory -Destination $backupDirectory -Recurse
     }
 
     $runCommand = Get-ItemPropertyValue -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
@@ -230,6 +250,10 @@ function Install-StagedFiles {
     New-Item -ItemType Directory -Path $programDirectory -Force | Out-Null
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
+    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay-generator.exe') -Destination $generatorPath -Force
+    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'GENERATOR-THIRD-PARTY-LICENSES.html') -Destination $generatorLicensesPath -Force
+    Remove-Item -LiteralPath $keyboardConfigDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keyboards') -Destination $keyboardConfigDirectory -Recurse
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Destination $licensePath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Destination $thirdPartyLicensesPath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Destination $installerPath -Force
@@ -238,14 +262,15 @@ function Install-StagedFiles {
 function Install-Autostart {
     $quotedBinary = '"{0}"' -f $binaryPath
     $quotedAssets = '"{0}"' -f $assetDirectory
-    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary --asset-dir $quotedAssets"
-    Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
+    $quotedKeyboards = '"{0}"' -f $keyboardConfigDirectory
+    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary --asset-dir $quotedAssets --keyboard-config-dir $quotedKeyboards"
+    Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets, '--keyboard-config-dir', $quotedKeyboards
 }
 
 function Restore-Installation {
     param([string]$BackupDirectory)
 
-    foreach ($path in @($binaryPath, $licensePath, $thirdPartyLicensesPath, $installerPath)) {
+    foreach ($path in @($binaryPath, $generatorPath, $generatorLicensesPath, $licensePath, $thirdPartyLicensesPath, $installerPath)) {
         $backup = Join-Path $BackupDirectory (Split-Path -Leaf $path)
         if (Test-Path -LiteralPath $backup -PathType Leaf) {
             Copy-Item -LiteralPath $backup -Destination $path -Force
@@ -253,6 +278,11 @@ function Restore-Installation {
         else {
             Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
         }
+    }
+    $backupKeyboards = Join-Path $BackupDirectory 'keyboards'
+    Remove-Item -LiteralPath $keyboardConfigDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $backupKeyboards -PathType Container) {
+        Copy-Item -LiteralPath $backupKeyboards -Destination $keyboardConfigDirectory -Recurse
     }
 
     $runCommandPath = Join-Path $BackupDirectory 'run-command.txt'
@@ -267,7 +297,11 @@ function Restore-Installation {
 function Restart-PreviousInstallation {
     if (Test-Path -LiteralPath $binaryPath -PathType Leaf) {
         $quotedAssets = '"{0}"' -f $assetDirectory
-        Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
+        $arguments = @('--asset-dir', $quotedAssets)
+        if (Test-Path -LiteralPath $keyboardConfigDirectory -PathType Container) {
+            $arguments += @('--keyboard-config-dir', ('"{0}"' -f $keyboardConfigDirectory))
+        }
+        Start-Process -FilePath $binaryPath -ArgumentList $arguments
     }
 }
 
@@ -276,11 +310,14 @@ function Write-InstalledFiles {
 
     Write-Output 'Installed:'
     Write-Output "  binary: $binaryPath"
+    Write-Output "  generator: $generatorPath"
+    Write-Output "  generator licenses: $generatorLicensesPath"
+    Write-Output "  keyboard configs: $keyboardConfigDirectory"
     Write-Output "  license: $licensePath"
     Write-Output "  third-party licenses: $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
-    Write-Output "Using existing layer models: $assetDirectory"
+    Write-Output "Layer model cache: $assetDirectory"
     Write-Output "Logs: $logDirectory"
     Write-Output "Verified release: $ReleaseTag"
 }

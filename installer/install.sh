@@ -11,6 +11,9 @@ CACHE_DIRECTORY="${HOME}/.cache/keymap-overlay"
 STATE_DIRECTORY="${HOME}/.config/keymap-overlay"
 BIN_DIRECTORY="${HOME}/.local/bin"
 BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay"
+GENERATOR_PATH="${BIN_DIRECTORY}/keymap-overlay-generator"
+KEYBOARD_CONFIG_DIRECTORY="${STATE_DIRECTORY}/keyboards"
+GENERATOR_LICENSE_PATH="${STATE_DIRECTORY}/GENERATOR-THIRD-PARTY-LICENSES.html"
 QT_BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay-qt"
 INSTALLER_PATH="${STATE_DIRECTORY}/install.sh"
 LOG_DIRECTORY="${HOME}/.local/var/log/keymap-overlay"
@@ -40,7 +43,6 @@ install_release() {
   require_command install
   require_command tar
   require_command "$checksum_command"
-  require_layer_assets
 
   temporary_directory="$(mktemp -d)"
   trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
@@ -64,14 +66,18 @@ install_release() {
 uninstall_release() {
   stop_and_remove_service
   "$platform_file_uninstaller"
-  rm -f "$BINARY_PATH" "$INSTALLER_PATH"
+  rm -f "$BINARY_PATH" "$GENERATOR_PATH" "$GENERATOR_LICENSE_PATH" "$INSTALLER_PATH"
+  rm -rf "$KEYBOARD_CONFIG_DIRECTORY"
 
   echo 'Removed:'
   echo "  binary: ${BINARY_PATH}"
+  echo "  generator: ${GENERATOR_PATH}"
+  echo "  generator licenses: ${GENERATOR_LICENSE_PATH}"
+  echo "  keyboard configs: ${KEYBOARD_CONFIG_DIRECTORY}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
-  echo "Kept layer assets: ${CACHE_DIRECTORY}"
+  echo "Kept layer models: ${CACHE_DIRECTORY}"
   echo "Kept logs: ${LOG_DIRECTORY}"
 }
 
@@ -79,7 +85,6 @@ configure_platform() {
   case "$(uname -s):$(uname -m)" in
     Darwin:arm64)
       asset_name='keymap-overlay-macos-arm64.tar.gz'
-      asset_extension='json'
       checksum_command='shasum'
       service_path="${HOME}/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist"
       service_installer=install_macos_service
@@ -95,7 +100,6 @@ configure_platform() {
       ;;
     Linux:x86_64)
       asset_name='keymap-overlay-linux-x86_64.tar.gz'
-      asset_extension='json'
       checksum_command='sha256sum'
       service_path="${HOME}/.config/systemd/user/keymap-overlay.service"
       service_installer=install_linux_service
@@ -123,16 +127,6 @@ require_command() {
   fi
 }
 
-require_layer_assets() {
-  if [ ! -d "$CACHE_DIRECTORY" ] ||
-    ! find "$CACHE_DIRECTORY" -maxdepth 1 -type f -name "*.${asset_extension}" -print |
-      grep -Eq "/[0-9]+\.${asset_extension}$"; then
-    echo "ERROR: no layer ${asset_extension} assets found in ${CACHE_DIRECTORY}." >&2
-    echo 'Generate assets from a source checkout before installing the binary.' >&2
-    exit 1
-  fi
-}
-
 stage_release() {
   latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${REPOSITORY}/releases/latest")"
   release_tag=${latest_url##*/}
@@ -153,13 +147,33 @@ stage_release() {
   verify_attestations_if_available "$archive" "$checksums" "$staged_installer"
   tar -xzf "$archive" -C "$temporary_directory"
 
-  for file in keymap-overlay LICENSE THIRD-PARTY-LICENSES.html; do
+  for file in keymap-overlay keymap-overlay-generator LICENSE THIRD-PARTY-LICENSES.html GENERATOR-THIRD-PARTY-LICENSES.html; do
     if [ ! -f "${temporary_directory}/${file}" ]; then
       echo "ERROR: ${asset_name} does not contain ${file}." >&2
       exit 1
     fi
   done
+  validate_staged_keyboard_configs
   "$platform_staged_validator"
+}
+
+validate_staged_keyboard_configs() {
+  found=false
+  for config in "${temporary_directory}"/keyboards/[0-9]*/config.json; do
+    if [ ! -f "$config" ]; then
+      continue
+    fi
+    keyboard_directory=${config%/config.json}
+    if [ ! -f "${keyboard_directory}/keyboard.json" ]; then
+      echo "ERROR: ${asset_name} has no keyboard.json beside ${config}." >&2
+      exit 1
+    fi
+    found=true
+  done
+  if [ "$found" = false ]; then
+    echo "ERROR: ${asset_name} does not contain keyboard configurations." >&2
+    exit 1
+  fi
 }
 
 validate_no_extra_staged_files() {
@@ -218,8 +232,11 @@ verify_checksum() {
 
 backup_installation() {
   backup_file "$BINARY_PATH" binary
+  backup_file "$GENERATOR_PATH" generator
+  backup_file "$GENERATOR_LICENSE_PATH" generator-license
   backup_file "$INSTALLER_PATH" installer
   backup_file "$service_path" service
+  backup_directory "$KEYBOARD_CONFIG_DIRECTORY" keyboards
   "$platform_file_backupper"
 }
 
@@ -277,6 +294,10 @@ stop_service() {
 # both, so nothing is installed for them here.
 install_staged_files() {
   install -m 755 "${temporary_directory}/keymap-overlay" "$BINARY_PATH" &&
+    install -m 755 "${temporary_directory}/keymap-overlay-generator" "$GENERATOR_PATH" &&
+    install -m 644 "${temporary_directory}/GENERATOR-THIRD-PARTY-LICENSES.html" "$GENERATOR_LICENSE_PATH" &&
+    rm -rf "$KEYBOARD_CONFIG_DIRECTORY" &&
+    cp -pR "${temporary_directory}/keyboards" "$KEYBOARD_CONFIG_DIRECTORY" &&
     install -m 755 "$staged_installer" "$INSTALLER_PATH" &&
     "$platform_file_installer"
 }
@@ -302,8 +323,11 @@ install_service() {
 
 restore_installation() {
   restore_file "$BINARY_PATH" binary
+  restore_file "$GENERATOR_PATH" generator
+  restore_file "$GENERATOR_LICENSE_PATH" generator-license
   restore_file "$INSTALLER_PATH" installer
   restore_file "$service_path" service
+  restore_directory "$KEYBOARD_CONFIG_DIRECTORY" keyboards
   "$platform_file_restorer"
 }
 
@@ -359,6 +383,7 @@ install_macos_service() {
   label='com.sunaemon.keymap-overlay'
   binary_xml="$(xml_escape "$BINARY_PATH")"
   assets_xml="$(xml_escape "$CACHE_DIRECTORY")"
+  keyboards_xml="$(xml_escape "$KEYBOARD_CONFIG_DIRECTORY")"
   log_xml="$(xml_escape "${LOG_DIRECTORY}/overlay.log")"
   mkdir -p "$(dirname "$service_path")" || return
   cat >"${service_path}.tmp" <<EOF
@@ -373,6 +398,8 @@ install_macos_service() {
     <string>${binary_xml}</string>
     <string>--asset-dir</string>
     <string>${assets_xml}</string>
+    <string>--keyboard-config-dir</string>
+    <string>${keyboards_xml}</string>
     <string>--log-out</string>
     <string>${log_xml}</string>
   </array>
@@ -414,7 +441,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart="${BINARY_PATH}" --asset-dir "${CACHE_DIRECTORY}"
+ExecStart="${BINARY_PATH}" --asset-dir "${CACHE_DIRECTORY}" --keyboard-config-dir "${KEYBOARD_CONFIG_DIRECTORY}"
 # The log is left on stderr for journald, which timestamps, rotates and retains
 # it: journalctl --user -u keymap-overlay
 SyslogIdentifier=keymap-overlay
@@ -523,10 +550,13 @@ print_linux_files() {
 print_installed_files() {
   echo 'Installed:'
   echo "  binary: ${BINARY_PATH}"
+  echo "  generator: ${GENERATOR_PATH}"
+  echo "  generator licenses: ${GENERATOR_LICENSE_PATH}"
+  echo "  keyboard configs: ${KEYBOARD_CONFIG_DIRECTORY}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
-  echo "Using existing layer assets: ${CACHE_DIRECTORY}"
+  echo "Layer model cache: ${CACHE_DIRECTORY}"
   echo "Logs: ${LOG_DIRECTORY}"
   echo "Licenses: ${BINARY_PATH} --license, --third-party-licenses"
   echo "Verified release: ${release_tag}"

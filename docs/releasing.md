@@ -10,7 +10,7 @@ Releases are beta until the project explicitly declares 1.0 stability.
 
    This updates `Cargo.toml` and `pyproject.toml`, runs
    `cargo check --workspace` and `uv lock` to refresh both lockfiles, and
-   regenerates `THIRD-PARTY-LICENSES.html`.
+   regenerates the overlay and generator third-party license notices.
 
 2. Run the full verification suite:
 

@@ -1,0 +1,27 @@
+<html lang='en'>
+  <head>
+    <meta charset='utf-8' />
+    <title>keymap-overlay-generator third-party licenses</title>
+  </head>
+  <body>
+    <h1>keymap-overlay-generator third-party licenses</h1>
+    <p>This document lists the licenses of dependencies distributed with
+      keymap-overlay-generator.</p>
+    {{#each licenses}}
+      {{#if first_of_kind}}
+        <h2 id='{{id}}'>{{name}}</h2>
+      {{/if}}
+      <h3>{{name}}</h3>
+      <p>Used by:</p>
+      <ul>
+        {{#each used_by}}
+          <li>{{crate.name}}
+            {{crate.version}}{{#if crate.repository}}
+              —
+              <a href='{{crate.repository}}'>source</a>{{/if}}</li>
+        {{/each}}
+      </ul>
+      <pre>{{text}}</pre>
+    {{/each}}
+  </body>
+</html>

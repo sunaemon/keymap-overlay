@@ -13,15 +13,20 @@ CHECKSUM='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 mkdir -p "$FAKE_BIN" "$FIXTURE_DIRECTORY"
 
 printf '#!/usr/bin/env sh\nexit 0\n' >"$FIXTURE_DIRECTORY/keymap-overlay"
+printf '#!/usr/bin/env sh\nexit 0\n' >"$FIXTURE_DIRECTORY/keymap-overlay-generator"
 printf '#!/usr/bin/env sh\nexit 0\n' >"$FIXTURE_DIRECTORY/keymap-overlay-qt"
 printf 'MIT license fixture\n' >"$FIXTURE_DIRECTORY/LICENSE"
 printf 'Third-party notices fixture\n' >"$FIXTURE_DIRECTORY/THIRD-PARTY-LICENSES.html"
+printf 'Generator third-party notices fixture\n' >"$FIXTURE_DIRECTORY/GENERATOR-THIRD-PARTY-LICENSES.html"
 mkdir -p "$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon"
 printf '{}\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/metadata.json"
 printf '// extension fixture\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/extension.js"
 printf '/* stylesheet fixture */\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/stylesheet.css"
-chmod +x "$FIXTURE_DIRECTORY/keymap-overlay" "$FIXTURE_DIRECTORY/keymap-overlay-qt"
-tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay keymap-overlay-qt gnome-shell LICENSE THIRD-PARTY-LICENSES.html
+mkdir -p "$FIXTURE_DIRECTORY/keyboards/1"
+printf '{}\n' >"$FIXTURE_DIRECTORY/keyboards/1/config.json"
+printf '{}\n' >"$FIXTURE_DIRECTORY/keyboards/1/keyboard.json"
+chmod +x "$FIXTURE_DIRECTORY/keymap-overlay" "$FIXTURE_DIRECTORY/keymap-overlay-generator" "$FIXTURE_DIRECTORY/keymap-overlay-qt"
+tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay keymap-overlay-generator keymap-overlay-qt keyboards gnome-shell LICENSE THIRD-PARTY-LICENSES.html GENERATOR-THIRD-PARTY-LICENSES.html
 
 for command in awk cat cp dirname find grep gzip id mkdir mktemp mv rm tar; do
   ln -s "$(command -v "$command")" "$FAKE_BIN/$command"
@@ -175,15 +180,19 @@ test_linux_install_and_uninstall() {
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
 
   test -x "$bin/keymap-overlay"
+  test -x "$bin/keymap-overlay-generator"
   test -x "$bin/keymap-overlay-qt"
   test -x "$state/install.sh"
+  test -f "$state/keyboards/1/config.json"
+  test -f "$state/keyboards/1/keyboard.json"
+  test -f "$state/GENERATOR-THIRD-PARTY-LICENSES.html"
   # The binary embeds the notices, so nothing is installed for them.
   test ! -e "$state/LICENSE"
   test ! -e "$state/THIRD-PARTY-LICENSES.html"
   unit="$home/.config/systemd/user/keymap-overlay.service"
   qt_unit="$home/.config/systemd/user/keymap-overlay-qt.service"
   extension="$home/.local/share/gnome-shell/extensions/keymap-overlay@sunaemon"
-  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\" --asset-dir \"$cache\""
+  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\" --asset-dir \"$cache\" --keyboard-config-dir \"$state/keyboards\""
   # Anchored on the directives: the unit's own comments mention both names.
   assert_file_contains "$unit" "SyslogIdentifier=keymap-overlay"
   if grep -q '^ExecStart=.*--log-out' "$unit"; then
@@ -201,8 +210,11 @@ test_linux_install_and_uninstall() {
 
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz uninstall
   test ! -e "$bin/keymap-overlay"
+  test ! -e "$bin/keymap-overlay-generator"
   test ! -e "$bin/keymap-overlay-qt"
   test ! -e "$state/install.sh"
+  test ! -e "$state/keyboards"
+  test ! -e "$state/GENERATOR-THIRD-PARTY-LICENSES.html"
   test ! -e "$unit"
   test ! -e "$qt_unit"
   test ! -e "$extension"
@@ -224,6 +236,8 @@ test_macos_stops_service_before_replacing_binary() {
   # The ampersand in the home directory must survive XML escaping.
   assert_file_contains "$plist" '<string>--asset-dir</string>'
   assert_file_contains "$plist" 'macos &amp; home/.cache/keymap-overlay'
+  assert_file_contains "$plist" '<string>--keyboard-config-dir</string>'
+  assert_file_contains "$plist" 'macos &amp; home/.config/keymap-overlay/keyboards'
   assert_file_contains "$plist" '<string>--log-out</string>'
   assert_file_contains "$plist" 'macos &amp; home/.local/var/log/keymap-overlay/overlay.log'
   if grep -F 'KEYMAP_OVERLAY_LOG_DIR' "$plist" >/dev/null; then
@@ -267,7 +281,11 @@ test_failed_service_install_rolls_back() {
   mkdir -p "$cache" "$state" "$bin" "$(dirname "$unit")"
   : >"$cache/1.json"
   printf 'old binary\n' >"$bin/keymap-overlay"
+  printf 'old generator\n' >"$bin/keymap-overlay-generator"
+  printf 'old generator notices\n' >"$state/GENERATOR-THIRD-PARTY-LICENSES.html"
   printf 'old qt binary\n' >"$bin/keymap-overlay-qt"
+  mkdir -p "$state/keyboards/1"
+  printf 'old config\n' >"$state/keyboards/1/config.json"
   printf 'old installer\n' >"$state/install.sh"
   printf 'old service\n' >"$unit"
   : >"$home/commands.log"
@@ -278,7 +296,10 @@ test_failed_service_install_rolls_back() {
   fi
 
   assert_file_contains "$bin/keymap-overlay" 'old binary'
+  assert_file_contains "$bin/keymap-overlay-generator" 'old generator'
+  assert_file_contains "$state/GENERATOR-THIRD-PARTY-LICENSES.html" 'old generator notices'
   assert_file_contains "$bin/keymap-overlay-qt" 'old qt binary'
+  assert_file_contains "$state/keyboards/1/config.json" 'old config'
   assert_file_contains "$state/install.sh" 'old installer'
   assert_file_contains "$unit" 'old service'
   enable_count=$(grep -c '^systemctl --user enable keymap-overlay.service' "$home/commands.log")
@@ -317,53 +338,18 @@ test_failed_gnome_upgrade_keeps_qt_disabled() {
   grep -F 'systemctl --user stop keymap-overlay.service' "$home/commands.log" >/dev/null
 }
 
-test_missing_layer_assets_fails_without_installing_files() {
+test_missing_layer_assets_are_generated_at_startup() {
   home="$TEST_DIRECTORY/no assets home"
   cache="$home/.cache/keymap-overlay"
   mkdir -p "$cache"
   : >"$home/commands.log"
 
-  if run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz; then
-    echo 'Expected installation without layer assets to fail.' >&2
-    exit 1
-  fi
+  run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
 
-  test ! -e "$home/.local/bin/keymap-overlay"
-  test ! -e "$home/.local/bin/keymap-overlay-qt"
-  test ! -e "$home/.config/keymap-overlay/install.sh"
-  test ! -e "$home/.config/systemd/user/keymap-overlay.service"
-}
-
-test_unrelated_json_is_not_a_layer_asset() {
-  home="$TEST_DIRECTORY/unrelated json home"
-  cache="$home/.cache/keymap-overlay"
-  mkdir -p "$cache"
-  : >"$cache/keymap-overlay.runtimeconfig.json"
-  : >"$home/commands.log"
-
-  if run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz; then
-    echo 'Expected installation with only unrelated JSON to fail.' >&2
-    exit 1
-  fi
-
-  test ! -e "$home/.local/bin/keymap-overlay"
-  test ! -e "$home/.config/systemd/user/keymap-overlay.service"
-}
-
-test_numeric_prefix_json_is_not_a_layer_asset() {
-  home="$TEST_DIRECTORY/numeric prefix json home"
-  cache="$home/.cache/keymap-overlay"
-  mkdir -p "$cache"
-  : >"$cache/1.backup.json"
-  : >"$home/commands.log"
-
-  if run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz; then
-    echo 'Expected installation with only a numeric-prefix JSON file to fail.' >&2
-    exit 1
-  fi
-
-  test ! -e "$home/.local/bin/keymap-overlay"
-  test ! -e "$home/.config/systemd/user/keymap-overlay.service"
+  test -x "$home/.local/bin/keymap-overlay"
+  test -x "$home/.local/bin/keymap-overlay-generator"
+  test -f "$home/.config/keymap-overlay/keyboards/1/config.json"
+  test -f "$home/.config/systemd/user/keymap-overlay.service"
 }
 
 test_linux_install_and_uninstall
@@ -371,7 +357,5 @@ test_macos_stops_service_before_replacing_binary
 test_gnome_disables_qt_renderer_unless_forced
 test_failed_service_install_rolls_back
 test_failed_gnome_upgrade_keeps_qt_disabled
-test_missing_layer_assets_fails_without_installing_files
-test_unrelated_json_is_not_a_layer_asset
-test_numeric_prefix_json_is_not_a_layer_asset
+test_missing_layer_assets_are_generated_at_startup
 echo 'install.sh tests passed'

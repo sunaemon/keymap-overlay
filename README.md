@@ -36,17 +36,17 @@ or Windows.
 
 ## How It Works
 
-Installation has three parts:
+Installation has two parts:
 
 1. Build QMK firmware that reports momentary layer changes over Raw HID.
-2. Generate keyboard-specific **layer models (JSON)** from the source keymap.
-3. Install the released native overlay and its login service.
+2. Install the released native overlay and its login service. The overlay reads
+   the connected keyboard and refreshes its layer models at startup.
 
-Firmware and layer models come from this source checkout because they depend on
-the keyboard files under `firmware/examples/`. The native overlay comes from GitHub
+Firmware comes from this source checkout. The native overlay comes from GitHub
 Releases, so a normal installation does not compile Rust locally. Release
-archives contain the executable, MIT license, and third-party notices, but no
-keyboard firmware or layer models.
+archives contain the executable, native model generator, minimal definitions
+for the bundled keyboards, MIT license, and third-party notices; generated
+layer models remain a local cache.
 
 See [docs/design.md](docs/design.md) for the Raw HID protocol, data flow, layer
 composition rules, and native window design.
@@ -133,16 +133,7 @@ make flash KEYBOARD_ID=1
 an rp2040 `RPI-RP2` volume at `/run/media/$USER/RPI-RP2`; set `SUDO=` if the
 desktop already mounts it, or set `UF2_VOLUME_LABEL` for another label.
 
-### 3. Generate and install layer models
-
-```bash
-make install-assets
-```
-
-This installs one file per keyboard, such as `1.json`, under
-`~/.cache/keymap-overlay`. Run it again whenever the keymap changes.
-
-### 4. Install the released overlay
+### 3. Install the released overlay
 
 ```bash
 curl -fsSL \
@@ -153,9 +144,10 @@ sh install.sh
 ```
 
 Review the script before leaving `less` with `q`. It selects the release for
-the current system, verifies its SHA-256 checksum, installs the executable,
-registers login services, and starts them. When authenticated GitHub CLI is
-available, it also verifies the artifact attestation.
+the current system, verifies its SHA-256 checksum, installs the executable and
+model generator, registers login services, and starts them. Keep the keyboard
+connected for the first start. When authenticated GitHub CLI is available, it
+also verifies the artifact attestation.
 
 On macOS and Linux the executable is installed to `~/.local/bin/keymap-overlay`,
 with the Qt renderer beside it, while the generated layer models stay in
@@ -232,9 +224,9 @@ systemctl --user restart keymap-overlay-qt.service
 
 Windows uses two environments:
 
-- **WSL `keymap-firmware`** builds and flashes QMK firmware and generates layer
-  models.
-- **PowerShell** installs and runs the released native overlay.
+- **WSL `keymap-firmware`** builds and flashes QMK firmware.
+- **PowerShell** installs the released native overlay, which reads layer models
+  directly from the connected keyboard.
 
 MSYS2 and Visual Studio Build Tools are needed only for development.
 
@@ -311,21 +303,7 @@ USBPcap is installed, `usbipd bind` may require `--force`; use it only for the
 bootloader entry. For rp2040, copying the built `.uf2` to `RPI-RP2` in Explorer
 is a simpler fallback.
 
-### 3. Install layer models into the Windows profile
-
-From WSL:
-
-```bash
-WINDOWS_LOCAL="$(cd /mnt/c && cmd.exe /C echo %LOCALAPPDATA% | tr -d '\r')"
-WINDOWS_LOCAL_APP_DATA="$(wslpath "$WINDOWS_LOCAL")"
-make install-assets \
-  OVERLAY_PLATFORM=windows \
-  KEYMAP_OVERLAY_DIR="$WINDOWS_LOCAL_APP_DATA/keymap-overlay"
-```
-
-Run this again whenever the keymap changes.
-
-### 4. Install the released Windows overlay
+### 3. Install the released Windows overlay
 
 In a non-administrator PowerShell:
 
@@ -339,30 +317,39 @@ powershell.exe -ExecutionPolicy Bypass -File install.ps1
 ```
 
 Review the script before running the final command. It verifies the release,
-installs the executable under `%LOCALAPPDATA%\Programs\keymap-overlay` and the
-layer models under `%LOCALAPPDATA%\keymap-overlay`, registers the current
-user's `KeymapOverlay` Run value, and starts the overlay.
+installs the executable, generator, and bundled keyboard definitions under
+`%LOCALAPPDATA%\Programs\keymap-overlay`, registers the current user's
+`KeymapOverlay` Run value, and starts the overlay. Keep the keyboard connected
+for the first start; models are cached under `%LOCALAPPDATA%\keymap-overlay`.
 
 ## Everyday Operations
 
 ### Update a keymap
 
-Edit `keymap.c`, flash it, then render the layer models from the connected
-keyboard:
+Edit `keymap.c`, flash it, then restart the overlay so it refreshes the layer
+models from the connected keyboard:
 
 ```bash
 git pull
 make setup-firmware
 make flash KEYBOARD_ID=<keyboard-id>
 make flash-keymap KEYBOARD_ID=<keyboard-id>
-make install-assets KEYBOARD_ID=<keyboard-id>
 ```
 
-To render directly from the edited source without updating EEPROM, use
-`make install-assets VIAL=false KEYBOARD_ID=<keyboard-id>` instead.
+On Windows, build and flash the firmware in WSL. To update EEPROM from
+`keymap.c`, split source preparation from the native HID write:
 
-On Windows, use WSL and the Windows-profile arguments from the installation
-section. Restart the runtime after installing new models:
+```bash
+# WSL (from the same checkout, or copy the generated JSON afterward)
+make prepare-flash-keymap KEYBOARD_ID=<keyboard-id>
+
+# MSYS2 UCRT64
+make write-keymap KEYBOARD_ID=<keyboard-id>
+```
+
+`write-keymap` reads `build/<keyboard-id>/qmk-keymap.json`; set
+`QMK_KEYMAP_JSON=<path>` if WSL generated it in another checkout. Restart the
+runtime after installing new models:
 
 ```bash
 # macOS
@@ -381,7 +368,8 @@ On Windows PowerShell:
 Get-Process keymap-overlay -ErrorAction SilentlyContinue | Stop-Process
 $models = "$env:LOCALAPPDATA\keymap-overlay"
 $exe = "$env:LOCALAPPDATA\Programs\keymap-overlay\keymap-overlay.exe"
-Start-Process $exe -ArgumentList "--asset-dir", "`"$models`""
+$keyboards = "$env:LOCALAPPDATA\Programs\keymap-overlay\keyboards"
+Start-Process $exe -ArgumentList "--asset-dir", "`"$models`"", "--keyboard-config-dir", "`"$keyboards`""
 ```
 
 ### Upgrade the released overlay
@@ -435,15 +423,17 @@ sh ~/.config/keymap-overlay/install.sh --uninstall
 powershell.exe -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\keymap-overlay\install.ps1" -Uninstall
 ```
 
-Uninstalling removes the executable, license notices, and login entry. Layer
-models and rotated logs are retained.
+Uninstalling removes the executables, bundled keyboard definitions, license
+notices, and login entry. Layer models and rotated logs are retained.
 
 ## VIAL Keymaps
 
-By default, `make install-assets` and `make draw-layers` read the keymap
-currently stored in the connected keyboard's VIAL EEPROM — including edits
-made live in the Vial app, not just what `keymap.c` last compiled to. To
-render straight from `keymap.c` instead, with no keyboard connected:
+The installed overlay reads the keymap currently stored in the connected
+keyboard's VIAL EEPROM at startup—including edits made live in the Vial app,
+not just what `keymap.c` last compiled to. Restart it after making live edits.
+For development, `make draw-layers` performs the same connected-device read.
+To install a model rendered straight from `keymap.c`, with no keyboard
+connected, use the explicit offline path:
 
 ```bash
 make install-assets VIAL=false
@@ -454,6 +444,10 @@ Parse `keymap.c` and write it to EEPROM without rebuilding firmware:
 ```bash
 make flash-keymap
 ```
+
+That convenience target performs both steps on macOS and Linux. On Windows,
+run `prepare-flash-keymap` in WSL and `write-keymap` in MSYS2 UCRT64 as shown
+above; only the preparation step needs QMK.
 
 `flash-keymap` preserves `KC_TRNS`, so transparent keys continue to inherit
 lower layers.
@@ -505,8 +499,8 @@ make run-overlay SIMULATE=1:2
 
 This shows keyboard 1 layer 2 for two seconds, hides it for one second, and
 repeats until interrupted. Simulation replaces Raw HID input for that process,
-so it also works on a machine with no supported keyboard attached. The models
-must already have been generated and installed with `make install-assets`.
+so it also works on a machine with no supported keyboard attached. A model must
+already exist in the cache; a normal connected-keyboard startup creates it.
 
 ### Windows with MSYS2 UCRT64
 
@@ -587,8 +581,12 @@ The pairs must be `x86_64-pc-windows-msvc` with `win-x64`, or
 above includes both x64 and ARM64 C++ tools so either native build has the MSVC
 linker and Windows SDK it needs.
 
-`make install-overlay` expects layer models already generated into the Windows
-profile by WSL. Firmware and asset targets intentionally stop in MSYS2.
+`make install-overlay` installs `keymap-overlay-generator.exe` beside the WPF
+frontend and refreshes layer models from every connected Vial keyboard at
+startup. If a keyboard is unavailable, its existing cached model is retained
+and refresh is retried the next time the overlay starts. `VIAL=false` rendering
+and `prepare-flash-keymap` still need QMK in WSL; `write-keymap` performs the
+prepared EEPROM write natively.
 
 After changing the Windows bridge, also run:
 
@@ -624,9 +622,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and
 Firmware under `firmware/` and keyboard files under `firmware/examples/` are
 GPL-2.0-or-later. The tools and application are MIT licensed. See
 [LICENSE.md](LICENSE.md), [firmware/examples/LICENSE](firmware/examples/LICENSE), and the generated
-[third-party license notices](THIRD-PARTY-LICENSES.html).
+[overlay dependency notices](THIRD-PARTY-LICENSES.html) and
+[model-generator dependency notices](GENERATOR-THIRD-PARTY-LICENSES.html).
 
-The installed overlay embeds the first and the last of those, so a binary copied
-away from its install directory can still state its terms: run
-`keymap-overlay --license` or `keymap-overlay --third-party-licenses`. Both files also
-remain in every release archive for downstream packaging.
+On macOS and Linux, the installed overlay embeds its MIT license and dependency
+notices, so a binary copied away from its install directory can still state its
+terms: run `keymap-overlay --license` or
+`keymap-overlay --third-party-licenses`. On Windows, the notice files must
+remain beside `keymap-overlay.exe`. The generator's separate notice is
+installed beside its configuration, and all license files remain in every
+release archive for downstream packaging.

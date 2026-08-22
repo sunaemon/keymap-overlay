@@ -85,6 +85,11 @@ def package_release(
             root / "THIRD-PARTY-LICENSES.html",
             package / "THIRD-PARTY-LICENSES.html",
         )
+        copy_file(
+            root / "GENERATOR-THIRD-PARTY-LICENSES.html",
+            package / "GENERATOR-THIRD-PARTY-LICENSES.html",
+        )
+        copy_keyboard_configs(root, package)
 
         if platform == "Linux":
             asset = output_dir / f"keymap-overlay-linux-{architecture}.tar.gz"
@@ -95,6 +100,11 @@ def package_release(
                 root / "target/release/keymap-overlay-qt",
                 package / "keymap-overlay-qt",
             )
+            copy_file(
+                root
+                / "overlay/keymap-overlay-generator/target/release/keymap-overlay-generator",
+                package / "keymap-overlay-generator",
+            )
             shutil.copytree(
                 root / "overlay/platforms/linux/gnome-shell", package / "gnome-shell"
             )
@@ -103,6 +113,11 @@ def package_release(
             asset = output_dir / f"keymap-overlay-macos-{architecture}.tar.gz"
             copy_file(
                 root / "target/release/keymap-overlay", package / "keymap-overlay"
+            )
+            copy_file(
+                root
+                / "overlay/keymap-overlay-generator/target/release/keymap-overlay-generator",
+                package / "keymap-overlay-generator",
             )
             create_tar_archive(package, asset)
         elif platform == "Windows":
@@ -113,6 +128,11 @@ def package_release(
                 root / "target/wpf-publish/keymap-overlay.exe",
                 package / "keymap-overlay.exe",
             )
+            copy_file(
+                root
+                / "overlay/keymap-overlay-generator/target/release/keymap-overlay-generator.exe",
+                package / "keymap-overlay-generator.exe",
+            )
             add_dotnet_licenses(package, dotnet_root, run)
             create_zip_archive(package, asset)
         else:
@@ -120,6 +140,27 @@ def package_release(
 
     logger.info("Created %s", asset)
     return asset
+
+
+def copy_keyboard_configs(root: Path, package: Path) -> None:
+    """Package the minimal per-keyboard inputs needed by startup refresh."""
+    source_root = root / "firmware" / "examples"
+    destination_root = package / "keyboards"
+    copied = 0
+    for config_path in sorted(source_root.glob("[0-9]*/config.json")):
+        keyboard_dir = config_path.parent
+        keyboard_json = keyboard_dir / "keyboard.json"
+        if not keyboard_json.is_file():
+            raise ReleasePackagingError(f"Missing keyboard definition: {keyboard_json}")
+        destination = destination_root / keyboard_dir.name
+        destination.mkdir(parents=True)
+        copy_file(config_path, destination / "config.json")
+        copy_file(keyboard_json, destination / "keyboard.json")
+        copied += 1
+    if copied == 0:
+        raise ReleasePackagingError(
+            f"No keyboard configurations found in {source_root}"
+        )
 
 
 def add_dotnet_licenses(package: Path, dotnet_root: Path, run: CommandRunner) -> None:

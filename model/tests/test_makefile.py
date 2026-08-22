@@ -1,17 +1,22 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+if (make := shutil.which("make")) is None:
+    raise RuntimeError("make is required to test the Makefile")
+MAKE: str = make
+
 
 def test_firmware_setup_initializes_only_required_qmk_submodules() -> None:
     """Resolve nested firmware dependencies from the configured keyboards."""
     result = subprocess.run(
-        ["make", "-n", "setup-firmware", "OS_FAMILY=linux"],
+        [MAKE, "-n", "setup-firmware", "OS_FAMILY=linux"],
         check=True,
         capture_output=True,
         text=True,
@@ -48,11 +53,64 @@ def test_recursive_clone_skips_firmware_submodule() -> None:
     assert result.stdout.strip() == "none"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Run-key wiring")
+def test_windows_source_install_wires_startup_refresh() -> None:
+    """Install the generator and pass both model directories at startup."""
+    root = Path(__file__).parents[2]
+    install = subprocess.run(
+        [MAKE, "-n", "install-overlay", "MAKE=echo"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    service = subprocess.run(
+        [MAKE, "-n", "_install_service_windows"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+
+    assert "keymap-overlay-generator.exe" in install.stdout
+    assert "no layer JSON models found" not in install.stdout
+    assert 'configs="$(cygpath -w ' in service.stdout
+    assert service.stdout.count("--keyboard-config-dir") == 2
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Native Windows HID targets")
+def test_windows_exposes_native_hid_targets() -> None:
+    """Allow device reads and prepared keymap writes without QMK in MSYS2."""
+    root = Path(__file__).parents[2]
+    install = subprocess.run(
+        [MAKE, "-n", "_install_assets_windows", "VIAL=true", "MAKE=echo"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    source_render = subprocess.run(
+        [MAKE, "_install_assets_windows", "VIAL=false"],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    makefile = (root / "Makefile").read_text(encoding="utf-8")
+
+    assert "_install_assets" in install.stdout
+    assert "must run in WSL" not in install.stdout
+    assert '"$(FLASHER_BINARY)" --qmk-keymap-json' in makefile
+    assert "make prepare-flash-keymap KEYBOARD_ID=$(KEYBOARD_ID)" in makefile
+    assert source_render.returncode != 0
+    assert "needs QMK source processing" in source_render.stderr
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Firmware builds are unsupported")
 def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
     """Tell QMK not to undo the selective firmware setup during a build."""
     result = subprocess.run(
-        ["make", "-n", "_flash_macos", "KEYBOARD_ID=1"],
+        [MAKE, "-n", "_flash_macos", "KEYBOARD_ID=1"],
         check=True,
         capture_output=True,
         text=True,
@@ -85,7 +143,7 @@ def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
 
     subprocess.run(
         [
-            "make",
+            MAKE,
             "_internal_install",
             "VIAL=false",
             "KEYBOARD_ID=1",
@@ -123,7 +181,7 @@ esac
 
     result = subprocess.run(
         [
-            "make",
+            MAKE,
             "_flash_linux",
             "KEYBOARD_ID=1",
             f"UV={fake_uv}",

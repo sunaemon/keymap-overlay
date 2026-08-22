@@ -40,9 +40,8 @@ EXE_SUFFIX :=
 endif
 
 # QMK's Windows toolchain is QMK MSYS, a separate environment from the one that
-# builds the overlay, and the boards here flash over USB or a mounted UF2
-# volume that MSYS2 cannot reach either. Rather than half-support it, the
-# firmware targets say where to go.
+# builds the overlay. Keep QMK source processing and firmware deployment there;
+# native Raw HID reads and writes use the portable Rust tooling below.
 WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WSL, macOS or Linux (see Platform Support in README.md)
 
 # ================= VIA CONFIGURATION =================
@@ -161,7 +160,7 @@ QMK_KEYMAP ?= keymap
 QMK_FLAGS += -e SKIP_GIT=yes
 
 KEYBOARDS_DIR ?= firmware/examples
-# The installed service passes this to the overlay for startup self-heal
+# The installed service passes this to the overlay for startup refresh
 # (FILE RULES); it needs to survive being launched with an unrelated cwd.
 KEYBOARDS_DIR_ABS := $(abspath $(KEYBOARDS_DIR))
 
@@ -466,9 +465,9 @@ _setup_toolchain_windows:
 		echo "the Windows PowerShell directory on PATH."; \
 		exit 1; \
 	fi
-	@echo "NOTE: firmware is not built or flashed on Windows."
-	@echo "      Use WSL, macOS or Linux for 'make compile', 'make flash' and"
-	@echo "      'make flash-keymap'; see the Platform Support section of README.md."
+	@echo "NOTE: firmware and QMK source processing do not run in this shell."
+	@echo "      Use WSL, macOS or Linux for 'make compile', 'make flash', and"
+	@echo "      'make prepare-flash-keymap'; native Raw HID targets run here."
 
 .PHONY: doctor
 doctor:
@@ -477,45 +476,47 @@ doctor:
 	status=$${PIPESTATUS[0]}; \
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
-# On macOS and Linux this is no longer part of the normal workflow: the
-# running overlay owns ~/.cache/keymap-overlay itself (startup self-heal,
-# --keyboard-config-dir) and install-overlay no longer calls this target.
-# It still exists for two things that have no self-heal equivalent: the
-# WSL-to-Windows cross-generation workflow (WSL reports OS_FAMILY=linux too,
-# so it takes the same branch below, passing an explicit KEYMAP_OVERLAY_DIR
-# pointing at the Windows-side path — see README's Setup on Windows), and a
-# manual force-refresh on macOS/Linux when self-heal's fill-if-missing
-# wouldn't otherwise pick up a connected-device change.
+# This is no longer part of normal source or release installation: every native
+# overlay refreshes connected keyboards at startup (`--keyboard-config-dir`).
+# It remains an explicit development tool, especially for offline VIAL=false
+# rendering. The VIAL=true path is a native Raw HID read on every platform.
 #
 # Under VIAL=false, LAYERS depends on $(QMK_KEYMAP_JSON), so install-assets
 # and draw-layers build the QMK JSON in a first make invocation, then re-enter
 # make to expand assets. Under VIAL=true the native generator (FILE RULES)
 # determines its own layer count from the device, so this first pass — and
 # the extra device read building $(QMK_KEYMAP_JSON) would cost — is skipped.
-ifeq ($(OS_FAMILY),windows)
 .PHONY: install-assets
 install-assets:
-	@echo "ERROR: install-assets must run in WSL, not MSYS2."; \
-		echo "Run it from the shared checkout in WSL, passing KEYMAP_OVERLAY_DIR"; \
-		echo "the Windows %LOCALAPPDATA%\\keymap-overlay path. The commands that"; \
-		echo "derive it are in the Setup on Windows section of README.md."; \
-		exit 1
-else
-install-assets:
 ifdef KEYBOARD_ID
+	@$(MAKE) _install_assets_$(OS_FAMILY)
+else
+	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
+endif
+
+.PHONY: _install_assets_macos
+_install_assets_macos _install_assets_linux:
+	@$(MAKE) _install_assets
+
+.PHONY: _install_assets_windows
+_install_assets_windows:
+ifeq ($(VIAL),true)
+	@$(MAKE) _install_assets
+else
+	$(error install-assets VIAL=false needs QMK source processing; run it from WSL, macOS or Linux)
+endif
+
+.PHONY: _install_assets
+_install_assets:
 ifeq ($(VIAL),true)
 	@$(MAKE) _internal_install
 else
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
 endif
-else
-	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
-endif
-endif
 
 # Kept as a compatibility alias for existing scripts. New callers should use
-# install-assets. The Windows overlay receives its JSON models from WSL.
+# install-assets.
 .PHONY: install
 install: install-assets
 
@@ -623,8 +624,9 @@ test-release-acceptance-macos: test-installer-sh test-appkit-e2e-macos
 test-release-acceptance-windows: test-installer-ps test-wpf-e2e-windows
 
 .PHONY: test-wpf-e2e-windows
-test-wpf-e2e-windows: build-overlay
+test-wpf-e2e-windows: build-overlay _build_generator
 ifeq ($(OS_FAMILY),windows)
+	install -C "$(GENERATOR_BINARY)" "$(WPF_PUBLISH_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	powershell -NoProfile -ExecutionPolicy Bypass -File overlay/platforms/windows/tests/test_wpf_e2e.ps1
 else
 	$(error test-wpf-e2e-windows is only available on Windows)
@@ -692,41 +694,21 @@ else
 	$(error build-winui-overlay is only available on Windows)
 endif
 
-ifeq ($(OS_FAMILY),windows)
+# Not install-assets: startup refresh (FILE RULES, --keyboard-config-dir below)
+# updates every connected keyboard once the service starts, so installation
+# does not generate or copy layer models itself.
 .PHONY: install-overlay
 install-overlay: build-overlay
-	@set -- "$(KEYMAP_OVERLAY_DIR)"/[0-9]*.json; \
-	if ! test -e "$$1"; then \
-		echo "ERROR: no layer JSON models found in $(KEYMAP_OVERLAY_DIR)."; \
-		echo "Generate them in WSL with the command in README's Setup on Windows section first."; \
-		exit 1; \
-	fi
-else
-# Not install-assets: startup self-heal (FILE RULES, --keyboard-config-dir
-# below) now generates any keyboard missing from $(KEYMAP_OVERLAY_DIR) itself
-# once the service starts, so installing doesn't need to write there too.
-# Run `make install-assets` by hand to force a refresh after changing the
-# connected device through Vial or flash-keymap, since self-heal only fills in
-# what's missing, not what's stale.
-install-overlay: build-overlay
-endif
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
 # Windows holds an open executable locked, so the running overlay has to go
 # before its binary can be replaced. The other two systems replace the file
 # underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
-ifneq ($(OS_FAMILY),windows)
-# Installed alongside the frontend so self-heal (FILE RULES) can shell out to
+# Installed alongside the frontend so startup refresh can shell out to
 # it by relative path at startup.
-# TODO(windows): self_heal.rs is already cross-platform (PLATFORM="windows",
-# .exe handling in generator_binary_path) but untested here — no Windows
-# machine to verify against. Wiring this up would mean installing
-# keymap-overlay-generator.exe beside the WPF binary (mirroring this block)
-# and adding --keyboard-config-dir to the Run-key command below.
 	@$(MAKE) _build_generator
 	install -C "$(GENERATOR_BINARY)" "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
-endif
 	@$(MAKE) _install_renderer_$(OS_FAMILY)
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
@@ -886,18 +868,12 @@ _install_service_windows:
 # $ErrorActionPreference so PowerShell's non-terminating errors become failures
 # make can see: without it, Set-ItemProperty or Start-Process can fail while
 # powershell.exe still exits 0 and install-overlay reports success.
-#
-# TODO(windows): self_heal.rs is already cross-platform (PLATFORM="windows",
-# .exe handling in generator_binary_path) but untested here — no Windows
-# machine to verify against. Wiring this up would mean installing
-# keymap-overlay-generator.exe beside the WPF binary (mirroring the
-# install-overlay generator-binary block) and adding --keyboard-config-dir to
-# both command lines built below, alongside --asset-dir.
 	@set -e; \
 	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
 	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)")"; \
-	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " --asset-dir " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList "--asset-dir", ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote)'
+	configs="$$(cygpath -w "$(KEYBOARDS_DIR_ABS)")"; \
+	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" KEYMAP_OVERLAY_CONFIGS="$$configs" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " --asset-dir " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote + " --keyboard-config-dir " + $$quote + $$env:KEYMAP_OVERLAY_CONFIGS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList "--asset-dir", ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote), "--keyboard-config-dir", ($$quote + $$env:KEYMAP_OVERLAY_CONFIGS + $$quote)'
 
 .PHONY: uninstall-overlay
 uninstall-overlay:
@@ -1060,8 +1036,11 @@ _unmount_uf2_volume:
 .PHONY: flash-keymap
 flash-keymap:
 ifeq ($(OS_FAMILY),windows)
-	$(error flash-keymap $(WINDOWS_FIRMWARE_ERROR))
-endif
+	@echo "ERROR: flash-keymap includes QMK source processing, which is not supported in MSYS2."; \
+		echo "Run 'make prepare-flash-keymap KEYBOARD_ID=<id>' in WSL, then"; \
+		echo "run 'make write-keymap KEYBOARD_ID=<id>' here for the native HID write."; \
+		exit 1
+else
 # Only an explicit VIAL=true is an error here, not the plain default: VIAL=true
 # would read the device and write it straight back, but flash-keymap always
 # reads keymap.c regardless of the default, via the VIAL=false below.
@@ -1071,7 +1050,32 @@ ifneq ($(origin VIAL),file)
 endif
 endif
 ifdef KEYBOARD_ID
+	@$(MAKE) prepare-flash-keymap
+	@$(MAKE) write-keymap
+else
+	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
+endif
+endif
+
+.PHONY: prepare-flash-keymap
+prepare-flash-keymap:
+ifeq ($(OS_FAMILY),windows)
+	$(error prepare-flash-keymap $(WINDOWS_FIRMWARE_ERROR))
+endif
+ifdef KEYBOARD_ID
 	@$(MAKE) VIAL=false $(QMK_KEYMAP_JSON)
+else
+	+@$(call FOR_EACH_KEYBOARD,preparing,Preparing keymap for,prepare-flash-keymap)
+endif
+
+.PHONY: write-keymap
+write-keymap:
+ifdef KEYBOARD_ID
+	@if [ ! -s "$(QMK_KEYMAP_JSON)" ]; then \
+		echo "ERROR: prepared QMK keymap JSON is missing: $(QMK_KEYMAP_JSON)"; \
+		echo "Run 'make prepare-flash-keymap KEYBOARD_ID=$(KEYBOARD_ID)' in WSL, macOS or Linux first."; \
+		exit 1; \
+	fi
 	@$(MAKE) _build_generator
 # The renderer resolves KC_TRNS only in memory; the flasher writes qmk
 # c2json's output as-is, so EEPROM keeps the literal transparent marker and
@@ -1085,7 +1089,7 @@ else
 endif
 	"$(FLASHER_BINARY)" --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)" $(if $(filter true,$(DRY_RUN)),--dry-run)
 else
-	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
+	+@$(call FOR_EACH_KEYBOARD,writing,Writing keymap for,write-keymap)
 endif
 
 .PHONY: patch-load

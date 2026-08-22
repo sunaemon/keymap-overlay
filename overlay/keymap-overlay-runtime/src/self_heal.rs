@@ -14,20 +14,20 @@ const PLATFORM: &str = "linux";
 #[cfg(target_os = "windows")]
 const PLATFORM: &str = "windows";
 
-/// Generates any `<keyboard_id>.json` missing from `asset_dir`, for every
-/// keyboard configured under `keyboard_config_dir`, by shelling out to
+/// Refreshes each connected keyboard's `<keyboard_id>.json` in `asset_dir`,
+/// for every keyboard configured under `keyboard_config_dir`, by shelling out to
 /// `keymap-overlay-generator` (a standalone binary installed alongside this
 /// one — see its own crate for why it isn't linked in directly). Runs once
 /// at startup, ahead of the listener, never on the keypress hot path. Each
 /// keyboard is independent and best-effort: one that isn't currently
-/// connected is skipped with a warning, not a failure.
-pub fn fill_missing_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()> {
+/// connected keeps its existing cached model and is skipped with a warning.
+pub fn refresh_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()> {
     fs::create_dir_all(asset_dir)
         .with_context(|| format!("Failed to create asset directory {}", asset_dir.display()))?;
     let generator = generator_binary_path()?;
     if !generator.is_file() {
         warn!(
-            "Skipping self-heal: {} not found next to this executable",
+            "Skipping startup refresh: {} not found next to this executable",
             generator.display()
         );
         return Ok(());
@@ -52,16 +52,10 @@ pub fn fill_missing_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Resu
             continue;
         };
         let output_path = asset_dir.join(format!("{keyboard_id}.json"));
-        if output_path.exists()
-            && super::load_keyboard_model_file(&output_path, keyboard_id).is_ok()
-        {
-            continue;
-        }
         if output_path.exists() {
-            warn!(
-                "Regenerating invalid model for keyboard {keyboard_id}: {}",
-                output_path.display()
-            );
+            info!("Refreshing model for keyboard {keyboard_id}...");
+        } else {
+            info!("Generating model for keyboard {keyboard_id}...");
         }
         generate_one(&generator, &path, keyboard_id, &output_path);
     }
@@ -76,7 +70,6 @@ fn keyboard_id_from_dir(path: &Path) -> Option<u8> {
 }
 
 fn generate_one(generator: &Path, keyboard_dir: &Path, keyboard_id: u8, output_path: &Path) {
-    info!("Generating a missing model for keyboard {keyboard_id}...");
     let result = Command::new(generator)
         .arg("--keyboard-json")
         .arg(keyboard_dir.join("keyboard.json"))
@@ -105,15 +98,54 @@ fn generate_one(generator: &Path, keyboard_dir: &Path, keyboard_id: u8, output_p
         return;
     }
 
-    let tmp_path = output_path.with_extension("json.tmp");
-    let write_result =
-        fs::write(&tmp_path, &output.stdout).and_then(|()| fs::rename(&tmp_path, output_path));
-    if let Err(error) = write_result {
-        warn!("Failed to write the generated model for keyboard {keyboard_id}: {error:#}");
-        let _ = fs::remove_file(&tmp_path);
+    if let Err(error) = install_generated_model(output_path, keyboard_id, &output.stdout) {
+        warn!("Failed to install the generated model for keyboard {keyboard_id}: {error:#}");
     } else {
-        info!("Generated a model for keyboard {keyboard_id}");
+        info!("Updated model for keyboard {keyboard_id}");
     }
+}
+
+fn install_generated_model(output_path: &Path, keyboard_id: u8, output: &[u8]) -> Result<()> {
+    let tmp_path = output_path.with_extension("json.tmp");
+    fs::write(&tmp_path, output)
+        .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+    if let Err(error) = super::load_keyboard_model_file(&tmp_path, keyboard_id) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(error).context("Generator produced an invalid model");
+    }
+    replace_model_file(&tmp_path, output_path)
+}
+
+fn replace_model_file(tmp_path: &Path, output_path: &Path) -> Result<()> {
+    if !output_path.exists() {
+        return fs::rename(tmp_path, output_path)
+            .with_context(|| format!("Failed to install {}", output_path.display()));
+    }
+
+    let backup_path = output_path.with_extension("json.bak");
+    let _ = fs::remove_file(&backup_path);
+    fs::rename(output_path, &backup_path).with_context(|| {
+        format!(
+            "Failed to preserve existing model {}",
+            output_path.display()
+        )
+    })?;
+    if let Err(error) = fs::rename(tmp_path, output_path) {
+        let restore_error = fs::rename(&backup_path, output_path).err();
+        return match restore_error {
+            Some(restore_error) => Err(error).with_context(|| {
+                format!(
+                    "Failed to install {} and restore its backup: {restore_error}",
+                    output_path.display()
+                )
+            }),
+            None => {
+                Err(error).with_context(|| format!("Failed to replace {}", output_path.display()))
+            }
+        };
+    }
+    let _ = fs::remove_file(backup_path);
+    Ok(())
 }
 
 fn generator_binary_path() -> Result<PathBuf> {
@@ -150,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn fill_missing_models_skips_a_keyboard_whose_output_already_exists() {
+    fn refresh_models_preserves_an_existing_model_without_a_generator() {
         let config_dir = TempDir::new().expect("temp dir");
         let keyboard = config_dir.path().join("1");
         fs::create_dir(&keyboard).expect("mkdir");
@@ -160,10 +192,7 @@ mod tests {
         let existing = r#"{"keyboard_id":1,"layers":{"0":{"version":2,"layer":0,"width":1,"height":1,"header_font_size":14.0,"key_font_size":10.0,"encoder_font_size":10.0,"keys":[],"encoders":[]}}}"#;
         fs::write(asset_dir.path().join("1.json"), existing).expect("write");
 
-        // No generator binary is set up in this test environment, so a
-        // keyboard actually needing generation would warn-and-skip; this
-        // only asserts the already-satisfied keyboard is never touched.
-        fill_missing_models(asset_dir.path(), config_dir.path()).expect("self-heal");
+        refresh_models(asset_dir.path(), config_dir.path()).expect("refresh");
         assert_eq!(
             fs::read_to_string(asset_dir.path().join("1.json")).unwrap(),
             existing
@@ -171,13 +200,39 @@ mod tests {
     }
 
     #[test]
-    fn fill_missing_models_creates_the_asset_directory() {
+    fn refresh_models_creates_the_asset_directory() {
         let config_dir = TempDir::new().expect("temp dir");
         let root = TempDir::new().expect("temp dir");
         let asset_dir = root.path().join("missing/cache");
 
-        fill_missing_models(&asset_dir, config_dir.path()).expect("self-heal");
+        refresh_models(&asset_dir, config_dir.path()).expect("refresh");
 
         assert!(asset_dir.is_dir());
+    }
+
+    #[test]
+    fn a_valid_generated_model_replaces_an_existing_model() {
+        let asset_dir = TempDir::new().expect("temp dir");
+        let output_path = asset_dir.path().join("1.json");
+        fs::write(&output_path, "old model").expect("write old model");
+        let generated = br#"{"keyboard_id":1,"layers":{"0":{"version":2,"layer":0,"width":1,"height":1,"header_font_size":14.0,"key_font_size":10.0,"encoder_font_size":10.0,"keys":[],"encoders":[]}}}"#;
+
+        install_generated_model(&output_path, 1, generated).expect("install model");
+
+        assert_eq!(fs::read(&output_path).unwrap(), generated);
+        assert!(!output_path.with_extension("json.tmp").exists());
+        assert!(!output_path.with_extension("json.bak").exists());
+    }
+
+    #[test]
+    fn invalid_generated_output_preserves_an_existing_model() {
+        let asset_dir = TempDir::new().expect("temp dir");
+        let output_path = asset_dir.path().join("1.json");
+        fs::write(&output_path, "old model").expect("write old model");
+
+        install_generated_model(&output_path, 1, b"not json").unwrap_err();
+
+        assert_eq!(fs::read_to_string(&output_path).unwrap(), "old model");
+        assert!(!output_path.with_extension("json.tmp").exists());
     }
 }

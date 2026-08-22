@@ -81,9 +81,9 @@ pub struct Arguments {
     pub asset_dir: Option<PathBuf>,
 
     /// Directory of per-keyboard keyboard.json/config.json sources; if set,
-    /// any keyboard missing from --asset-dir is generated at startup before
+    /// every connected keyboard is refreshed in --asset-dir at startup before
     /// the listener starts (never on the keypress hot path). A keyboard that
-    /// isn't currently connected is skipped with a warning, not a failure.
+    /// isn't currently connected keeps its cached model.
     #[arg(long, value_name = "PATH")]
     pub keyboard_config_dir: Option<PathBuf>,
 
@@ -148,6 +148,11 @@ impl Arguments {
     }
 }
 
+/// Refreshes every connected keyboard model in the asset directory.
+pub fn refresh_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()> {
+    self_heal::refresh_models(asset_dir, keyboard_config_dir)
+}
+
 /// Initializes the shared runtime and gives the asset directory to a frontend.
 pub fn run_overlay(
     frontend: impl FnOnce(PathBuf, Option<SimulatedLayer>) -> Result<()>,
@@ -165,9 +170,9 @@ pub fn run_overlay(
     initialize_logging(arguments.log_destination())?;
 
     if let Some(keyboard_config_dir) = &keyboard_config_dir
-        && let Err(error) = self_heal::fill_missing_models(&directory, keyboard_config_dir)
+        && let Err(error) = refresh_models(&directory, keyboard_config_dir)
     {
-        warn!("Self-heal skipped: {error:#}");
+        warn!("Startup refresh skipped: {error:#}");
     }
 
     if let Err(error) = frontend(directory, simulated) {
