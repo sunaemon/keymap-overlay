@@ -28,7 +28,7 @@ jobs:
       # libudev backs hidapi's hidraw enumeration. Qt Quick draws the Linux
       # model, Qt D-Bus receives it, and LayerShellQt supplies the overlay role.
       - name: Install Rust system dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libudev-dev cmake qt6-base-dev qt6-declarative-dev
+        run: sudo apt-get update && sudo apt-get install --yes libudev-dev cmake dbus-x11 libglib2.0-bin qt6-base-dev qt6-declarative-dev
 
       - name: Install mise
         uses: jdx/mise-action@v4
@@ -57,8 +57,10 @@ jobs:
 
       # The three systems build different windows out of the same crate, so
       # each one builds the binary it ships.
-      - name: Build the release binary
-        run: make build-overlay
+      # Runs the release daemon and Qt renderer on an isolated session bus,
+      # driving real show/hide transitions through the simulator seam.
+      - name: Build and test the Linux overlay end to end
+        run: make test-e2e-linux
 
       - name: Check for unformatted files
         run: git diff --exit-code

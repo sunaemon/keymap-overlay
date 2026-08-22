@@ -595,6 +595,14 @@ test-installer-sh:
 test-rust:
 	$(CARGO) test --workspace
 
+.PHONY: test-e2e-linux
+test-e2e-linux: build-overlay
+ifeq ($(OS_FAMILY),linux)
+	dbus-run-session -- ./overlay/platforms/linux/tests/test_overlay_e2e.sh
+else
+	$(error test-e2e-linux is only available on Linux)
+endif
+
 .PHONY: clean
 clean:
 	rm -rf build
