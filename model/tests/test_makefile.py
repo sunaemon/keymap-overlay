@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-MAKE = shutil.which("make")
-if MAKE is None:
+if (make := shutil.which("make")) is None:
     raise RuntimeError("make is required to test the Makefile")
+MAKE: str = make
 
 
 def test_firmware_setup_initializes_only_required_qmk_submodules() -> None:
