@@ -603,6 +603,17 @@ else
 	$(error test-e2e-linux is only available on Linux)
 endif
 
+.PHONY: test-hid-dbus-e2e-linux
+test-hid-dbus-e2e-linux: build-overlay
+ifeq ($(OS_FAMILY),linux)
+	$(CC) -o target/virtual-raw-hid \
+		-std=c11 -Wall -Wextra -Wpedantic -Werror \
+		overlay/platforms/linux/tests/virtual_raw_hid.c
+	dbus-run-session -- ./overlay/platforms/linux/tests/test_hid_dbus_e2e.sh
+else
+	$(error test-hid-dbus-e2e-linux is only available on Linux)
+endif
+
 .PHONY: clean
 clean:
 	rm -rf build

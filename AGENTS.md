@@ -243,6 +243,7 @@ make test-rust    # cargo test --workspace
 make test-installer-sh # release installer integration tests with stubbed services
 make build-overlay # build the release overlay for the current platform
 make test-e2e-linux # build and exercise the Linux daemon and Qt renderer over D-Bus
+make test-hid-dbus-e2e-linux # exercise virtual Raw HID input through daemon D-Bus output
 make audit        # cargo-audit against the RustSec advisory database
 make check-licenses # verify release third-party license notices without changing them
 make licenses     # regenerate release third-party license notices
@@ -267,8 +268,9 @@ Force a rebuild of generated artifacts with `make clean` before verifying
 anything that depends on `build/`.
 
 CI runs four jobs. On Linux it runs `lint`, `format`, `test`,
-`test-installer-sh`, `test-rust`, `check-licenses` and `test-e2e-linux` (which
-builds the release overlay), then fails if formatting or linting produced a diff. On macOS it runs `test`,
+`test-installer-sh`, `test-rust`, `check-licenses`, `test-e2e-linux` and
+`test-hid-dbus-e2e-linux` (the E2E targets build the release overlay), then
+fails if formatting or linting produced a diff. On macOS it runs `test`,
 `test-installer-sh`, `test-rust` and `build-overlay`. On Windows it runs `test`,
 the `install.ps1` Pester suite, `test-rust` and `build-overlay`; the other
 Windows steps set `shell: bash` so the Makefile runs under Git Bash. Each job

@@ -425,5 +425,9 @@ its own system. Linux CI also runs the release daemon and Qt renderer on an
 isolated D-Bus session with an installed-model fixture and `--simulate`, then
 asserts the visible, hidden, and visible-again states through the public D-Bus
 contract and compares the software-rendered Qt Quick output with a golden PNG.
+Another Linux CI test creates a vendor-defined device through `/dev/uhid` and
+sends the real 32-byte Raw HID protocol through the kernel's `hidraw` path,
+then asserts the visible and hidden states from the daemon's public D-Bus
+contract. Together the two tests cover both sides of the daemon independently.
 That a window stays on top, passes clicks through and never takes
 focus still needs a real machine.
