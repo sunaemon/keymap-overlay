@@ -19,6 +19,12 @@
 #include QMK_KEYBOARD_H
 #include "layer_notify.h"
 
+void eeconfig_init_user(void) { eeconfig_update_user(KEYMAP_EEPROM_EPOCH); }
+
+void keyboard_post_init_user(void) {
+  keymap_overlay_reset_eeprom_after_flash();
+}
+
 // OLED animation
 #include "lib/layer_status/layer_status.h"
 

@@ -24,6 +24,7 @@ const PLATFORM: &str = "windows";
 pub fn refresh_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()> {
     fs::create_dir_all(asset_dir)
         .with_context(|| format!("Failed to create asset directory {}", asset_dir.display()))?;
+    recover_model_backups(asset_dir)?;
     let generator = generator_binary_path()?;
     if !generator.is_file() {
         warn!(
@@ -52,6 +53,7 @@ pub fn refresh_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()
             continue;
         };
         let output_path = asset_dir.join(format!("{keyboard_id}.json"));
+        recover_model_backup(&output_path)?;
         if output_path.exists() {
             info!("Refreshing model for keyboard {keyboard_id}...");
         } else {
@@ -60,6 +62,43 @@ pub fn refresh_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()
         generate_one(&generator, &path, keyboard_id, &output_path);
     }
     Ok(())
+}
+
+/// Restores all valid models left as backups by an interrupted replacement.
+fn recover_model_backups(asset_dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(asset_dir)
+        .with_context(|| format!("Failed to read asset directory {}", asset_dir.display()))?
+    {
+        let backup_path = entry
+            .with_context(|| format!("Failed to read an entry in {}", asset_dir.display()))?
+            .path();
+        if backup_path
+            .extension()
+            .is_none_or(|extension| extension != "bak")
+        {
+            continue;
+        }
+        let output_path = backup_path.with_extension("");
+        recover_model_backup(&output_path)?;
+    }
+    Ok(())
+}
+
+/// Restores the last valid model if an interrupted replacement left its backup.
+fn recover_model_backup(output_path: &Path) -> Result<()> {
+    if output_path.exists() {
+        return Ok(());
+    }
+    let backup_path = output_path.with_extension("json.bak");
+    if !backup_path.exists() {
+        return Ok(());
+    }
+    fs::rename(&backup_path, output_path).with_context(|| {
+        format!(
+            "Failed to restore interrupted model replacement {}",
+            output_path.display()
+        )
+    })
 }
 
 fn keyboard_id_from_dir(path: &Path) -> Option<u8> {
@@ -208,6 +247,27 @@ mod tests {
         refresh_models(&asset_dir, config_dir.path()).expect("refresh");
 
         assert!(asset_dir.is_dir());
+    }
+
+    #[test]
+    fn refresh_models_restores_an_interrupted_replacement() {
+        let config_dir = TempDir::new().expect("temp dir");
+        let keyboard = config_dir.path().join("1");
+        fs::create_dir(&keyboard).expect("mkdir");
+        fs::write(keyboard.join("config.json"), "{}").expect("write");
+
+        let asset_dir = TempDir::new().expect("temp dir");
+        let backup_path = asset_dir.path().join("1.json.bak");
+        let existing = r#"{"keyboard_id":1,"layers":{"0":{"version":2,"layer":0,"width":1,"height":1,"header_font_size":14.0,"key_font_size":10.0,"encoder_font_size":10.0,"keys":[],"encoders":[]}}}"#;
+        fs::write(&backup_path, existing).expect("write backup");
+
+        refresh_models(asset_dir.path(), config_dir.path()).expect("refresh");
+
+        assert_eq!(
+            fs::read_to_string(asset_dir.path().join("1.json")).unwrap(),
+            existing
+        );
+        assert!(!backup_path.exists());
     }
 
     #[test]

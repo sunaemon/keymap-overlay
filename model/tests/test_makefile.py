@@ -80,7 +80,7 @@ def test_windows_source_install_wires_startup_refresh() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Native Windows HID targets")
 def test_windows_exposes_native_hid_targets() -> None:
-    """Allow device reads and prepared keymap writes without QMK in MSYS2."""
+    """Allow device reads while keeping firmware flashes outside MSYS2."""
     root = Path(__file__).parents[2]
     install = subprocess.run(
         [MAKE, "-n", "_install_assets_windows", "VIAL=true", "MAKE=echo"],
@@ -100,8 +100,7 @@ def test_windows_exposes_native_hid_targets() -> None:
 
     assert "_install_assets" in install.stdout
     assert "must run in WSL" not in install.stdout
-    assert '"$(FLASHER_BINARY)" --qmk-keymap-json' in makefile
-    assert "make prepare-flash-keymap KEYBOARD_ID=$(KEYBOARD_ID)" in makefile
+    assert "KEYMAP_EEPROM_EPOCH=$(EEPROM_RESET_EPOCH)" in makefile
     assert source_render.returncode != 0
     assert "needs QMK source processing" in source_render.stderr
 

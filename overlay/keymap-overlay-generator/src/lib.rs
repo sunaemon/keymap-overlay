@@ -1,11 +1,11 @@
 pub mod custom_keycodes;
 pub mod device;
-pub mod flash;
 pub mod keymap_c;
 pub mod labels;
 pub mod model;
 pub mod qmk_keymap;
 pub mod types;
+pub mod vial;
 
 use anyhow::{Context, Result};
 

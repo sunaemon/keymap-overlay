@@ -7,8 +7,8 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/sunaemon/keymap-overlay"
 
-# Deliberately not a member of the root workspace: vitaly wants hidapi's
-# default features, while keymap-overlay-runtime's platform crates need
+# Deliberately not a member of the root workspace: its HID client needs
+# platform-specific features, while keymap-overlay-runtime needs
 # default-features = false with a specific backend (macOS device sharing,
 # Linux hidraw-not-libusb — libusb detaches the kernel driver and stops the
 # keyboard from typing). Sharing one Cargo.lock would unify those feature
@@ -28,22 +28,16 @@ path = "src/lib.rs"
 name = "keymap-overlay-generator"
 path = "src/main_generator.rs"
 
-[[bin]]
-name = "keymap-overlay-flash-keymap"
-path = "src/main_flash_keymap.rs"
-
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
+lzma-rust2 = "0.13"
 regex = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# Pinned to match VITALY_VERSION in ../../mise.toml; bump both together.
-vitaly = "=0.1.32"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# VIAL tools (vitaly) and the overlay share the keyboard's Raw HID interface,
-# same as keymap-overlay-runtime.
+# The Vial reader and the overlay share the keyboard's Raw HID interface.
 hidapi = { version = "2.6.6", features = ["macos-shared-device"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -54,10 +48,7 @@ hidapi = { version = "2.6.6", default-features = false, features = [
 [target.'cfg(target_os = "linux")'.dependencies]
 # hidraw, not the default libusb backend: libusb detaches the kernel driver,
 # which would stop the keyboard from typing, and only hidraw reports the
-# usage page the Raw HID interface is selected by. vitaly itself declares a
-# bare `hidapi = "2.6.3"` with no feature restriction, so building this crate
-# on Linux needs verifying that Cargo's feature unification doesn't pull the
-# default libusb backend in alongside this one — unverified from macOS.
+# usage page the Raw HID interface is selected by.
 hidapi = { version = "2.6.6", default-features = false, features = [
   "linux-static-hidraw",
 ] }
