@@ -4,6 +4,11 @@
 #pragma once
 
 #include "raw_hid.h"
+#include "eeconfig.h"
+
+#ifndef KEYMAP_EEPROM_EPOCH
+#define KEYMAP_EEPROM_EPOCH 0
+#endif
 
 #ifndef KEYBOARD_ID
 #error                                                                         \
@@ -48,4 +53,13 @@ static inline void keymap_overlay_notify_momentary_layer(uint16_t keycode,
   }
   keymap_overlay_send_layer_event(QK_MOMENTARY_GET_LAYER(keycode),
                                   record->event.pressed);
+}
+
+// A firmware flash supplies a fresh epoch. On its first boot, reset all QMK
+// and Vial EEPROM so the compiled keymaps and encoder bindings become the
+// Vial defaults. Later Vial-app edits persist until the next firmware flash.
+static inline void keymap_overlay_reset_eeprom_after_flash(void) {
+  if (eeconfig_read_user() != KEYMAP_EEPROM_EPOCH) {
+    eeconfig_init();
+  }
 }
