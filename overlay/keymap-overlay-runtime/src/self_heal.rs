@@ -157,7 +157,7 @@ mod tests {
         fs::write(keyboard.join("config.json"), "{}").expect("write");
 
         let asset_dir = TempDir::new().expect("temp dir");
-        let existing = r#"{"keyboard_id":1,"layers":{}}"#;
+        let existing = r#"{"keyboard_id":1,"layers":{"0":{"version":2,"layer":0,"width":1,"height":1,"header_font_size":14.0,"key_font_size":10.0,"encoder_font_size":10.0,"keys":[],"encoders":[]}}}"#;
         fs::write(asset_dir.path().join("1.json"), existing).expect("write");
 
         // No generator binary is set up in this test environment, so a

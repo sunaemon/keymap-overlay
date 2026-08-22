@@ -469,6 +469,9 @@ pub(crate) fn load_keyboard_model_file(path: &Path, keyboard_id: u8) -> Result<K
             path.display()
         );
     }
+    if !keyboard_models.layers.contains_key(&0) {
+        anyhow::bail!("Overlay model {} has no base layer 0", path.display());
+    }
     for (layer, model) in &keyboard_models.layers {
         if !matches!(model.version, 1 | 2) {
             anyhow::bail!(
@@ -1143,6 +1146,25 @@ mod tests {
                 .to_string()
                 .contains("Unsupported overlay model version")
         );
+    }
+
+    #[test]
+    fn load_model_cache_rejects_a_keyboard_without_a_base_layer() {
+        let dir = TempDir::new().expect("temp dir");
+        let layers = HashMap::from([(1, overlay_model(1, vec![]))]);
+        write_keyboard_models(
+            &dir,
+            "1.json",
+            &KeyboardModels {
+                keyboard_id: 1,
+                layers,
+            },
+        );
+
+        let error = load_keyboard_model_file(&dir.path().join("1.json"), 1)
+            .expect_err("missing base layer");
+
+        assert!(error.to_string().contains("has no base layer 0"));
     }
 
     #[test]
