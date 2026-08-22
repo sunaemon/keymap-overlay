@@ -52,8 +52,16 @@ pub fn fill_missing_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Resu
             continue;
         };
         let output_path = asset_dir.join(format!("{keyboard_id}.json"));
-        if output_path.exists() {
+        if output_path.exists()
+            && super::load_keyboard_model_file(&output_path, keyboard_id).is_ok()
+        {
             continue;
+        }
+        if output_path.exists() {
+            warn!(
+                "Regenerating invalid model for keyboard {keyboard_id}: {}",
+                output_path.display()
+            );
         }
         generate_one(&generator, &path, keyboard_id, &output_path);
     }
@@ -149,7 +157,8 @@ mod tests {
         fs::write(keyboard.join("config.json"), "{}").expect("write");
 
         let asset_dir = TempDir::new().expect("temp dir");
-        fs::write(asset_dir.path().join("1.json"), "{}").expect("write");
+        let existing = r#"{"keyboard_id":1,"layers":{}}"#;
+        fs::write(asset_dir.path().join("1.json"), existing).expect("write");
 
         // No generator binary is set up in this test environment, so a
         // keyboard actually needing generation would warn-and-skip; this
@@ -157,7 +166,7 @@ mod tests {
         fill_missing_models(asset_dir.path(), config_dir.path()).expect("self-heal");
         assert_eq!(
             fs::read_to_string(asset_dir.path().join("1.json")).unwrap(),
-            "{}"
+            existing
         );
     }
 

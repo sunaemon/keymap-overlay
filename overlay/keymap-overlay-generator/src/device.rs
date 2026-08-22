@@ -12,17 +12,24 @@ pub fn open_device(api: &HidApi, keyboard: &KeyboardJson) -> Result<HidDevice> {
     let product_id = parse_hex_u16(&keyboard.usb.pid)
         .with_context(|| format!("Invalid product id: {}", keyboard.usb.pid))?;
 
-    let device_info = api
+    let matches = api
         .device_list()
-        .find(|device| {
+        .filter(|device| {
             device.usage_page() == vitaly::protocol::USAGE_PAGE
                 && device.usage() == vitaly::protocol::USAGE_ID
                 && device.vendor_id() == vendor_id
                 && device.product_id() == product_id
         })
-        .with_context(|| {
-            format!("No Raw HID interface found for device {vendor_id:04x}:{product_id:04x}")
-        })?;
+        .collect::<Vec<_>>();
+    let [device_info] = matches.as_slice() else {
+        match matches.len() {
+            0 => bail!("No Raw HID interface found for device {vendor_id:04x}:{product_id:04x}"),
+            count => bail!(
+                "Found {count} Raw HID interfaces for device {vendor_id:04x}:{product_id:04x}; \
+                 disconnect identical keyboards so only the intended device remains"
+            ),
+        }
+    };
 
     Ok(api.open_path(device_info.path())?)
 }

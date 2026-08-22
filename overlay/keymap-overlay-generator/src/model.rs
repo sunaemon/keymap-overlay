@@ -46,7 +46,13 @@ pub fn build_layer_model(
     pixels_per_unit: i64,
 ) -> Result<OverlayModel> {
     let layout = keyboard.layout_keys(layout_name)?;
-    validate_layer(layout, layer, base_layer, keyboard.encoder_count())?;
+    validate_layer(
+        layout,
+        layer,
+        base_layer,
+        keyboard.encoder_count(),
+        pixels_per_unit,
+    )?;
 
     let placements = resolve_encoder_placements(keyboard, config, layout)?;
 
@@ -105,7 +111,14 @@ fn validate_layer(
     layer: &LayerSource,
     base_layer: &LayerSource,
     encoder_count: usize,
+    pixels_per_unit: i64,
 ) -> Result<()> {
+    if layout.is_empty() {
+        bail!("Layout must contain at least one key");
+    }
+    if pixels_per_unit <= 0 {
+        bail!("Pixels per unit must be positive");
+    }
     if layer.keys.len() != layout.len() {
         bail!(
             "Layer has {} keys, layout has {}",
@@ -123,6 +136,16 @@ fn validate_layer(
     }
     if layout.iter().any(|key| key.r != 0.0) {
         bail!("Rotated QMK layouts are not supported yet");
+    }
+    if layout.iter().any(|key| {
+        !key.x.is_finite()
+            || !key.y.is_finite()
+            || !key.w.is_finite()
+            || !key.h.is_finite()
+            || key.w <= 0.0
+            || key.h <= 0.0
+    }) {
+        bail!("Layout coordinates must be finite and key sizes must be positive");
     }
     Ok(())
 }
@@ -177,7 +200,12 @@ fn resolve_encoder_placement(
         let key = &layout[key_index];
         return Ok((Some(key_index), key.x, key.y, key.w, key.h));
     }
-    Ok((None, placement.x.unwrap(), placement.y.unwrap(), 1.0, 1.0))
+    let x = placement.x.unwrap();
+    let y = placement.y.unwrap();
+    if !x.is_finite() || !y.is_finite() {
+        bail!("Encoder coordinates must be finite");
+    }
+    Ok((None, x, y, 1.0, 1.0))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -705,6 +733,60 @@ mod tests {
         .expect_err("rotated layout");
 
         assert!(error.to_string().contains("Rotated"));
+    }
+
+    #[test]
+    fn empty_layouts_are_rejected() {
+        let keyboard = keyboard(
+            r#"{
+                "usb": {"vid": "0x0001", "pid": "0x0002"},
+                "layouts": {"LAYOUT": {"layout": []}}
+            }"#,
+        );
+        let base = layer(&[], &[]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config("{}"),
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            64,
+        )
+        .expect_err("empty layout");
+
+        assert!(error.to_string().contains("at least one key"));
+    }
+
+    #[test]
+    fn non_positive_key_sizes_are_rejected() {
+        let keyboard = keyboard(
+            r#"{
+                "usb": {"vid": "0x0001", "pid": "0x0002"},
+                "layouts": {"LAYOUT": {"layout": [
+                    {"x": 0, "y": 0, "w": 0, "matrix": [0, 0]}
+                ]}}
+            }"#,
+        );
+        let base = layer(&["KC_A"], &[]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config("{}"),
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            64,
+        )
+        .expect_err("zero-width key");
+
+        assert!(error.to_string().contains("sizes must be positive"));
     }
 
     #[test]

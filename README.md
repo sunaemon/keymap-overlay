@@ -471,12 +471,13 @@ make install-overlay
 `make install-overlay` exercises the source-built installation path. Use
 `make run-overlay` for a foreground UI session.
 
-On Linux, `make test-e2e-linux` builds the release binaries and exercises the
-daemon and Qt renderer together on an isolated D-Bus session, including a
-golden-image comparison of the rendered Qt Quick overlay.
-`make test-hid-dbus-e2e-linux` additionally creates a virtual device through
-`/dev/uhid`, sends Raw HID layer reports through the kernel `hidraw` path, and
-asserts the daemon's public D-Bus state. It requires the `uhid` kernel module.
+On Linux, `make test-release-acceptance-linux` is the release go/no-go check. It
+tests installer upgrades and rollback, then runs two E2E halves around the
+project-owned D-Bus contract. The HID-to-D-Bus half creates a virtual device
+through `/dev/uhid`, sends Raw HID layer reports through the kernel `hidraw`
+path, and asserts the daemon's public state. The D-Bus-to-renderer half exercises
+the daemon and Qt renderer together, including a golden-image comparison of the
+rendered Qt Quick overlay. The HID half requires the `uhid` kernel module.
 
 To exercise the complete native overlay without a physical keyboard, name a
 generated keyboard and momentary layer:
@@ -541,8 +542,7 @@ make lint
 make test
 make test-rust
 make build-overlay
-make test-e2e-linux # Linux only: daemon + Qt renderer over an isolated D-Bus session
-make test-hid-dbus-e2e-linux # Linux only: virtual Raw HID device + daemon D-Bus state
+make test-release-acceptance-linux # Linux only: installer rollback + both E2E halves
 make audit
 make test-installer-sh
 ```

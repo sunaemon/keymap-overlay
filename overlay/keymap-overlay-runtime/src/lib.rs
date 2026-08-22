@@ -257,7 +257,7 @@ pub type ModelCache = HashMap<(u8, u8), OverlayModel>;
 /// One keyboard's installed `<keyboard_id>.json`: every layer in one file, since
 /// a keyboard's layers are generated, installed, and read together.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct KeyboardModels {
+pub(crate) struct KeyboardModels {
     keyboard_id: u8,
     layers: HashMap<u8, OverlayModel>,
 }
@@ -445,34 +445,46 @@ pub fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
         let Some(keyboard_id) = keyboard_id_from_path(&path) else {
             continue;
         };
-        let keyboard_models: KeyboardModels = serde_json::from_reader(
-            File::open(&path).with_context(|| format!("Failed to open {}", path.display()))?,
-        )
-        .with_context(|| format!("Failed to parse {}", path.display()))?;
-        if keyboard_models.keyboard_id != keyboard_id {
-            anyhow::bail!(
-                "Keyboard ID in {} does not match its filename",
-                path.display()
-            );
-        }
-        for (layer, model) in keyboard_models.layers {
-            if !matches!(model.version, 1 | 2) {
-                anyhow::bail!(
-                    "Unsupported overlay model version {} in {}",
-                    model.version,
-                    path.display()
-                );
-            }
-            if model.layer != layer {
-                anyhow::bail!(
-                    "Layer in {} does not match its key in \"layers\"",
-                    path.display()
-                );
-            }
-            models.insert((keyboard_id, layer), model);
+        match load_keyboard_model_file(&path, keyboard_id) {
+            Ok(keyboard_models) => models.extend(
+                keyboard_models
+                    .layers
+                    .into_iter()
+                    .map(|(layer, model)| ((keyboard_id, layer), model)),
+            ),
+            Err(error) => warn!("Ignoring invalid overlay model: {error:#}"),
         }
     }
     Ok(models)
+}
+
+pub(crate) fn load_keyboard_model_file(path: &Path, keyboard_id: u8) -> Result<KeyboardModels> {
+    let keyboard_models: KeyboardModels = serde_json::from_reader(
+        File::open(path).with_context(|| format!("Failed to open {}", path.display()))?,
+    )
+    .with_context(|| format!("Failed to parse {}", path.display()))?;
+    if keyboard_models.keyboard_id != keyboard_id {
+        anyhow::bail!(
+            "Keyboard ID in {} does not match its filename",
+            path.display()
+        );
+    }
+    for (layer, model) in &keyboard_models.layers {
+        if !matches!(model.version, 1 | 2) {
+            anyhow::bail!(
+                "Unsupported overlay model version {} in {}",
+                model.version,
+                path.display()
+            );
+        }
+        if model.layer != *layer {
+            anyhow::bail!(
+                "Layer in {} does not match its key in \"layers\"",
+                path.display()
+            );
+        }
+    }
+    Ok(keyboard_models)
 }
 
 fn keyboard_id_from_path(path: &Path) -> Option<u8> {
@@ -1081,7 +1093,8 @@ mod tests {
             },
         );
 
-        let error = load_model_cache(dir.path()).expect_err("mismatched keyboard id");
+        let error = load_keyboard_model_file(&dir.path().join("1.json"), 1)
+            .expect_err("mismatched keyboard id");
 
         assert!(error.to_string().contains("does not match its filename"));
     }
@@ -1100,7 +1113,8 @@ mod tests {
             },
         );
 
-        let error = load_model_cache(dir.path()).expect_err("mismatched layer key");
+        let error = load_keyboard_model_file(&dir.path().join("1.json"), 1)
+            .expect_err("mismatched layer key");
 
         assert!(error.to_string().contains("does not match its key"));
     }
@@ -1121,13 +1135,34 @@ mod tests {
             },
         );
 
-        let error = load_model_cache(dir.path()).expect_err("unsupported version");
+        let error = load_keyboard_model_file(&dir.path().join("1.json"), 1)
+            .expect_err("unsupported version");
 
         assert!(
             error
                 .to_string()
                 .contains("Unsupported overlay model version")
         );
+    }
+
+    #[test]
+    fn load_model_cache_ignores_an_invalid_keyboard_without_hiding_valid_ones() {
+        let dir = TempDir::new().expect("temp dir");
+        fs::write(dir.path().join("1.json"), "not JSON").expect("write invalid model");
+        let layers = HashMap::from([(0, overlay_model(0, vec![]))]);
+        write_keyboard_models(
+            &dir,
+            "2.json",
+            &KeyboardModels {
+                keyboard_id: 2,
+                layers,
+            },
+        );
+
+        let models = load_model_cache(dir.path()).expect("load valid models");
+
+        assert_eq!(models.len(), 1);
+        assert!(models.contains_key(&(2, 0)));
     }
 
     /// Each system is asked where its own per-user data belongs.

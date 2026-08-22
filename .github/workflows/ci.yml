@@ -49,9 +49,6 @@ jobs:
       - name: Run Tests
         run: make test
 
-      - name: Test release installer
-        run: make test-installer-sh
-
       - name: Run Rust Tests
         run: make test-rust
 
@@ -64,10 +61,10 @@ jobs:
 
       # The three systems build different windows out of the same crate, so
       # each one builds the binary it ships.
-      # Runs daemon-to-Qt rendering through the simulator seam, then exercises
-      # the other half from a kernel UHID device through the daemon's D-Bus API.
-      - name: Build and test the Linux overlay end to end
-        run: make test-e2e-linux test-hid-dbus-e2e-linux
+      # Covers installer rollback, kernel UHID input through the daemon's D-Bus
+      # API, and D-Bus output through the Qt renderer and golden image.
+      - name: Run Linux release acceptance
+        run: make test-release-acceptance-linux
 
       - name: Check for unformatted files
         run: git diff --exit-code

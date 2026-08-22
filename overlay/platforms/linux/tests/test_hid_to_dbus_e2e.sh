@@ -109,4 +109,4 @@ wait_for_state 'the Raw HID press to become visible on D-Bus' \
   ', true, '\''{"version":2,"layer":2'
 wait_for_state 'the Raw HID release to hide the D-Bus state' ", false, '')"
 
-printf '%s\n' 'Linux virtual-HID-to-D-Bus E2E test passed'
+printf '%s\n' 'Linux HID-to-D-Bus E2E test passed'
