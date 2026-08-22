@@ -12,7 +12,7 @@ Release CI builds and tests these targets:
 | Platform | Release architecture    | Runtime expectation                                                |
 | -------- | ----------------------- | ------------------------------------------------------------------ |
 | macOS    | Apple silicon (`arm64`) | Current GitHub-hosted macOS runner and Input Monitoring permission |
-| Linux    | `x86_64`                | GNOME 45+ or Qt 6/LayerShellQt, with systemd user services         |
+| Linux    | `x86_64`, `arm64`       | GNOME 45+ or Qt 6/LayerShellQt, with systemd user services         |
 | Windows  | `x86_64`, `arm64`       | Native Windows overlay installed from PowerShell                   |
 
 Firmware compilation and flashing are supported on macOS and Linux. On a

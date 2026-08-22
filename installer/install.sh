@@ -98,8 +98,23 @@ configure_platform() {
       platform_file_uninstaller=uninstall_no_extra_files
       platform_file_printer=print_no_extra_files
       ;;
-    Linux:x86_64)
+    Linux:x86_64|Linux:amd64)
       asset_name='keymap-overlay-linux-x86_64.tar.gz'
+      checksum_command='sha256sum'
+      service_path="${HOME}/.config/systemd/user/keymap-overlay.service"
+      service_installer=install_linux_service
+      service_stopper=stop_linux_service
+      service_uninstaller=uninstall_linux_service
+      previous_service_restarter=restart_previous_linux_service
+      platform_staged_validator=validate_linux_staged_files
+      platform_file_backupper=backup_linux_files
+      platform_file_installer=install_linux_files
+      platform_file_restorer=restore_linux_files
+      platform_file_uninstaller=uninstall_linux_files
+      platform_file_printer=print_linux_files
+      ;;
+    Linux:aarch64|Linux:arm64)
+      asset_name='keymap-overlay-linux-arm64.tar.gz'
       checksum_command='sha256sum'
       service_path="${HOME}/.config/systemd/user/keymap-overlay.service"
       service_installer=install_linux_service

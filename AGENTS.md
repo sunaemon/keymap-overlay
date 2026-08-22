@@ -268,10 +268,10 @@ drift.
 Force a rebuild of generated artifacts with `make clean` before verifying
 anything that depends on `build/`.
 
-CI runs four jobs. On Linux it runs `lint`, `format`, `test`, `test-rust`,
-`check-licenses`, and `test-release-acceptance-linux` (installer rollback plus
-both E2E halves against the release overlay), then
-fails if formatting or linting produced a diff. On macOS it runs `test`,
+CI has `linux-x86_64` and `linux-arm64` jobs, each running `lint`, `format`,
+`test`, `test-rust`, `check-licenses`, and `test-release-acceptance-linux`
+(installer rollback plus both E2E halves against the release overlay), then
+failing if formatting or linting produced a diff. The `mac-arm64` job runs `test`,
 `test-rust`, and `test-release-acceptance-macos` (installer rollback plus the
 simulated AppKit E2E test). On Windows it runs `test`, the `install.ps1` Pester
 suite, `test-rust` and `build-overlay`; the other Windows steps set

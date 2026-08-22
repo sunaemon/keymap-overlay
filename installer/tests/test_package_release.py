@@ -34,6 +34,15 @@ def test_linux_archive_contains_both_renderers_and_gnome_extension(
     }
 
 
+def test_linux_arm64_archive_uses_native_architecture_name(tmp_path: Path) -> None:
+    """Verify that Linux ARM64 archives use the native architecture name."""
+    root = create_release_tree(tmp_path)
+
+    asset = package_release("Linux", "arm64", root=root, output_dir=root / "dist")
+
+    assert asset.name == "keymap-overlay-linux-arm64.tar.gz"
+
+
 def test_macos_archive_contains_the_native_overlay(tmp_path: Path) -> None:
     """Package the complete macOS release payload."""
     root = create_release_tree(tmp_path)
