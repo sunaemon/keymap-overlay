@@ -3,6 +3,7 @@ set -eu
 
 PROJECT_DIRECTORY=$(CDPATH='' cd -- "$(dirname "$0")/../../../.." && pwd)
 ASSET_DIRECTORY="$PROJECT_DIRECTORY/overlay/platforms/linux/tests/fixtures"
+GOLDEN_IMAGE="$ASSET_DIRECTORY/qt-overlay.png"
 DAEMON=${KEYMAP_OVERLAY_E2E_DAEMON:-"$PROJECT_DIRECTORY/target/release/keymap-overlay"}
 RENDERER=${KEYMAP_OVERLAY_E2E_RENDERER:-"$PROJECT_DIRECTORY/target/release/keymap-overlay-qt"}
 TEST_DIRECTORY=$(mktemp -d)
@@ -67,11 +68,32 @@ DAEMON_PID=$!
 wait_for_state 'the composed layer to become visible' ', true, '\''{"version":2,"layer":2'
 wait_for_state 'the held key metadata' '"label":["E2E"],"held":true'
 
-QT_QPA_PLATFORM=offscreen KEYMAP_OVERLAY_FORCE_QT=1 "$RENDERER" \
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_SCALE_FACTOR=1 \
+  KEYMAP_OVERLAY_FORCE_QT=1 \
+  KEYMAP_OVERLAY_GOLDEN_OUTPUT="$TEST_DIRECTORY/qt-overlay.png" "$RENDERER" \
   >"$TEST_DIRECTORY/renderer.log" 2>&1 &
 RENDERER_PID=$!
 
-sleep 0.1
+attempts=0
+while [ ! -s "$TEST_DIRECTORY/qt-overlay.png" ] && [ "$attempts" -lt 100 ]; do
+  if ! kill -0 "$RENDERER_PID" 2>/dev/null; then
+    fail 'Qt renderer exited before capturing the golden render'
+  fi
+  attempts=$((attempts + 1))
+  sleep 0.05
+done
+if [ ! -s "$TEST_DIRECTORY/qt-overlay.png" ]; then
+  fail 'timed out waiting for the Qt golden render'
+fi
+if [ "${UPDATE_GOLDEN:-false}" = true ]; then
+  cp "$TEST_DIRECTORY/qt-overlay.png" "$GOLDEN_IMAGE"
+fi
+if ! compare -metric AE -fuzz 2% "$GOLDEN_IMAGE" \
+  "$TEST_DIRECTORY/qt-overlay.png" null: 2>"$TEST_DIRECTORY/golden-diff.txt"; then
+  difference=$(cat "$TEST_DIRECTORY/golden-diff.txt")
+  fail "Qt render differs from the golden image by $difference pixels"
+fi
+
 if ! kill -0 "$RENDERER_PID" 2>/dev/null; then
   fail 'Qt renderer exited while consuming the visible state'
 fi

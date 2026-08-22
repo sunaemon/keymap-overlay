@@ -472,7 +472,8 @@ make install-overlay
 `make run-overlay` for a foreground UI session.
 
 On Linux, `make test-e2e-linux` builds the release binaries and exercises the
-daemon and Qt renderer together on an isolated D-Bus session.
+daemon and Qt renderer together on an isolated D-Bus session, including a
+golden-image comparison of the rendered Qt Quick overlay.
 
 To exercise the complete native overlay without a physical keyboard, name a
 generated keyboard and momentary layer:
