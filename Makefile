@@ -477,15 +477,12 @@ doctor:
 	status=$${PIPESTATUS[0]}; \
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
-# On macOS and Linux this is no longer part of the normal workflow: the
-# running overlay owns ~/.cache/keymap-overlay itself (startup self-heal,
-# --keyboard-config-dir) and install-overlay no longer calls this target.
-# It still exists for two things that have no self-heal equivalent: the
-# WSL-to-Windows cross-generation workflow (WSL reports OS_FAMILY=linux too,
-# so it takes the same branch below, passing an explicit KEYMAP_OVERLAY_DIR
-# pointing at the Windows-side path — see README's Setup on Windows), and a
-# manual force-refresh on macOS/Linux when self-heal's fill-if-missing
-# wouldn't otherwise pick up a connected-device change.
+# This is no longer part of the normal source-install workflow: every native
+# overlay owns its installed model directory through startup self-heal
+# (`--keyboard-config-dir`). It remains useful for a manual force-refresh when
+# fill-if-missing would not pick up a connected-device change. Windows runs
+# that manual workflow from WSL because MSYS2 deliberately has no firmware or
+# asset-generation targets.
 #
 # Under VIAL=false, LAYERS depends on $(QMK_KEYMAP_JSON), so install-assets
 # and draw-layers build the QMK JSON in a first make invocation, then re-enter
@@ -515,7 +512,7 @@ endif
 endif
 
 # Kept as a compatibility alias for existing scripts. New callers should use
-# install-assets. The Windows overlay receives its JSON models from WSL.
+# install-assets.
 .PHONY: install
 install: install-assets
 
@@ -623,8 +620,9 @@ test-release-acceptance-macos: test-installer-sh test-appkit-e2e-macos
 test-release-acceptance-windows: test-installer-ps test-wpf-e2e-windows
 
 .PHONY: test-wpf-e2e-windows
-test-wpf-e2e-windows: build-overlay
+test-wpf-e2e-windows: build-overlay _build_generator
 ifeq ($(OS_FAMILY),windows)
+	install -C "$(GENERATOR_BINARY)" "$(WPF_PUBLISH_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	powershell -NoProfile -ExecutionPolicy Bypass -File overlay/platforms/windows/tests/test_wpf_e2e.ps1
 else
 	$(error test-wpf-e2e-windows is only available on Windows)
@@ -692,16 +690,7 @@ else
 	$(error build-winui-overlay is only available on Windows)
 endif
 
-ifeq ($(OS_FAMILY),windows)
 .PHONY: install-overlay
-install-overlay: build-overlay
-	@set -- "$(KEYMAP_OVERLAY_DIR)"/[0-9]*.json; \
-	if ! test -e "$$1"; then \
-		echo "ERROR: no layer JSON models found in $(KEYMAP_OVERLAY_DIR)."; \
-		echo "Generate them in WSL with the command in README's Setup on Windows section first."; \
-		exit 1; \
-	fi
-else
 # Not install-assets: startup self-heal (FILE RULES, --keyboard-config-dir
 # below) now generates any keyboard missing from $(KEYMAP_OVERLAY_DIR) itself
 # once the service starts, so installing doesn't need to write there too.
@@ -709,24 +698,16 @@ else
 # connected device through Vial or flash-keymap, since self-heal only fills in
 # what's missing, not what's stale.
 install-overlay: build-overlay
-endif
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
 # Windows holds an open executable locked, so the running overlay has to go
 # before its binary can be replaced. The other two systems replace the file
 # underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
-ifneq ($(OS_FAMILY),windows)
 # Installed alongside the frontend so self-heal (FILE RULES) can shell out to
 # it by relative path at startup.
-# TODO(windows): self_heal.rs is already cross-platform (PLATFORM="windows",
-# .exe handling in generator_binary_path) but untested here — no Windows
-# machine to verify against. Wiring this up would mean installing
-# keymap-overlay-generator.exe beside the WPF binary (mirroring this block)
-# and adding --keyboard-config-dir to the Run-key command below.
 	@$(MAKE) _build_generator
 	install -C "$(GENERATOR_BINARY)" "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
-endif
 	@$(MAKE) _install_renderer_$(OS_FAMILY)
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
@@ -886,18 +867,12 @@ _install_service_windows:
 # $ErrorActionPreference so PowerShell's non-terminating errors become failures
 # make can see: without it, Set-ItemProperty or Start-Process can fail while
 # powershell.exe still exits 0 and install-overlay reports success.
-#
-# TODO(windows): self_heal.rs is already cross-platform (PLATFORM="windows",
-# .exe handling in generator_binary_path) but untested here — no Windows
-# machine to verify against. Wiring this up would mean installing
-# keymap-overlay-generator.exe beside the WPF binary (mirroring the
-# install-overlay generator-binary block) and adding --keyboard-config-dir to
-# both command lines built below, alongside --asset-dir.
 	@set -e; \
 	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
 	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)")"; \
-	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " --asset-dir " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList "--asset-dir", ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote)'
+	configs="$$(cygpath -w "$(KEYBOARDS_DIR_ABS)")"; \
+	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" KEYMAP_OVERLAY_CONFIGS="$$configs" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " --asset-dir " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote + " --keyboard-config-dir " + $$quote + $$env:KEYMAP_OVERLAY_CONFIGS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList "--asset-dir", ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote), "--keyboard-config-dir", ($$quote + $$env:KEYMAP_OVERLAY_CONFIGS + $$quote)'
 
 .PHONY: uninstall-overlay
 uninstall-overlay:

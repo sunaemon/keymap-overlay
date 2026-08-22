@@ -48,6 +48,31 @@ def test_recursive_clone_skips_firmware_submodule() -> None:
     assert result.stdout.strip() == "none"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Run-key wiring")
+def test_windows_source_install_wires_startup_self_heal() -> None:
+    """Install the generator and pass both model directories at startup."""
+    root = Path(__file__).parents[2]
+    install = subprocess.run(
+        ["make", "-n", "install-overlay", "MAKE=echo"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    service = subprocess.run(
+        ["make", "-n", "_install_service_windows"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+
+    assert "keymap-overlay-generator.exe" in install.stdout
+    assert "no layer JSON models found" not in install.stdout
+    assert 'configs="$(cygpath -w ' in service.stdout
+    assert service.stdout.count("--keyboard-config-dir") == 2
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Firmware builds are unsupported")
 def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
     """Tell QMK not to undo the selective firmware setup during a build."""

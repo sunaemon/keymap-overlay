@@ -194,13 +194,12 @@ make install-udev-rules # Linux only: grant Raw HID access to the login user
 make install-overlay    # Build and install the login service
 ```
 
-`install-overlay` no longer depends on `install-assets` on macOS or Linux: the
-running overlay fills in any layer model missing from `~/.cache/keymap-overlay`
-itself at startup (Startup Self-Heal in `docs/design.md`). Run
-`make install-assets` by hand only to force a refresh after changing the
-connected device through Vial or `flash-keymap` — self-heal fills in what's
-missing, not what's stale — or for the
-WSL-to-Windows cross-generation workflow, which has no self-heal fallback yet.
+`install-overlay` no longer depends on `install-assets` on any platform: the
+running overlay fills in any missing layer model itself at startup (Startup
+Self-Heal in `docs/design.md`). Run `make install-assets` by hand only to force
+a refresh after changing the connected device through Vial or `flash-keymap` —
+self-heal fills in what's missing, not what's stale. That manual refresh still
+runs from WSL on Windows because MSYS2 does not expose asset-generation targets.
 
 `make setup` and everything that installs or starts the overlay dispatch on
 `OS_FAMILY`, derived from `uname -s` at the top of the Makefile — `windows`

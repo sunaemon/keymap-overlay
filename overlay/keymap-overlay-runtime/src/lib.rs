@@ -148,6 +148,11 @@ impl Arguments {
     }
 }
 
+/// Generates every configured keyboard model missing from the asset directory.
+pub fn fill_missing_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()> {
+    self_heal::fill_missing_models(asset_dir, keyboard_config_dir)
+}
+
 /// Initializes the shared runtime and gives the asset directory to a frontend.
 pub fn run_overlay(
     frontend: impl FnOnce(PathBuf, Option<SimulatedLayer>) -> Result<()>,
@@ -165,7 +170,7 @@ pub fn run_overlay(
     initialize_logging(arguments.log_destination())?;
 
     if let Some(keyboard_config_dir) = &keyboard_config_dir
-        && let Err(error) = self_heal::fill_missing_models(&directory, keyboard_config_dir)
+        && let Err(error) = fill_missing_models(&directory, keyboard_config_dir)
     {
         warn!("Self-heal skipped: {error:#}");
     }

@@ -1,10 +1,14 @@
 //! Narrow C ABI between the WPF frontend and the shared Rust HID runtime.
 
 use keymap_overlay_runtime::{
-    LayerEvent, LayerEventSink, LayerEventSourceHandle, LogDestination, PendingTransition,
-    SimulatedLayer, Transition, default_log_file, initialize_logging, spawn_layer_event_source,
+    Arguments, LayerEvent, LayerEventSink, LayerEventSourceHandle, LogDestination, Parser,
+    PendingTransition, SimulatedLayer, Transition, default_asset_dir, default_log_file,
+    fill_missing_models, initialize_logging, spawn_layer_event_source,
 };
+use std::env;
+use std::ffi::OsString;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 // Tag: bits 24-31; layer count: bits 16-23; keyboard ID: bits 8-15;
@@ -14,6 +18,7 @@ const TRANSITION_HIDE: u32 = 1;
 const TRANSITION_SHOW: u32 = 2 << 24;
 
 static STATE: OnceLock<Arc<SharedState>> = OnceLock::new();
+static LOGGING: OnceLock<Result<(), String>> = OnceLock::new();
 
 #[derive(Clone)]
 struct BridgeSink {
@@ -37,6 +42,12 @@ impl LayerEventSink for BridgeSink {
         (self.state.wake)();
         true
     }
+}
+
+/// Generates missing models before WPF loads the asset directory.
+#[unsafe(no_mangle)]
+pub extern "system" fn keymap_overlay_prepare() -> i32 {
+    catch_unwind(prepare).unwrap_or(-1)
 }
 
 /// Starts the HID listener. Returns zero, or a negative value on failure.
@@ -72,19 +83,8 @@ fn start(wake: extern "system" fn(), simulated: Option<SimulatedLayer>) -> i32 {
     if STATE.get().is_some() {
         return -2;
     }
-    // WPF owns the process and this ABI carries no strings, so the log file is
-    // the shared default rather than something the frontend can name. Both
-    // failures are reported on stderr because logging does not exist yet and
-    // the caller receives only a numeric code.
-    let log_file = match default_log_file() {
-        Ok(path) => path,
-        Err(error) => {
-            eprintln!("Failed to resolve the log file: {error:#}");
-            return -1;
-        }
-    };
-    if let Err(error) = initialize_logging(LogDestination::File(log_file)) {
-        eprintln!("Failed to initialize logging: {error:#}");
+    if let Err(error) = initialize_bridge_logging() {
+        eprintln!("{error}");
         return -1;
     }
 
@@ -107,6 +107,50 @@ fn start(wake: extern "system" fn(), simulated: Option<SimulatedLayer>) -> i32 {
         return -2;
     }
     0
+}
+
+fn prepare() -> i32 {
+    if let Err(error) = initialize_bridge_logging() {
+        eprintln!("{error}");
+        return -1;
+    }
+    let (asset_dir, keyboard_config_dir) = match startup_paths_from(env::args_os()) {
+        Ok(paths) => paths,
+        Err(error) => {
+            eprintln!("Failed to parse the Windows startup paths: {error}");
+            return -1;
+        }
+    };
+    if let Some(keyboard_config_dir) = keyboard_config_dir
+        && let Err(error) = fill_missing_models(&asset_dir, &keyboard_config_dir)
+    {
+        eprintln!("Self-heal skipped: {error:#}");
+    }
+    0
+}
+
+fn initialize_bridge_logging() -> Result<(), String> {
+    LOGGING
+        .get_or_init(|| {
+            let log_file = default_log_file()
+                .map_err(|error| format!("Failed to resolve the log file: {error:#}"))?;
+            initialize_logging(LogDestination::File(log_file))
+                .map_err(|error| format!("Failed to initialize logging: {error:#}"))
+        })
+        .clone()
+}
+
+fn startup_paths_from<I, T>(arguments: I) -> Result<(PathBuf, Option<PathBuf>), String>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let arguments = Arguments::try_parse_from(arguments).map_err(|error| error.to_string())?;
+    let asset_dir = arguments
+        .asset_dir
+        .map_or_else(default_asset_dir, Ok)
+        .map_err(|error| format!("Failed to resolve the asset directory: {error:#}"))?;
+    Ok((asset_dir, arguments.keyboard_config_dir))
 }
 
 /// Returns the final queued transition packed into one FFI-safe integer.
@@ -162,4 +206,26 @@ pub extern "system" fn keymap_overlay_transition_layer(index: u8) -> u8 {
                 .copied()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_paths_follow_the_wpf_command_line() {
+        let (asset_dir, keyboard_config_dir) = startup_paths_from([
+            "keymap-overlay",
+            "--asset-dir",
+            r"C:\assets",
+            "--keyboard-config-dir",
+            r"C:\keyboards",
+            "--simulate",
+            "1:2",
+        ])
+        .expect("valid WPF arguments");
+
+        assert_eq!(asset_dir, PathBuf::from(r"C:\assets"));
+        assert_eq!(keyboard_config_dir, Some(PathBuf::from(r"C:\keyboards")));
+    }
 }

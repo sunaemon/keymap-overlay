@@ -21,6 +21,10 @@ public partial class App : Application
                         Environment.SpecialFolderOption.Create),
                     "keymap-overlay");
 
+            if (options.KeyboardConfigDirectory is not null && NativeMethods.Prepare() != 0)
+            {
+                throw new InvalidOperationException("Rust model self-heal failed to start.");
+            }
             var window = new OverlayWindow(assetsDirectory);
             MainWindow = window;
             window.Show();
@@ -37,11 +41,15 @@ public partial class App : Application
         }
     }
 
-    /// <summary>Parses the asset directory and optional simulated layer.</summary>
-    private static (string? AssetsDirectory, byte? KeyboardId, byte? Layer) ParseArguments(
-        string[] arguments)
+    /// <summary>Parses the model directories and optional simulated layer.</summary>
+    private static (
+        string? AssetsDirectory,
+        string? KeyboardConfigDirectory,
+        byte? KeyboardId,
+        byte? Layer) ParseArguments(string[] arguments)
     {
         string? directory = null;
+        string? keyboardConfigDirectory = null;
         byte? keyboardId = null;
         byte? layer = null;
         for (var index = 0; index < arguments.Length; index++)
@@ -63,10 +71,20 @@ public partial class App : Application
                 continue;
             }
 
+            if (option == "--keyboard-config-dir")
+            {
+                if (keyboardConfigDirectory is not null)
+                {
+                    throw new ArgumentException("--keyboard-config-dir may only be specified once.");
+                }
+                keyboardConfigDirectory = arguments[index];
+                continue;
+            }
+
             if (option != "--simulate")
             {
                 throw new ArgumentException(
-                    $"Unknown argument '{option}'. Expected --asset-dir PATH or --simulate KEYBOARD_ID:LAYER.");
+                    $"Unknown argument '{option}'. Expected --asset-dir PATH, --keyboard-config-dir PATH, or --simulate KEYBOARD_ID:LAYER.");
             }
             if (keyboardId is not null)
             {
@@ -81,6 +99,6 @@ public partial class App : Application
             keyboardId = parsedKeyboardId;
             layer = parsedLayer;
         }
-        return (directory, keyboardId, layer);
+        return (directory, keyboardConfigDirectory, keyboardId, layer);
     }
 }

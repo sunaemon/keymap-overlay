@@ -8,6 +8,7 @@ $overlay = if ($env:KEYMAP_OVERLAY_E2E_OVERLAY) {
     Join-Path $projectDirectory "target\wpf-publish\keymap-overlay.exe"
 }
 $testDirectory = Join-Path ([IO.Path]::GetTempPath()) ("keymap-overlay-e2e-" + [guid]::NewGuid())
+$keyboardConfigDirectory = Join-Path $testDirectory "keyboards"
 $stateFile = Join-Path $testDirectory "state"
 $outputFile = Join-Path $testDirectory "overlay.out.log"
 $errorFile = Join-Path $testDirectory "overlay.err.log"
@@ -36,10 +37,16 @@ function Wait-ForState([string]$description, [string]$pattern, [int]$count = 1) 
 }
 
 New-Item -ItemType Directory -Path $testDirectory | Out-Null
+New-Item -ItemType Directory -Path $keyboardConfigDirectory | Out-Null
 try {
+    $generator = Join-Path (Split-Path -Parent $overlay) "keymap-overlay-generator.exe"
+    if (-not (Test-Path -LiteralPath $generator -PathType Leaf)) {
+        Fail-Test "model generator is not installed beside the WPF executable"
+    }
     $env:KEYMAP_OVERLAY_E2E_STATE_FILE = $stateFile
     $process = Start-Process -FilePath $overlay `
-        -ArgumentList "--asset-dir", $assetDirectory, "--simulate", "1:2" `
+        -ArgumentList "--asset-dir", $assetDirectory, `
+            "--keyboard-config-dir", $keyboardConfigDirectory, "--simulate", "1:2" `
         -RedirectStandardOutput $outputFile -RedirectStandardError $errorFile -PassThru
 
     Wait-ForState "the composed layer to be attached" `

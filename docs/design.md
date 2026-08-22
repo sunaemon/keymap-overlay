@@ -37,21 +37,20 @@ installed models directory/<keyboard>.json
 
 Either way, only the combined `<keyboard>.json` — every layer keyed by
 number, in one file — is installed; any per-layer file on the `VIAL=false`
-path is a build-time intermediate. `make install-assets` is the
-platform-independent model-generation and copy target on both paths. On
-Windows, generate models from WSL with `make install-assets`, then run
-native `make install-overlay`; WSL writes them directly to
-`%LOCALAPPDATA%/keymap-overlay/`. On macOS and Linux the installed models
-directory is `~/.cache/keymap-overlay`: a regenerable cache of what the
-connected device already knows, not configuration — and `make install-overlay`
-no longer depends on `install-assets` there, since the running overlay
-regenerates anything missing itself (see Startup Self-Heal below). Running
-`install-assets` by hand on macOS/Linux is still useful to force a refresh
-after changing the connected device through Vial or `flash-keymap`, since
-self-heal only fills in what's missing, not what's stale; the release
-`install.sh`/`install.ps1` installer also still
-needs it run first, since a downloaded release binary has no generator
-alongside it to self-heal with (see Startup Self-Heal below).
+path is a build-time intermediate. `make install-assets` is the manual
+model-generation and copy target on both paths. A source-built
+`make install-overlay` no longer depends on it on any platform: it installs the
+native generator beside the frontend and regenerates anything missing itself
+at startup (see Startup Self-Heal below). The installed directory is
+`~/.cache/keymap-overlay` on macOS and Linux and
+`%LOCALAPPDATA%/keymap-overlay` on Windows, a regenerable cache of what the
+connected device already knows rather than configuration. Running
+`install-assets` by hand is still useful to force a refresh after changing the
+connected device through Vial or `flash-keymap`, since self-heal only fills in
+what is missing, not what is stale; run that manual workflow from WSL on
+Windows. The release `install.sh`/`install.ps1` installer still needs models
+generated first, since a downloaded release binary has no generator alongside
+it to self-heal with (see Startup Self-Heal below).
 
 ## Runtime Data Flow
 
@@ -273,11 +272,9 @@ source-build workflow:
 
 `make install-overlay` performs the following steps:
 
-1. On Windows, verifies that WSL has already generated JSON models under
-   `%LOCALAPPDATA%/keymap-overlay/`, since there is no self-heal fallback
-   there yet (see Startup Self-Heal). macOS and Linux need no such check:
-   `keymap-overlay-generator` is installed alongside the frontend below, and
-   the running overlay fills in any missing layer assets itself at startup.
+1. Builds and installs `keymap-overlay-generator` beside the frontend, passes
+   the checkout's keyboard configuration directory to the login command, and
+   fills in any missing layer assets before the frontend loads its model cache.
 2. Builds the platform executable and installs it as
    `~/.local/bin/keymap-overlay` on macOS and Linux — with the Qt renderer
    beside it as `~/.local/bin/keymap-overlay-qt` — and as

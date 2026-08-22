@@ -587,8 +587,12 @@ The pairs must be `x86_64-pc-windows-msvc` with `win-x64`, or
 above includes both x64 and ARM64 C++ tools so either native build has the MSVC
 linker and Windows SDK it needs.
 
-`make install-overlay` expects layer models already generated into the Windows
-profile by WSL. Firmware and asset targets intentionally stop in MSYS2.
+`make install-overlay` installs `keymap-overlay-generator.exe` beside the WPF
+frontend and fills in missing layer models from the connected Vial keyboard at
+startup. Keep the keyboard connected for the first run; a keyboard that is not
+available is retried the next time the overlay starts. Firmware and manual
+asset-generation targets still stop in MSYS2, so use WSL when forcing a refresh
+after changing an already-installed model.
 
 After changing the Windows bridge, also run:
 
