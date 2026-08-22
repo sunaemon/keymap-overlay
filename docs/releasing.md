@@ -43,7 +43,8 @@ Releases are beta until the project explicitly declares 1.0 stability.
    the Release workflow verifies that the tested commit came from a merged PR
    and changed the version, then creates both the `vMAJOR.MINOR.PATCH` tag and
    GitHub release on that exact commit.
-5. Confirm the automated Release workflow publishes all three platform archives,
+5. Confirm the automated Release workflow publishes all four platform archives
+   (Linux, macOS, Windows x64, and Windows ARM64),
    `install.sh`, `install.ps1`, `SHA256SUMS`, the MIT license and third-party
    notices, and GitHub artifact attestations.
 6. Download each archive, verify its SHA-256 checksum and attestation, inspect

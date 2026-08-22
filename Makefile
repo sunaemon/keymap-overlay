@@ -336,6 +336,14 @@ WINUI_PACKAGE := keymap-overlay-winui
 QT_RENDERER_SOURCE := overlay/platforms/linux/qt
 QT_RENDERER_BUILD_DIR := target/qt-release
 ifeq ($(OS_FAMILY),windows)
+WINDOWS_PROCESSOR_ARCHITECTURE := $(shell powershell -NoProfile -Command '(Get-ItemPropertyValue -LiteralPath "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" -Name PROCESSOR_ARCHITECTURE)')
+ifeq ($(WINDOWS_PROCESSOR_ARCHITECTURE),ARM64)
+WINDOWS_DOTNET_RID := win-arm64
+else ifeq ($(WINDOWS_PROCESSOR_ARCHITECTURE),AMD64)
+WINDOWS_DOTNET_RID := win-x64
+else
+$(error native Windows builds require AMD64 or ARM64, got '$(WINDOWS_PROCESSOR_ARCHITECTURE)')
+endif
 OVERLAY_BUILD_BINARY := $(WPF_PUBLISH_DIR)/keymap-overlay.exe
 KEYMAP_OVERLAY ?= "$(OVERLAY_BUILD_BINARY)"
 else
@@ -591,6 +599,10 @@ test:
 test-installer-sh:
 	./installer/tests/test_install_sh.sh
 
+.PHONY: test-installer-ps
+test-installer-ps:
+	powershell -NoProfile -Command 'Invoke-Pester -Path installer/tests/install.Tests.ps1 -CI'
+
 .PHONY: test-rust
 test-rust:
 	$(CARGO) test --workspace
@@ -604,6 +616,19 @@ test-release-acceptance-linux: test-installer-sh test-hid-to-dbus-e2e-linux test
 # runtime and Linux UHID test; this covers the native AppKit presentation path.
 .PHONY: test-release-acceptance-macos
 test-release-acceptance-macos: test-installer-sh test-appkit-e2e-macos
+
+# Windows's release go/no-go gate. The installer test covers upgrade rollback;
+# the simulated E2E test covers the native WPF presentation path.
+.PHONY: test-release-acceptance-windows
+test-release-acceptance-windows: test-installer-ps test-wpf-e2e-windows
+
+.PHONY: test-wpf-e2e-windows
+test-wpf-e2e-windows: build-overlay
+ifeq ($(OS_FAMILY),windows)
+	powershell -NoProfile -ExecutionPolicy Bypass -File overlay/platforms/windows/tests/test_wpf_e2e.ps1
+else
+	$(error test-wpf-e2e-windows is only available on Windows)
+endif
 
 .PHONY: test-appkit-e2e-macos
 test-appkit-e2e-macos: build-overlay
@@ -644,7 +669,8 @@ run-overlay:
 build-overlay:
 ifeq ($(OS_FAMILY),windows)
 	$(CARGO) build --release --manifest-path "$(WINDOWS_BRIDGE_MANIFEST)" --target-dir target
-	$(DOTNET) publish "$(WPF_PROJECT)" --configuration Release --output "$(WPF_PUBLISH_DIR)"
+	$(DOTNET) publish "$(WPF_PROJECT)" --configuration Release \
+		--runtime "$(WINDOWS_DOTNET_RID)" --output "$(WPF_PUBLISH_DIR)"
 else
 	$(CARGO) build --release -p $(OVERLAY_PACKAGE)
 ifeq ($(OS_FAMILY),linux)

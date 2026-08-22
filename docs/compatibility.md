@@ -13,12 +13,12 @@ Release CI builds and tests these targets:
 | -------- | ----------------------- | ------------------------------------------------------------------ |
 | macOS    | Apple silicon (`arm64`) | Current GitHub-hosted macOS runner and Input Monitoring permission |
 | Linux    | `x86_64`                | GNOME 45+ or Qt 6/LayerShellQt, with systemd user services         |
-| Windows  | `x86_64`                | Native Windows overlay installed from PowerShell                   |
+| Windows  | `x86_64`, `arm64`       | Native Windows overlay installed from PowerShell                   |
 
 Firmware compilation and flashing are supported on macOS and Linux. On a
 Windows host, use WSL for firmware and layer-image work; the overlay itself is
-native Windows software. Other architectures, init systems, and Windows on Arm
-are not currently release targets.
+native Windows software. Other architectures and init systems are not currently
+release targets.
 
 ## Installed Layout
 

@@ -85,8 +85,26 @@ function Initialize-Paths {
 }
 
 function Assert-SupportedPlatform {
-    if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
-        throw "No release binary is available for Windows $env:PROCESSOR_ARCHITECTURE."
+    Get-ReleaseArchitecture | Out-Null
+}
+
+function Get-ReleaseArchitecture {
+    $environmentKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+        'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+    )
+    if ($null -eq $environmentKey) {
+        throw 'Windows did not expose its native processor architecture.'
+    }
+    try {
+        $architecture = [string]$environmentKey.GetValue('PROCESSOR_ARCHITECTURE')
+    }
+    finally {
+        $environmentKey.Dispose()
+    }
+    switch ($architecture) {
+        'AMD64' { return 'x86_64' }
+        'ARM64' { return 'arm64' }
+        default { throw "No release binary is available for Windows $architecture." }
     }
 }
 
@@ -107,7 +125,7 @@ function Stage-Release {
         throw "Latest release returned invalid tag '$releaseTag'."
     }
 
-    $assetName = 'keymap-overlay-windows-x86_64.zip'
+    $assetName = "keymap-overlay-windows-$(Get-ReleaseArchitecture).zip"
     $archivePath = Join-Path $TemporaryDirectory $assetName
     $checksumsPath = Join-Path $TemporaryDirectory 'SHA256SUMS'
     $stagedInstallerPath = Join-Path $TemporaryDirectory 'release-install.ps1'

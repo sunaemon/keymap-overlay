@@ -52,25 +52,35 @@ Describe 'install.ps1' {
         { Assert-LayerAssets } | Should -Not -Throw
     }
 
-    It 'extracts and validates a complete release archive' {
-        $fixture = Join-Path $TestDrive 'fixture'
-        $archive = Join-Path $TestDrive 'fixture.zip'
+    It 'accepts the current Windows release architecture' {
+        { Get-ReleaseArchitecture } | Should -Not -Throw
+        Get-ReleaseArchitecture | Should -BeIn @('x86_64', 'arm64')
+    }
+
+    It 'extracts and validates a complete <Architecture> release archive' -ForEach @(
+        @{ Architecture = 'arm64' }
+        @{ Architecture = 'x86_64' }
+    ) {
+        $fixture = Join-Path $TestDrive "fixture-$Architecture"
+        $archive = Join-Path $TestDrive "fixture-$Architecture.zip"
         New-Item -ItemType Directory -Path $fixture | Out-Null
         Set-Content -LiteralPath (Join-Path $fixture 'keymap-overlay.exe') -Value 'binary'
         Set-Content -LiteralPath (Join-Path $fixture 'LICENSE') -Value 'license'
         Set-Content -LiteralPath (Join-Path $fixture 'THIRD-PARTY-LICENSES.html') -Value 'notices'
         Compress-Archive -Path (Join-Path $fixture '*') -DestinationPath $archive
         $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-        $installerFixture = Join-Path $TestDrive 'installer-fixture.ps1'
+        $installerFixture = Join-Path $TestDrive "installer-fixture-$Architecture.ps1"
         Set-Content -LiteralPath $installerFixture -Value 'installer'
         $installerHash = (Get-FileHash -LiteralPath $installerFixture -Algorithm SHA256).Hash.ToLowerInvariant()
 
         Mock Invoke-RestMethod { [pscustomobject]@{ tag_name = 'v0.0.1' } }
+        $archiveName = "keymap-overlay-windows-$Architecture.zip"
+        Mock Get-ReleaseArchitecture { $Architecture }
         Mock Invoke-WebRequest {
             param([string]$Uri, [string]$OutFile)
             if ($Uri -like '*/SHA256SUMS') {
                 Set-Content -LiteralPath $OutFile -Value @(
-                    "$hash  keymap-overlay-windows-x86_64.zip"
+                    "$hash  $archiveName"
                     "$installerHash  install.ps1"
                 )
             }
@@ -83,13 +93,14 @@ Describe 'install.ps1' {
         }
         Mock Confirm-AttestationsIfAvailable
 
-        $staging = Join-Path $TestDrive 'staging'
+        $staging = Join-Path $TestDrive "staging-$Architecture"
         New-Item -ItemType Directory -Path $staging | Out-Null
         Stage-Release -TemporaryDirectory $staging | Should -Be 'v0.0.1'
         (Join-Path $staging 'keymap-overlay.exe') | Should -Exist
         (Join-Path $staging 'LICENSE') | Should -Exist
         (Join-Path $staging 'THIRD-PARTY-LICENSES.html') | Should -Exist
         (Join-Path $staging 'release-install.ps1') | Should -Exist
+        Should -Invoke Invoke-WebRequest -Times 1 -ParameterFilter { $Uri -like "*/$archiveName" }
     }
 
     It 'keeps layer models and logs when uninstalling' {
