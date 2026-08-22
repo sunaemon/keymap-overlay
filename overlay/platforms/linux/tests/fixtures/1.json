@@ -4,20 +4,29 @@
     "0": {
       "version": 2,
       "layer": 0,
-      "width": 100,
-      "height": 50,
+      "width": 160,
+      "height": 120,
       "header_font_size": 14.0,
       "key_font_size": 10.0,
       "encoder_font_size": 9.0,
       "keys": [
         {
-          "x": 0,
-          "y": 0,
-          "width": 100,
+          "x": 20,
+          "y": 50,
+          "width": 60,
           "height": 50,
           "label": ["BASE"],
           "held": false,
           "momentary_layer": 2
+        },
+        {
+          "x": 90,
+          "y": 50,
+          "width": 50,
+          "height": 50,
+          "label": ["ENTER"],
+          "held": false,
+          "momentary_layer": null
         }
       ],
       "encoders": []
@@ -25,20 +34,29 @@
     "2": {
       "version": 2,
       "layer": 2,
-      "width": 100,
-      "height": 50,
+      "width": 160,
+      "height": 120,
       "header_font_size": 14.0,
       "key_font_size": 10.0,
       "encoder_font_size": 9.0,
       "keys": [
         {
-          "x": 0,
-          "y": 0,
-          "width": 100,
+          "x": 20,
+          "y": 50,
+          "width": 60,
           "height": 50,
           "label": ["E2E"],
           "held": false,
           "momentary_layer": 2
+        },
+        {
+          "x": 90,
+          "y": 50,
+          "width": 50,
+          "height": 50,
+          "label": ["ENTER"],
+          "held": false,
+          "momentary_layer": null
         }
       ],
       "encoders": []
