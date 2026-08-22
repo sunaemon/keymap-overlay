@@ -51,6 +51,31 @@ fn build_layer_grid(
     grid
 }
 
+fn validate_source_layout(
+    qmk_keymap: &QmkKeymapJson,
+    mapping: &[(u8, u8)],
+    rows: u8,
+    cols: u8,
+) -> Result<()> {
+    for &(row, col) in mapping {
+        if row >= rows || col >= cols {
+            bail!(
+                "Layout matrix position {row},{col} is outside the device's {rows}x{cols} matrix"
+            );
+        }
+    }
+    for (layer_index, layer) in qmk_keymap.layers.iter().enumerate() {
+        if layer.len() != mapping.len() {
+            bail!(
+                "Layer {layer_index} has {} keys, layout has {}",
+                layer.len(),
+                mapping.len()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Builds one padded encoder-action list per keymap layer, KC_NO-filled, so
 /// an absent or shorter encoder_map never leaves a stale device action.
 fn build_encoder_layout(
@@ -165,6 +190,7 @@ pub fn resolve_for_device(
             capabilities.layer_count
         );
     }
+    validate_source_layout(qmk_keymap, &mapping, rows, cols)?;
 
     let (layout, encoder_layout) = resolve_flash_layout(
         qmk_keymap,
@@ -188,14 +214,22 @@ pub fn resolve_for_device(
 
 /// Writes a resolved keymap to the device: encoders, then the keymap itself.
 pub fn write_to_device(dev: &HidDevice, resolved: &ResolvedFlash) -> Result<()> {
-    for (layer_index, pairs) in resolved.encoder_layout.iter().enumerate() {
-        for (encoder_index, pair) in pairs.iter().enumerate() {
-            let ccw = keycode_value(&pair[0], resolved.vial_version)?;
-            let cw = keycode_value(&pair[1], resolved.vial_version)?;
-            vitaly::protocol::set_encoder(dev, layer_index as u8, encoder_index as u8, 0, ccw)?;
-            vitaly::protocol::set_encoder(dev, layer_index as u8, encoder_index as u8, 1, cw)?;
-        }
-    }
+    let encoder_values: Result<Vec<Vec<[u16; 2]>>> = resolved
+        .encoder_layout
+        .iter()
+        .map(|pairs| {
+            pairs
+                .iter()
+                .map(|pair| {
+                    Ok([
+                        keycode_value(&pair[0], resolved.vial_version)?,
+                        keycode_value(&pair[1], resolved.vial_version)?,
+                    ])
+                })
+                .collect()
+        })
+        .collect();
+    let encoder_values = encoder_values?;
 
     let layers_value: Vec<serde_json::Value> = resolved
         .layout
@@ -219,6 +253,13 @@ pub fn write_to_device(dev: &HidDevice, resolved: &ResolvedFlash) -> Result<()> 
         &layers_value,
         resolved.vial_version,
     )?;
+
+    for (layer_index, pairs) in encoder_values.iter().enumerate() {
+        for (encoder_index, [ccw, cw]) in pairs.iter().enumerate() {
+            vitaly::protocol::set_encoder(dev, layer_index as u8, encoder_index as u8, 0, *ccw)?;
+            vitaly::protocol::set_encoder(dev, layer_index as u8, encoder_index as u8, 1, *cw)?;
+        }
+    }
     vitaly::protocol::set_keymap(dev, &keymap)?;
 
     Ok(())
@@ -352,6 +393,24 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("expected at most 1"));
+    }
+
+    #[test]
+    fn rejects_layout_coordinates_outside_the_device_matrix() {
+        let qmk_keymap = keymap(&[&["KC_A"]]);
+        let error = validate_source_layout(&qmk_keymap, &[(1, 0)], 1, 1).unwrap_err();
+        assert!(error.to_string().contains("outside the device"));
+    }
+
+    #[test]
+    fn rejects_a_layer_whose_key_count_differs_from_the_layout() {
+        let qmk_keymap = keymap(&[&["KC_A", "KC_B"]]);
+        let error = validate_source_layout(&qmk_keymap, &[(0, 0)], 1, 1).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Layer 0 has 2 keys, layout has 1")
+        );
     }
 
     #[test]

@@ -27,7 +27,11 @@ struct Args {
     #[arg(long, value_enum, default_value_t = Platform::Macos)]
     platform: Platform,
 
-    #[arg(long, default_value_t = 64)]
+    #[arg(
+        long,
+        default_value_t = 64,
+        value_parser = clap::value_parser!(i64).range(1..)
+    )]
     pixels_per_unit: i64,
 }
 

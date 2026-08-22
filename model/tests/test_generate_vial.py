@@ -25,6 +25,7 @@ def test_generate_vial_embeds_custom_keycodes_from_keymap_c(tmp_path: Path) -> N
         enum custom_keycodes {
           KC_ALPHA = SAFE_RANGE, // α
           KC_BETA,               // β
+          EIZO_USB_C,            // USB-C
           KC_INTERNAL            // a longer explanation is not a label
         };
         """,
@@ -36,8 +37,20 @@ def test_generate_vial_embeds_custom_keycodes_from_keymap_c(tmp_path: Path) -> N
     assert vial.customKeycodes == [
         VialCustomKeycode(name="KC_ALPHA", shortName="α"),
         VialCustomKeycode(name="KC_BETA", shortName="β"),
+        VialCustomKeycode(name="EIZO_USB_C", shortName="USB-C"),
         VialCustomKeycode(name="KC_INTERNAL", shortName=""),
     ]
+
+
+def test_generate_vial_accepts_a_keymap_without_custom_keycodes(
+    tmp_path: Path,
+) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text("#include QMK_KEYBOARD_H\n", encoding="utf-8")
+
+    vial = generate_vial(DATA_DIR / "keyboard.json", "LAYOUT", keymap_c=keymap_c)
+
+    assert vial.customKeycodes == []
 
 
 def test_generate_vial_with_encoder_directions(tmp_path: Path) -> None:

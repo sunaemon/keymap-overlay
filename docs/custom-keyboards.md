@@ -50,8 +50,8 @@ Labels affect generated layer models only; they do not change firmware
 behavior.
 
 Base `enum custom_keycodes` at `QK_KB_0`, Vial's fixed range for a keyboard's
-own custom keycodes, and give each entry a one-character trailing comment for
-its label:
+own custom keycodes, and give each entry a single whitespace-free trailing
+comment token such as `α`, `USB-C`, or `PbyP` for its label:
 
 ```c
 enum custom_keycodes {
@@ -96,7 +96,8 @@ Omit `KEYBOARD_ID` only when every configured keyboard is connected; the
 default VIAL-backed path reads each device in turn.
 
 The released binary installer does not change. Every runtime reads the
-generated JSON layer models from the platform configuration directory.
+generated JSON layer models from the platform cache directory
+(`~/.cache/keymap-overlay` on macOS and Linux).
 
 Return to the [main README](../README.md#everyday-operations) for update,
 restart, upgrade, and uninstall commands.

@@ -68,9 +68,9 @@ from `keymap.c`) and for firmware compile/flash JSON, which is unconditionally
   for all three native renderers, including encoder rotation and push actions,
   under `VIAL=false`. It resolves custom keycode names and preserves
   `KC_TRNS` as display-only transparency metadata. Custom keycodes get their
-  display glyph from a single-character comment in `keymap.c`; generic and
-  platform-specific key aliases are its own built-in tables, not `keymap.c`
-  content.
+  display label from a single whitespace-free comment token in `keymap.c`;
+  generic and platform-specific key aliases are its own built-in tables, not
+  `keymap.c` content.
 - `consolidate_layer_models.py`: Combines one keyboard's rendered per-layer
   files (the `VIAL=false` path only now) into the single installed
   `<keyboard>.json`.
@@ -197,8 +197,9 @@ make install-overlay    # Build and install the login service
 `install-overlay` no longer depends on `install-assets` on macOS or Linux: the
 running overlay fills in any layer model missing from `~/.cache/keymap-overlay`
 itself at startup (Startup Self-Heal in `docs/design.md`). Run
-`make install-assets` by hand only to force a refresh after editing
-`keymap.c` — self-heal fills in what's missing, not what's stale — or for the
+`make install-assets` by hand only to force a refresh after changing the
+connected device through Vial or `flash-keymap` — self-heal fills in what's
+missing, not what's stale — or for the
 WSL-to-Windows cross-generation workflow, which has no self-heal fallback yet.
 
 `make setup` and everything that installs or starts the overlay dispatch on

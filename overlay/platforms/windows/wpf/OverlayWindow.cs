@@ -83,13 +83,13 @@ internal sealed class OverlayWindow : Window
             try
             {
                 var keyboardModels = JsonSerializer.Deserialize<KeyboardModels>(File.ReadAllText(path));
-                if (keyboardModels is null || keyboardModels.KeyboardId != keyboard)
+                if (keyboardModels is null || keyboardModels.KeyboardId != keyboard || keyboardModels.Layers is null)
                 {
                     continue;
                 }
                 foreach (var (layer, model) in keyboardModels.Layers)
                 {
-                    if ((model.Version == 1 || model.Version == 2) && model.Layer == layer)
+                    if (model is not null && (model.Version == 1 || model.Version == 2) && model.Layer == layer)
                     {
                         result[(keyboard, layer)] = model;
                     }

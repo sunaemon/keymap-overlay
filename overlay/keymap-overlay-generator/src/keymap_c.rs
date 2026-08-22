@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -17,9 +17,9 @@ pub fn strip_c_comments(text: &str) -> String {
 pub fn parse_custom_keycode_names(keymap_c: &str) -> Result<Vec<String>> {
     static ENUM: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"(?s)enum\s+custom_keycodes\s*\{([^}]*)\};").unwrap());
-    let captures = ENUM
-        .captures(keymap_c)
-        .context("enum custom_keycodes not found in keymap.c")?;
+    let Some(captures) = ENUM.captures(keymap_c) else {
+        return Ok(Vec::new());
+    };
     let body = strip_c_comments(&captures[1]);
 
     let mut names = Vec::new();
@@ -33,6 +33,9 @@ pub fn parse_custom_keycode_names(keymap_c: &str) -> Result<Vec<String>> {
             if !CUSTOM_KEYCODE_BASE_NAMES.contains(&value) {
                 bail!("Explicit keycode assignment is not supported: {entry}");
             }
+            if !names.is_empty() {
+                bail!("Custom keycode base may only be assigned to the first entry: {entry}");
+            }
             names.push(name.trim().to_string());
         } else {
             names.push(entry.to_string());
@@ -44,9 +47,6 @@ pub fn parse_custom_keycode_names(keymap_c: &str) -> Result<Vec<String>> {
 /// Parse QMK encoder bindings from keymap.c. Returns one pair list per layer,
 /// or an empty list if there is no `encoder_map` at all.
 ///
-/// Only numeric `[N] = {...}` layer designators are supported — neither of
-/// this project's keyboards uses symbolic enum designators. `keymap.c` files
-/// that do need `VIAL=false` Python rendering, which still handles them.
 pub fn parse_encoder_map(keymap_c: &str) -> Result<Vec<Vec<[String; 2]>>> {
     let content = strip_c_comments(keymap_c);
     static NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bencoder_map\b").unwrap());
@@ -62,10 +62,60 @@ pub fn parse_encoder_map(keymap_c: &str) -> Result<Vec<Vec<[String; 2]>>> {
         _ => bail!("Malformed encoder_map in keymap.c"),
     };
     let (body, _) = extract_delimited(&content, opening, '{', '}')?;
-    parse_encoder_layers(&body)
+    parse_encoder_layers(&body, &parse_enum_values(&content))
 }
 
-fn parse_encoder_layers(content: &str) -> Result<Vec<Vec<[String; 2]>>> {
+fn parse_enum_values(content: &str) -> HashMap<String, usize> {
+    static ENUMS: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?s)\benum(?:\s+[A-Za-z_]\w*)?\s*\{([^}]*)\}").unwrap());
+    let mut values = HashMap::new();
+    for captures in ENUMS.captures_iter(content) {
+        let mut current = None;
+        let mut started = false;
+        for entry in captures[1]
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+        {
+            let (name, explicit) = entry
+                .split_once('=')
+                .map_or((entry, None), |(name, value)| {
+                    (name.trim(), Some(value.trim()))
+                });
+            if !name
+                .chars()
+                .next()
+                .is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic())
+                || !name
+                    .chars()
+                    .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            {
+                current = None;
+                continue;
+            }
+            current = explicit.map_or_else(
+                || {
+                    if started {
+                        current.and_then(|value: usize| value.checked_add(1))
+                    } else {
+                        Some(0)
+                    }
+                },
+                |value| value.parse().ok().or_else(|| values.get(value).copied()),
+            );
+            started = true;
+            if let Some(value) = current {
+                values.insert(name.to_string(), value);
+            }
+        }
+    }
+    values
+}
+
+fn parse_encoder_layers(
+    content: &str,
+    layer_names: &HashMap<String, usize>,
+) -> Result<Vec<Vec<[String; 2]>>> {
     static LAYER: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"\[([A-Za-z_]\w*|\d+)\]\s*=").unwrap());
     let mut indexed: HashMap<usize, Vec<[String; 2]>> = HashMap::new();
@@ -78,12 +128,11 @@ fn parse_encoder_layers(content: &str) -> Result<Vec<Vec<[String; 2]>>> {
             .map(|i| i + full.end())
             .context("Malformed encoder_map layer in keymap.c")?;
         let (body, next_position) = extract_delimited(content, opening, '{', '}')?;
-        let layer_index: usize = designator.parse().map_err(|_| {
-            anyhow!(
-                "encoder_map layer designator '{designator}' is not numeric; \
-                 symbolic/enum designators are not supported here — use VIAL=false rendering instead"
-            )
-        })?;
+        let layer_index: usize = designator
+            .parse()
+            .ok()
+            .or_else(|| layer_names.get(designator).copied())
+            .with_context(|| format!("Unknown encoder_map layer designator '{designator}'"))?;
         if indexed.contains_key(&layer_index) {
             bail!("Duplicate encoder_map layer {layer_index} in keymap.c");
         }
@@ -192,6 +241,21 @@ mod tests {
     }
 
     #[test]
+    fn a_keymap_without_custom_keycodes_returns_an_empty_list() {
+        assert!(
+            parse_custom_keycode_names("#include QMK_KEYBOARD_H")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn rejects_a_mid_enum_custom_keycode_base_reset() {
+        let keymap_c = "enum custom_keycodes { KC_ALPHA = SAFE_RANGE, KC_BETA = SAFE_RANGE };";
+        assert!(parse_custom_keycode_names(keymap_c).is_err());
+    }
+
+    #[test]
     fn no_encoder_map_returns_empty() {
         assert_eq!(
             parse_encoder_map("enum custom_keycodes { KC_A };").unwrap(),
@@ -230,14 +294,49 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_symbolic_layer_designator() {
+    fn resolves_symbolic_layer_designators() {
         let keymap_c = r#"
-        const uint16_t PROGMEM encoder_map[1][1][2] = {
-            [BASE] = {ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
+        enum layers { BASE, LOWER };
+        const uint16_t PROGMEM encoder_map[2][1][2] = {
+            [LOWER] = {ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
         };
         "#;
-        let error = parse_encoder_map(keymap_c).unwrap_err();
-        assert!(error.to_string().contains("not numeric"));
+        assert_eq!(
+            parse_encoder_map(keymap_c).unwrap(),
+            vec![vec![], vec![["KC_VOLD".to_string(), "KC_VOLU".to_string()]]]
+        );
+    }
+
+    #[test]
+    fn resolves_explicit_symbolic_layer_values() {
+        let keymap_c = r#"
+        enum layers { BASE = 2, LOWER };
+        const uint16_t PROGMEM encoder_map[4][1][2] = {
+            [LOWER] = {ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
+        };
+        "#;
+        let layers = parse_encoder_map(keymap_c).unwrap();
+        assert_eq!(layers.len(), 4);
+        assert_eq!(
+            layers[3],
+            vec![["KC_VOLD".to_string(), "KC_VOLU".to_string()]]
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_layer_designators() {
+        let keymap_c = r#"
+        const uint16_t PROGMEM encoder_map[1][1][2] = {
+            [0] = {ENCODER_CCW_CW(KC_A, KC_B)},
+            [0] = {ENCODER_CCW_CW(KC_C, KC_D)},
+        };
+        "#;
+        assert!(
+            parse_encoder_map(keymap_c)
+                .unwrap_err()
+                .to_string()
+                .contains("Duplicate")
+        );
     }
 
     #[test]

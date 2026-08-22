@@ -46,7 +46,7 @@ pub fn build_layer_model(
     pixels_per_unit: i64,
 ) -> Result<OverlayModel> {
     let layout = keyboard.layout_keys(layout_name)?;
-    validate_layer(layout, layer)?;
+    validate_layer(layout, layer, base_layer, keyboard.encoder_count())?;
 
     let placements = resolve_encoder_placements(keyboard, config, layout)?;
 
@@ -100,12 +100,25 @@ pub fn build_layer_model(
     )
 }
 
-fn validate_layer(layout: &[LayoutKey], layer: &LayerSource) -> Result<()> {
+fn validate_layer(
+    layout: &[LayoutKey],
+    layer: &LayerSource,
+    base_layer: &LayerSource,
+    encoder_count: usize,
+) -> Result<()> {
     if layer.keys.len() != layout.len() {
         bail!(
             "Layer has {} keys, layout has {}",
             layer.keys.len(),
             layout.len()
+        );
+    }
+    if layer.encoders.len() != encoder_count || base_layer.encoders.len() != encoder_count {
+        bail!(
+            "Layer has {} encoders and the base layer has {}, keyboard.json defines {}",
+            layer.encoders.len(),
+            base_layer.encoders.len(),
+            encoder_count
         );
     }
     if layout.iter().any(|key| key.r != 0.0) {
@@ -218,6 +231,8 @@ fn build_model(
         let (left, top, right, bottom) = box_;
         let keycode = &display_keys[key_index];
         let raw_keycode = &raw_keys[key_index];
+        // Held styling follows the displayed fallthrough key, while metadata
+        // describing a layer switch always follows the raw key at this layer.
         keys.push(DisplayKey {
             x: left as u32,
             y: top as u32,
@@ -335,8 +350,8 @@ fn wrap_label(label: &str, max_lines: usize, max_chars: usize) -> Vec<String> {
     truncated
 }
 
-/// A simplified greedy word-wrap: Python's `textwrap.wrap(..., break_long_words=True)`
-/// breaks on whitespace, then hard-breaks any word still longer than the width.
+/// A simplified greedy word-wrap that breaks on whitespace and hard-breaks
+/// words longer than the full line width.
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
@@ -625,7 +640,7 @@ mod tests {
     fn encoder_placement_count_must_match_keyboard() {
         let keyboard = two_key_keyboard_with_encoder();
         let config = config("{}");
-        let base = layer(&["KC_A", "KC_B"], &[]);
+        let base = layer(&["KC_A", "KC_B"], &[["KC_VOLD", "KC_VOLU"]]);
 
         let error = build_layer_model(
             &keyboard,
@@ -641,6 +656,28 @@ mod tests {
         .expect_err("encoder count mismatch");
 
         assert!(error.to_string().contains("encoder placements"));
+    }
+
+    #[test]
+    fn encoder_action_count_must_match_keyboard() {
+        let keyboard = two_key_keyboard_with_encoder();
+        let config = config(r#"{"encoders": [{"matrix": [0, 1]}]}"#);
+        let base = layer(&["KC_A", "KC_B"], &[]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config,
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            64,
+        )
+        .expect_err("encoder action mismatch");
+
+        assert!(error.to_string().contains("keyboard.json defines 1"));
     }
 
     #[test]

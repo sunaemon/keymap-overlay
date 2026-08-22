@@ -87,6 +87,7 @@ def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
         [
             "make",
             "_internal_install",
+            "VIAL=false",
             "KEYBOARD_ID=1",
             "LAYERS=2",
             f"ASSET_BUILD_DIR={build}",

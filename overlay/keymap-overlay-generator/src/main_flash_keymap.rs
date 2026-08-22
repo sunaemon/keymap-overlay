@@ -59,7 +59,7 @@ fn main() -> Result<()> {
             "encoder_layout": resolved.encoder_layout,
         });
         println!("{}", serde_json::to_string_pretty(&json)?);
-        println!("(dry run: device not written)");
+        eprintln!("(dry run: device not written)");
         return Ok(());
     }
 

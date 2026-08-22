@@ -47,8 +47,9 @@ connected device already knows, not configuration — and `make install-overlay`
 no longer depends on `install-assets` there, since the running overlay
 regenerates anything missing itself (see Startup Self-Heal below). Running
 `install-assets` by hand on macOS/Linux is still useful to force a refresh
-after editing `keymap.c`, since self-heal only fills in what's missing, not
-what's stale; the release `install.sh`/`install.ps1` installer also still
+after changing the connected device through Vial or `flash-keymap`, since
+self-heal only fills in what's missing, not what's stale; the release
+`install.sh`/`install.ps1` installer also still
 needs it run first, since a downloaded release binary has no generator
 alongside it to self-heal with (see Startup Self-Heal below).
 
@@ -362,8 +363,8 @@ whose keymap is never edited outside source; that path stays the Python
 pipeline described above.
 
 `keymap.c` remains the source that firmware is compiled and flashed from either
-way, and `generate_vial.py` embeds each custom keycode's name and
-single-character display glyph into the `vial.json` compiled into that firmware
+way, and `generate_vial.py` embeds each custom keycode's name and display label
+from a single whitespace-free comment token into the `vial.json` compiled into that firmware
 (starting at Vial's fixed `QK_KB_0` keycode range). Once a keyboard has been
 flashed, VIAL-mode rendering reads its keymap and custom-keycode metadata from
 the device rather than from the contents of `keymap.c`; the source file must
@@ -381,9 +382,9 @@ compose the held layers in memory using QMK precedence, and render the result
 with AppKit, GNOME Shell, Qt Quick, or WPF. Keys use quiet, nearly opaque fills
 and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
-key alone receives its pale tint. Display-only Unicode labels for custom
-keycodes come from single-character comments on `custom_keycodes` entries in
-`keymap.c`. Generic and platform-specific aliases — arrow glyphs, ⌘/Super/⊞ for
+key alone receives its pale tint. Display-only labels for custom keycodes come
+from single whitespace-free comment tokens such as `α`, `USB-C`, or `PbyP` on
+`custom_keycodes` entries in `keymap.c`. Generic and platform-specific aliases — arrow glyphs, ⌘/Super/⊞ for
 the GUI key, and so on — are overlay-owned presentation policy, not keyboard
 data: they live in built-in label tables keyed by `OVERLAY_PLATFORM` (which
 defaults to the current host) — `generate_overlay_asset.py`'s under

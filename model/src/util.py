@@ -91,7 +91,7 @@ def parse_custom_keycode_names(keymap_c: Path) -> list[str]:
         r"enum\s+custom_keycodes\s*\{([^}]*)\};", content, re.DOTALL | re.MULTILINE
     )
     if match is None:
-        raise ValueError(f"enum custom_keycodes not found in {keymap_c}")
+        return []
 
     entries = [
         entry.strip()
@@ -100,12 +100,16 @@ def parse_custom_keycode_names(keymap_c: Path) -> list[str]:
     ]
 
     names: list[str] = []
-    for entry in entries:
+    for index, entry in enumerate(entries):
         if "=" in entry:
             name, value = (part.strip() for part in entry.split("=", 1))
             if value not in CUSTOM_KEYCODE_BASE_NAMES:
                 raise ValueError(
                     f"Explicit keycode assignment is not supported: {entry}"
+                )
+            if index != 0:
+                raise ValueError(
+                    f"Custom keycode base may only be assigned to the first entry: {entry}"
                 )
         else:
             name = entry
@@ -114,12 +118,9 @@ def parse_custom_keycode_names(keymap_c: Path) -> list[str]:
 
 
 def parse_custom_keycode_short_names(keymap_c: Path) -> dict[str, str]:
-    """Read comment labels off enum custom_keycodes entries.
-
-    A label is a single whitespace-free token (e.g. "α" or "USB-C"), which
-    distinguishes it from a prose comment (e.g. "a longer explanation is not
-    a label") explaining the entry rather than naming its display glyph.
-    """
+    """Read single-token comment labels off enum custom_keycodes entries."""
+    # Requiring one whitespace-free token distinguishes a label such as "α" or
+    # "USB-C" from a prose comment explaining the entry.
     content = keymap_c.read_text(encoding="utf-8")
     labels: dict[str, str] = {}
 

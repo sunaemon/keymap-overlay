@@ -142,11 +142,21 @@ def test_explicit_keycode_assignment_is_rejected(tmp_path: Path) -> None:
         )
 
 
-def test_a_keymap_without_the_enum_is_rejected(tmp_path: Path) -> None:
+def test_a_keymap_without_the_enum_has_no_custom_keycodes(tmp_path: Path) -> None:
     keymap_c = tmp_path / "keymap.c"
     keymap_c.write_text("#include QMK_KEYBOARD_H\n")
 
-    with pytest.raises(ValueError, match="enum custom_keycodes not found"):
+    keycodes = generate_custom_keycodes(
+        keymap_c=keymap_c, keycodes_json=_write_keycodes(tmp_path)
+    )
+
+    assert keycodes.root == {}
+
+
+def test_a_mid_enum_base_reset_is_rejected(tmp_path: Path) -> None:
+    keymap_c = _write_keymap(tmp_path, "KC_ALPHA = SAFE_RANGE, KC_BETA = SAFE_RANGE")
+
+    with pytest.raises(ValueError, match="only be assigned to the first entry"):
         generate_custom_keycodes(
             keymap_c=keymap_c, keycodes_json=_write_keycodes(tmp_path)
         )

@@ -477,7 +477,7 @@ doctor:
 # so it takes the same branch below, passing an explicit KEYMAP_OVERLAY_DIR
 # pointing at the Windows-side path — see README's Setup on Windows), and a
 # manual force-refresh on macOS/Linux when self-heal's fill-if-missing
-# wouldn't otherwise pick up a keymap.c edit.
+# wouldn't otherwise pick up a connected-device change.
 #
 # Under VIAL=false, LAYERS depends on $(QMK_KEYMAP_JSON), so install-assets
 # and draw-layers build the QMK JSON in a first make invocation, then re-enter
@@ -642,8 +642,9 @@ else
 # Not install-assets: startup self-heal (FILE RULES, --keyboard-config-dir
 # below) now generates any keyboard missing from $(KEYMAP_OVERLAY_DIR) itself
 # once the service starts, so installing doesn't need to write there too.
-# Run `make install-assets` by hand to force a refresh — e.g. after editing
-# keymap.c — since self-heal only fills in what's missing, not what's stale.
+# Run `make install-assets` by hand to force a refresh after changing the
+# connected device through Vial or flash-keymap, since self-heal only fills in
+# what's missing, not what's stale.
 install-overlay: build-overlay
 endif
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
@@ -1126,7 +1127,7 @@ ifeq ($(VIAL),true)
 # Reads the connected device directly in one HID session (customKeycodes,
 # every layer, every encoder) and renders straight to the consolidated file;
 # there is no per-layer file or separate consolidation step on this path.
-$(CONSOLIDATED_ASSET): $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(shell find overlay/keymap-overlay-generator/src -name '*.rs') | $(ASSET_BUILD_DIR)
+$(CONSOLIDATED_ASSET): _force_build $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(shell find overlay/keymap-overlay-generator/src -name '*.rs') | $(ASSET_BUILD_DIR)
 	@$(MAKE) _build_generator
 	$(call WRITE_OUTPUT,$@,"$(GENERATOR_BINARY)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --layout-name "$(LAYOUT_NAME)" --keyboard-id "$(KEYBOARD_ID)" --platform "$(OVERLAY_PLATFORM)" --pixels-per-unit "$(PIXELS_PER_UNIT)")
 else

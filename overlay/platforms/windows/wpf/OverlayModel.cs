@@ -9,7 +9,7 @@ internal sealed class KeyboardModels
     public byte KeyboardId { get; set; }
 
     [JsonPropertyName("layers")]
-    public required Dictionary<byte, OverlayModel> Layers { get; set; }
+    public required Dictionary<byte, OverlayModel?>? Layers { get; set; }
 }
 
 /// <summary>Describes one platform-neutral keyboard layer display model.</summary>

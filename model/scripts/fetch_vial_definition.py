@@ -3,7 +3,7 @@
 import logging
 import lzma
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Protocol
 
 import hid
 import typer
@@ -24,10 +24,19 @@ RAW_USAGE_ID = 0x61
 # Vial's report size and command bytes, cf. vitaly's MESSAGE_LENGTH and
 # CMD_VIA_VIAL_PREFIX/CMD_VIAL_GET_SIZE/CMD_VIAL_GET_DEFINITION (protocol.rs).
 REPORT_LENGTH = 32
+MAX_DEFINITION_SIZE = 16 * 1024 * 1024
 VIAL_PREFIX = 0xFE
 VIAL_GET_SIZE = 0x01
 VIAL_GET_DEFINITION = 0x02
 READ_TIMEOUT_MS = 500
+
+
+class RawHidTransport(Protocol):
+    """Provides the Raw HID operations used by the Vial exchange."""
+
+    def write(self, data: bytes) -> int: ...
+
+    def read(self, max_length: int, timeout_ms: int = 0) -> list[int]: ...
 
 
 @app.command()
@@ -72,23 +81,32 @@ def _open_raw_hid_device(vendor_id: str, product_id: str) -> hid.device:
     raise ValueError(f"No Raw HID interface found for device {vendor_id}:{product_id}")
 
 
-def _read_definition(device: hid.device) -> bytes:
+def _read_definition(device: RawHidTransport) -> bytes:
     remaining = _read_definition_size(device)
+    if not 0 < remaining <= MAX_DEFINITION_SIZE:
+        raise ValueError(f"Invalid Vial definition size: {remaining}")
     blocks = bytearray()
     block_index = 0
     while len(blocks) < remaining:
-        blocks.extend(
-            _send_recv(
-                device,
-                [VIAL_PREFIX, VIAL_GET_DEFINITION, *_block_index_bytes(block_index)],
-            )
+        response = _send_recv(
+            device,
+            [VIAL_PREFIX, VIAL_GET_DEFINITION, *_block_index_bytes(block_index)],
         )
+        if len(response) != REPORT_LENGTH:
+            raise OSError(
+                f"Invalid Vial definition reply length: {len(response)}; expected {REPORT_LENGTH}"
+            )
+        blocks.extend(response)
         block_index += 1
     return bytes(blocks[:remaining])
 
 
-def _read_definition_size(device: hid.device) -> int:
+def _read_definition_size(device: RawHidTransport) -> int:
     response = _send_recv(device, [VIAL_PREFIX, VIAL_GET_SIZE])
+    if len(response) != REPORT_LENGTH:
+        raise OSError(
+            f"Invalid Vial size reply length: {len(response)}; expected {REPORT_LENGTH}"
+        )
     return int.from_bytes(response[:4], byteorder="little")
 
 
@@ -96,7 +114,7 @@ def _block_index_bytes(block_index: int) -> list[int]:
     return list(block_index.to_bytes(4, byteorder="little"))
 
 
-def _send_recv(device: hid.device, payload: list[int]) -> bytes:
+def _send_recv(device: RawHidTransport, payload: list[int]) -> bytes:
     """Sends one report (report id 0) and reads the matching reply."""
     report = bytes([0x00, *payload, *([0] * (REPORT_LENGTH - len(payload)))])
     device.write(report)

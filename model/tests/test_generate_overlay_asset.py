@@ -86,12 +86,9 @@ def test_builds_keys_and_an_encoder_into_the_shared_model(tmp_path: Path) -> Non
 def test_a_multi_character_custom_keycode_comment_renders_as_its_glyph(
     tmp_path: Path,
 ) -> None:
-    """End to end: a keymap.c comment like "USB-C" reaches the rendered key.
-
-    Regression test for a bug where only single-character comments (e.g. "α")
-    produced a label; a multi-character glyph silently fell back to the raw
-    keycode name instead.
-    """
+    """A multi-character keymap.c label reaches the rendered key."""
+    # Regression test: labels such as "USB-C" used to fall back to the raw
+    # keycode name because only single-character comments were accepted.
     keymap = _write(
         tmp_path / "keymap.json",
         {"layout": "LAYOUT", "layers": [["KC_USB_C", "KC_MUTE"]]},

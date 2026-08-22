@@ -1,3 +1,4 @@
+use anyhow::Context;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -11,7 +12,8 @@ pub struct CustomKeycode {
 pub fn parse_custom_keycodes(vial_meta: &serde_json::Value) -> anyhow::Result<Vec<CustomKeycode>> {
     match vial_meta.get("customKeycodes") {
         None | Some(serde_json::Value::Null) => Ok(Vec::new()),
-        Some(value) => Ok(serde_json::from_value(value.clone())?),
+        Some(value) => serde_json::from_value(value.clone())
+            .context("Failed to parse customKeycodes from the device's Vial meta"),
     }
 }
 

@@ -342,8 +342,12 @@ keyboard:
 git pull
 make setup-firmware
 make flash KEYBOARD_ID=<keyboard-id>
-make install-assets
+make flash-keymap KEYBOARD_ID=<keyboard-id>
+make install-assets KEYBOARD_ID=<keyboard-id>
 ```
+
+To render directly from the edited source without updating EEPROM, use
+`make install-assets VIAL=false KEYBOARD_ID=<keyboard-id>` instead.
 
 On Windows, use WSL and the Windows-profile arguments from the installation
 section. Restart the runtime after installing new models:

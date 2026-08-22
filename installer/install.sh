@@ -125,7 +125,8 @@ require_command() {
 
 require_layer_assets() {
   if [ ! -d "$CACHE_DIRECTORY" ] ||
-    ! find "$CACHE_DIRECTORY" -maxdepth 1 -type f -name "[0-9]*.${asset_extension}" -print -quit | grep -q .; then
+    ! find "$CACHE_DIRECTORY" -maxdepth 1 -type f -name "*.${asset_extension}" -print |
+      grep -Eq "/[0-9]+\.${asset_extension}$"; then
     echo "ERROR: no layer ${asset_extension} assets found in ${CACHE_DIRECTORY}." >&2
     echo 'Generate assets from a source checkout before installing the binary.' >&2
     exit 1

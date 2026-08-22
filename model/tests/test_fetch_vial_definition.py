@@ -98,3 +98,29 @@ def test_no_matching_raw_hid_interface_is_rejected(
 
     with pytest.raises(ValueError, match="No Raw HID interface found"):
         module.fetch_vial_definition("0xFEED", "0x0000")
+
+
+@pytest.mark.parametrize("reply", [[], [0] * (module.REPORT_LENGTH - 1)])
+def test_short_definition_replies_are_rejected(reply: list[int]) -> None:
+    class ShortReplyDevice:
+        def read(self, max_length: int, timeout_ms: int = 0) -> list[int]:
+            return reply
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+    with pytest.raises(OSError, match="reply length"):
+        module._read_definition(ShortReplyDevice())
+
+
+@pytest.mark.parametrize("size", [0, module.MAX_DEFINITION_SIZE + 1])
+def test_invalid_definition_sizes_are_rejected(size: int) -> None:
+    class SizeDevice:
+        def read(self, max_length: int, timeout_ms: int = 0) -> list[int]:
+            return list(size.to_bytes(4, byteorder="little")) + [0] * 28
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+    with pytest.raises(ValueError, match="Invalid Vial definition size"):
+        module._read_definition(SizeDevice())

@@ -350,6 +350,22 @@ test_unrelated_json_is_not_a_layer_asset() {
   test ! -e "$home/.config/systemd/user/keymap-overlay.service"
 }
 
+test_numeric_prefix_json_is_not_a_layer_asset() {
+  home="$TEST_DIRECTORY/numeric prefix json home"
+  cache="$home/.cache/keymap-overlay"
+  mkdir -p "$cache"
+  : >"$cache/1.backup.json"
+  : >"$home/commands.log"
+
+  if run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz; then
+    echo 'Expected installation with only a numeric-prefix JSON file to fail.' >&2
+    exit 1
+  fi
+
+  test ! -e "$home/.local/bin/keymap-overlay"
+  test ! -e "$home/.config/systemd/user/keymap-overlay.service"
+}
+
 test_linux_install_and_uninstall
 test_macos_stops_service_before_replacing_binary
 test_gnome_disables_qt_renderer_unless_forced
@@ -357,4 +373,5 @@ test_failed_service_install_rolls_back
 test_failed_gnome_upgrade_keeps_qt_disabled
 test_missing_layer_assets_fails_without_installing_files
 test_unrelated_json_is_not_a_layer_asset
+test_numeric_prefix_json_is_not_a_layer_asset
 echo 'install.sh tests passed'

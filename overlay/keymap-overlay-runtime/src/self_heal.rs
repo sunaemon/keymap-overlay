@@ -22,6 +22,8 @@ const PLATFORM: &str = "windows";
 /// keyboard is independent and best-effort: one that isn't currently
 /// connected is skipped with a warning, not a failure.
 pub fn fill_missing_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()> {
+    fs::create_dir_all(asset_dir)
+        .with_context(|| format!("Failed to create asset directory {}", asset_dir.display()))?;
     let generator = generator_binary_path()?;
     if !generator.is_file() {
         warn!(
@@ -157,5 +159,16 @@ mod tests {
             fs::read_to_string(asset_dir.path().join("1.json")).unwrap(),
             "{}"
         );
+    }
+
+    #[test]
+    fn fill_missing_models_creates_the_asset_directory() {
+        let config_dir = TempDir::new().expect("temp dir");
+        let root = TempDir::new().expect("temp dir");
+        let asset_dir = root.path().join("missing/cache");
+
+        fill_missing_models(&asset_dir, config_dir.path()).expect("self-heal");
+
+        assert!(asset_dir.is_dir());
     }
 }

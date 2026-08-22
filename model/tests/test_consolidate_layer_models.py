@@ -56,6 +56,16 @@ def test_rejects_a_layer_field_that_does_not_match_its_filename(tmp_path: Path) 
         consolidate_layer_models(1, [path])
 
 
+@pytest.mark.parametrize("invalid_layer", [True, 0.0, "0"])
+def test_rejects_a_non_integer_layer_identity(
+    tmp_path: Path, invalid_layer: object
+) -> None:
+    path = _write_layer(tmp_path, 1, 0, extra={"layer": invalid_layer})
+
+    with pytest.raises(ValueError, match="layer"):
+        consolidate_layer_models(1, [path])
+
+
 def test_rejects_a_path_that_is_not_a_layer_for_this_keyboard(tmp_path: Path) -> None:
     other_keyboard_path = _write_layer(tmp_path, 2, 0)
 
