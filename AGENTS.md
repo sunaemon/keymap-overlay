@@ -242,6 +242,7 @@ make test         # pytest
 make test-rust    # cargo test --workspace
 make test-installer-sh # release installer integration tests with stubbed services
 make build-overlay # build the release overlay for the current platform
+make test-release-acceptance-macos # macOS release gate: installer rollback + AppKit E2E
 make test-release-acceptance-linux # Linux release gate: installer rollback + both E2E halves
 make audit        # cargo-audit against the RustSec advisory database
 make check-licenses # verify release third-party license notices without changing them
@@ -270,12 +271,13 @@ CI runs four jobs. On Linux it runs `lint`, `format`, `test`, `test-rust`,
 `check-licenses`, and `test-release-acceptance-linux` (installer rollback plus
 both E2E halves against the release overlay), then
 fails if formatting or linting produced a diff. On macOS it runs `test`,
-`test-installer-sh`, `test-rust` and `build-overlay`. On Windows it runs `test`,
-the `install.ps1` Pester suite, `test-rust` and `build-overlay`; the other
-Windows steps set `shell: bash` so the Makefile runs under Git Bash. Each job
-builds only its own native backend, so `ui/appkit.rs` is compiled by the macOS
-job, WPF and its Rust bridge by the Windows job, and the D-Bus daemon and Qt
-renderer by the Linux job. A fourth job runs `make audit`.
+`test-rust`, and `test-release-acceptance-macos` (installer rollback plus the
+simulated AppKit E2E test). On Windows it runs `test`, the `install.ps1` Pester
+suite, `test-rust` and `build-overlay`; the other Windows steps set
+`shell: bash` so the Makefile runs under Git Bash. Each job builds only its own
+native backend, so `ui/appkit.rs` is compiled by the macOS job, WPF and its Rust
+bridge by the Windows job, and the D-Bus daemon and Qt renderer by the Linux
+job. A fourth job runs `make audit`.
 
 Only the Linux job runs the complete lint task. After changing the Windows
 bridge, run clippy against its manifest; after changing WPF, publish the

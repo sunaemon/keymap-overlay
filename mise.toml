@@ -42,6 +42,6 @@ set -e
 uv sync
 ruff check --fix .
 ty check --extra-search-path model/typings .
-shellcheck installer/install.sh installer/tests/test_install_sh.sh overlay/platforms/linux/tests/test_dbus_to_renderer_e2e.sh overlay/platforms/linux/tests/test_hid_to_dbus_e2e.sh
+shellcheck installer/install.sh installer/tests/test_install_sh.sh overlay/platforms/linux/tests/test_dbus_to_renderer_e2e.sh overlay/platforms/linux/tests/test_hid_to_dbus_e2e.sh overlay/platforms/macos/tests/test_appkit_e2e.sh
 cargo clippy --workspace --all-targets -- -D warnings
 """

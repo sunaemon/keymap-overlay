@@ -2,7 +2,7 @@
 set -eu
 
 PROJECT_DIRECTORY=$(CDPATH='' cd -- "$(dirname "$0")/../../../.." && pwd)
-ASSET_DIRECTORY="$PROJECT_DIRECTORY/overlay/platforms/linux/tests/fixtures"
+ASSET_DIRECTORY="$PROJECT_DIRECTORY/overlay/tests/fixtures"
 DAEMON=${KEYMAP_OVERLAY_E2E_DAEMON:-"$PROJECT_DIRECTORY/target/release/keymap-overlay"}
 VIRTUAL_HID=${KEYMAP_OVERLAY_E2E_VIRTUAL_HID:-"$PROJECT_DIRECTORY/target/virtual-raw-hid"}
 TEST_DIRECTORY=$(mktemp -d)

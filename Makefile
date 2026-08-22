@@ -600,6 +600,19 @@ test-rust:
 .PHONY: test-release-acceptance-linux
 test-release-acceptance-linux: test-installer-sh test-hid-to-dbus-e2e-linux test-dbus-to-renderer-e2e-linux
 
+# macOS's release go/no-go gate. HID behavior is exercised by the shared
+# runtime and Linux UHID test; this covers the native AppKit presentation path.
+.PHONY: test-release-acceptance-macos
+test-release-acceptance-macos: test-installer-sh test-appkit-e2e-macos
+
+.PHONY: test-appkit-e2e-macos
+test-appkit-e2e-macos: build-overlay
+ifeq ($(OS_FAMILY),macos)
+	./overlay/platforms/macos/tests/test_appkit_e2e.sh
+else
+	$(error test-appkit-e2e-macos is only available on macOS)
+endif
+
 .PHONY: test-dbus-to-renderer-e2e-linux
 test-dbus-to-renderer-e2e-linux: build-overlay
 ifeq ($(OS_FAMILY),linux)
