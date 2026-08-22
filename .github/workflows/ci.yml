@@ -28,7 +28,7 @@ jobs:
       # libudev backs hidapi's hidraw enumeration. Qt Quick draws the Linux
       # model, Qt D-Bus receives it, and LayerShellQt supplies the overlay role.
       - name: Install Rust system dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libudev-dev cmake dbus-x11 fonts-noto-core imagemagick libglib2.0-bin qt6-base-dev qt6-declarative-dev
+        run: sudo apt-get update && sudo apt-get install --yes libudev-dev cmake dbus-x11 fonts-noto-core imagemagick libglib2.0-bin qt6-base-dev qt6-declarative-dev qml6-module-qtqml-workerscript qml6-module-qtquick qml6-module-qtquick-window
 
       - name: Install mise
         uses: jdx/mise-action@v4
