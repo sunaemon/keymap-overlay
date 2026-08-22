@@ -89,9 +89,9 @@ user restarts the overlay after making a live edit. The runtime never polls or
 writes the keymap itself.
 
 Source installs pass the checkout's `KEYBOARDS_DIR`. Release archives carry
-the generator and only each bundled keyboard's `keyboard.json` and
-`config.json`; their installers place those definitions beside the application
-and pass that installed directory to the login command.
+only each bundled keyboard's `keyboard.json` and `config.json`; their
+installers place those definitions beside the application and pass that
+installed directory to the login command.
 
 ## Raw HID Protocol
 
@@ -249,8 +249,8 @@ the active monitor's DPI scale when positioning the native window.
 The platform installer downloads the latest versioned release archive,
 requires a matching entry in `SHA256SUMS`, and, when the optional GitHub CLI is
 present, verifies GitHub artifact attestations. The archive includes the native
-overlay, model generator, and minimal bundled keyboard definitions; generated
-models are not release artifacts.
+overlay and minimal bundled keyboard definitions; generated models are not
+release artifacts.
 
 Release archives carry the MIT license and generated third-party notices for
 the overlay, which also serves anyone packaging it where a distribution
@@ -381,9 +381,9 @@ the working copy of `keymap.c`.
 
 ### Shared Display Model
 
-The generator — native Rust under `VIAL=true`, Python under `VIAL=false` —
-converts QMK's keymap and keyboard JSON into one small, versioned display
-model per layer. The model contains only canvas geometry,
+The in-process Vial model reader under `VIAL=true`, or Python under
+`VIAL=false`, converts QMK's keymap and keyboard JSON into one small,
+versioned display model per layer. The model contains only canvas geometry,
 labels, transparency metadata, held-state metadata, and encoder actions; it
 contains no toolkit-specific objects and does not pass through keymap-drawer,
 YAML, SVG, or another schema. All three platforms install these models as JSON,
