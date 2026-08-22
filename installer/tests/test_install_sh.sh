@@ -165,24 +165,25 @@ run_installer() {
 
 test_linux_install_and_uninstall() {
   home="$TEST_DIRECTORY/linux home"
-  assets="$home/.config/keymap-overlay"
+  cache="$home/.cache/keymap-overlay"
+  state="$home/.config/keymap-overlay"
   bin="$home/.local/bin"
-  mkdir -p "$assets"
-  : >"$assets/1_L0.json"
+  mkdir -p "$cache"
+  : >"$cache/1.json"
   : >"$home/commands.log"
 
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
 
   test -x "$bin/keymap-overlay"
   test -x "$bin/keymap-overlay-qt"
-  test -x "$assets/install.sh"
+  test -x "$state/install.sh"
   # The binary embeds the notices, so nothing is installed for them.
-  test ! -e "$assets/LICENSE"
-  test ! -e "$assets/THIRD-PARTY-LICENSES.html"
+  test ! -e "$state/LICENSE"
+  test ! -e "$state/THIRD-PARTY-LICENSES.html"
   unit="$home/.config/systemd/user/keymap-overlay.service"
   qt_unit="$home/.config/systemd/user/keymap-overlay-qt.service"
   extension="$home/.local/share/gnome-shell/extensions/keymap-overlay@sunaemon"
-  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\" --asset-dir \"$assets\""
+  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\" --asset-dir \"$cache\""
   # Anchored on the directives: the unit's own comments mention both names.
   assert_file_contains "$unit" "SyslogIdentifier=keymap-overlay"
   if grep -q '^ExecStart=.*--log-out' "$unit"; then
@@ -201,19 +202,19 @@ test_linux_install_and_uninstall() {
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz uninstall
   test ! -e "$bin/keymap-overlay"
   test ! -e "$bin/keymap-overlay-qt"
-  test ! -e "$assets/install.sh"
+  test ! -e "$state/install.sh"
   test ! -e "$unit"
   test ! -e "$qt_unit"
   test ! -e "$extension"
-  test -f "$assets/1_L0.json"
+  test -f "$cache/1.json"
   test -d "$home/.local/var/log/keymap-overlay"
 }
 
 test_macos_stops_service_before_replacing_binary() {
   home="$TEST_DIRECTORY/macos & home"
-  assets="$home/.config/keymap-overlay"
-  mkdir -p "$assets"
-  : >"$assets/1_L0.json"
+  cache="$home/.cache/keymap-overlay"
+  mkdir -p "$cache"
+  : >"$cache/1.json"
   : >"$home/commands.log"
 
   run_installer "$home" Darwin arm64 keymap-overlay-macos-arm64.tar.gz
@@ -222,7 +223,7 @@ test_macos_stops_service_before_replacing_binary() {
   plist="$home/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist"
   # The ampersand in the home directory must survive XML escaping.
   assert_file_contains "$plist" '<string>--asset-dir</string>'
-  assert_file_contains "$plist" 'macos &amp; home/.config/keymap-overlay'
+  assert_file_contains "$plist" 'macos &amp; home/.cache/keymap-overlay'
   assert_file_contains "$plist" '<string>--log-out</string>'
   assert_file_contains "$plist" 'macos &amp; home/.local/var/log/keymap-overlay/overlay.log'
   if grep -F 'KEYMAP_OVERLAY_LOG_DIR' "$plist" >/dev/null; then
@@ -236,9 +237,9 @@ test_macos_stops_service_before_replacing_binary() {
 
 test_gnome_disables_qt_renderer_unless_forced() {
   home="$TEST_DIRECTORY/gnome home"
-  assets="$home/.config/keymap-overlay"
-  mkdir -p "$assets"
-  : >"$assets/1_L0.json"
+  cache="$home/.cache/keymap-overlay"
+  mkdir -p "$cache"
+  : >"$cache/1.json"
   : >"$home/commands.log"
 
   TEST_XDG_CURRENT_DESKTOP=ubuntu:GNOME \
@@ -259,14 +260,15 @@ test_gnome_disables_qt_renderer_unless_forced() {
 
 test_failed_service_install_rolls_back() {
   home="$TEST_DIRECTORY/rollback home"
-  assets="$home/.config/keymap-overlay"
+  cache="$home/.cache/keymap-overlay"
+  state="$home/.config/keymap-overlay"
   bin="$home/.local/bin"
   unit="$home/.config/systemd/user/keymap-overlay.service"
-  mkdir -p "$assets" "$bin" "$(dirname "$unit")"
-  : >"$assets/1_L0.json"
+  mkdir -p "$cache" "$state" "$bin" "$(dirname "$unit")"
+  : >"$cache/1.json"
   printf 'old binary\n' >"$bin/keymap-overlay"
   printf 'old qt binary\n' >"$bin/keymap-overlay-qt"
-  printf 'old installer\n' >"$assets/install.sh"
+  printf 'old installer\n' >"$state/install.sh"
   printf 'old service\n' >"$unit"
   : >"$home/commands.log"
 
@@ -277,7 +279,7 @@ test_failed_service_install_rolls_back() {
 
   assert_file_contains "$bin/keymap-overlay" 'old binary'
   assert_file_contains "$bin/keymap-overlay-qt" 'old qt binary'
-  assert_file_contains "$assets/install.sh" 'old installer'
+  assert_file_contains "$state/install.sh" 'old installer'
   assert_file_contains "$unit" 'old service'
   enable_count=$(grep -c '^systemctl --user enable keymap-overlay.service' "$home/commands.log")
   test "$enable_count" -eq 2
@@ -285,11 +287,11 @@ test_failed_service_install_rolls_back() {
 
 test_failed_gnome_upgrade_keeps_qt_disabled() {
   home="$TEST_DIRECTORY/gnome rollback home"
-  assets="$home/.config/keymap-overlay"
+  cache="$home/.cache/keymap-overlay"
   unit_directory="$home/.config/systemd/user"
-  mkdir -p "$assets" "$unit_directory"
-  : >"$assets/1_L0.json"
-  printf 'old binary\n' >"$assets/keymap-overlay"
+  mkdir -p "$cache" "$unit_directory"
+  : >"$cache/1.json"
+  printf 'old binary\n' >"$cache/keymap-overlay"
   printf 'old service\n' >"$unit_directory/keymap-overlay.service"
   printf 'old qt service\n' >"$unit_directory/keymap-overlay-qt.service"
   : >"$home/commands.log"
@@ -317,8 +319,8 @@ test_failed_gnome_upgrade_keeps_qt_disabled() {
 
 test_missing_layer_assets_fails_without_installing_files() {
   home="$TEST_DIRECTORY/no assets home"
-  assets="$home/.config/keymap-overlay"
-  mkdir -p "$assets"
+  cache="$home/.cache/keymap-overlay"
+  mkdir -p "$cache"
   : >"$home/commands.log"
 
   if run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz; then
@@ -328,15 +330,15 @@ test_missing_layer_assets_fails_without_installing_files() {
 
   test ! -e "$home/.local/bin/keymap-overlay"
   test ! -e "$home/.local/bin/keymap-overlay-qt"
-  test ! -e "$assets/install.sh"
+  test ! -e "$home/.config/keymap-overlay/install.sh"
   test ! -e "$home/.config/systemd/user/keymap-overlay.service"
 }
 
 test_unrelated_json_is_not_a_layer_asset() {
   home="$TEST_DIRECTORY/unrelated json home"
-  assets="$home/.config/keymap-overlay"
-  mkdir -p "$assets"
-  : >"$assets/keymap-overlay.runtimeconfig.json"
+  cache="$home/.cache/keymap-overlay"
+  mkdir -p "$cache"
+  : >"$cache/keymap-overlay.runtimeconfig.json"
   : >"$home/commands.log"
 
   if run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz; then

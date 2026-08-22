@@ -139,8 +139,8 @@ desktop already mounts it, or set `UF2_VOLUME_LABEL` for another label.
 make install-assets
 ```
 
-This installs files such as `1_L1.json` under
-`~/.config/keymap-overlay`. Run it again whenever the keymap changes.
+This installs one file per keyboard, such as `1.json`, under
+`~/.cache/keymap-overlay`. Run it again whenever the keymap changes.
 
 ### 4. Install the released overlay
 
@@ -159,7 +159,7 @@ available, it also verifies the artifact attestation.
 
 On macOS and Linux the executable is installed to `~/.local/bin/keymap-overlay`,
 with the Qt renderer beside it, while the generated layer models stay in
-`~/.config/keymap-overlay`. The login service names the binary by absolute path,
+`~/.cache/keymap-overlay`. The login service names the binary by absolute path,
 so it works whether or not `~/.local/bin` is on your `PATH`; drop the directory
 prefix below once it is. Its license terms are built in:
 
@@ -335,7 +335,8 @@ user's `KeymapOverlay` Run value, and starts the overlay.
 
 ### Update a keymap
 
-The source checkout remains authoritative:
+Edit `keymap.c`, flash it, then render the layer models from the connected
+keyboard:
 
 ```bash
 git pull
@@ -423,10 +424,13 @@ models and rotated logs are retained.
 
 ## VIAL Keymaps
 
-Generate layer models from the keymap currently stored in VIAL EEPROM:
+By default, `make install-assets` and `make draw-layers` read the keymap
+currently stored in the connected keyboard's VIAL EEPROM — including edits
+made live in the Vial app, not just what `keymap.c` last compiled to. To
+render straight from `keymap.c` instead, with no keyboard connected:
 
 ```bash
-make install-assets VIAL=true
+make install-assets VIAL=false
 ```
 
 Parse `keymap.c` and write it to EEPROM without rebuilding firmware:

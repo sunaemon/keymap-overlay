@@ -66,7 +66,7 @@ internal sealed class OverlayWindow : Window
         string[] paths;
         try
         {
-            paths = Directory.EnumerateFiles(directory, "*_L*.json").ToArray();
+            paths = Directory.EnumerateFiles(directory, "*.json").ToArray();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
@@ -75,16 +75,24 @@ internal sealed class OverlayWindow : Window
 
         foreach (var path in paths)
         {
+            var stem = IOPath.GetFileNameWithoutExtension(path);
+            if (!byte.TryParse(stem, out var keyboard))
+            {
+                continue;
+            }
             try
             {
-                var model = JsonSerializer.Deserialize<OverlayModel>(File.ReadAllText(path));
-                var stem = IOPath.GetFileNameWithoutExtension(path);
-                var parts = stem.Split("_L", StringSplitOptions.None);
-                if (model is not null && (model.Version == 1 || model.Version == 2) && parts.Length == 2 &&
-                    byte.TryParse(parts[0], out var keyboard) && byte.TryParse(parts[1], out var layer) &&
-                    model.Layer == layer)
+                var keyboardModels = JsonSerializer.Deserialize<KeyboardModels>(File.ReadAllText(path));
+                if (keyboardModels is null || keyboardModels.KeyboardId != keyboard)
                 {
-                    result[(keyboard, layer)] = model;
+                    continue;
+                }
+                foreach (var (layer, model) in keyboardModels.Layers)
+                {
+                    if ((model.Version == 1 || model.Version == 2) && model.Layer == layer)
+                    {
+                        result[(keyboard, layer)] = model;
+                    }
                 }
             }
             catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException)

@@ -44,53 +44,37 @@ The generator replaces those push keys with circular controls showing
 counter-clockwise, clockwise, and push actions. For an encoder without a push
 switch, use explicit QMK layout coordinates such as `{ "x": 4, "y": 0 }`.
 
-## Display Labels
+## Custom Keycode Labels
 
 Labels affect generated layer models only; they do not change firmware
 behavior.
 
-A one-character trailing comment on a custom keycode becomes its label:
+Base `enum custom_keycodes` at `QK_KB_0`, Vial's fixed range for a keyboard's
+own custom keycodes, and give each entry a one-character trailing comment for
+its label:
 
 ```c
 enum custom_keycodes {
-  KC_ALPHA = SAFE_RANGE, // α
-  KC_BETA,               // β
+  KC_ALPHA = QK_KB_0, // α
+  KC_BETA,            // β
 };
 ```
 
-Map standard or multi-character labels in a comment block anywhere in
-`keymap.c`:
+By default (`VIAL=true`), layer rendering reads a custom keycode's name and
+label straight off the connected device's own embedded Vial definition
+(`fetch_vial_definition.py`), which `generate_vial.py` embeds from this same
+enum at flash time — a base other than `QK_KB_0` desyncs the two, so custom
+keycodes render with the wrong label or none at all. `VIAL=false` renders
+from `keymap.c` alone, with no device connected; that path also accepts
+`SAFE_RANGE`/`QK_USER_0`.
 
-```c
-/* keymap-overlay-labels
-KC_APP = ☰
-KC_LEFT = ←
-*/
-```
+Generic key aliases (arrow glyphs, media keys) and platform-specific ones
+(`⌘`/`Super`/`⊞` for the GUI key) are the overlay's own built-in tables in
+`model/scripts/generate_overlay_asset.py`, not something `keymap.c`
+configures.
 
-Add `-macos`, `-linux`, or `-windows` for a platform override:
-
-```c
-/* keymap-overlay-labels-macos
-KC_LGUI = ⌘
-KC_LALT = ⌥
-*/
-
-/* keymap-overlay-labels-linux
-KC_LGUI = Super
-KC_LALT = Alt
-*/
-
-/* keymap-overlay-labels-windows
-KC_LGUI = ⊞
-KC_LALT = Alt
-*/
-```
-
-Asset generation targets the current host by default. Set
-`OVERLAY_PLATFORM=windows` when WSL generates models for Windows. These
-annotations are ordinary C comments and are consumed only by
-`make install-assets`.
+Asset generation targets the current host platform by default. Set
+`OVERLAY_PLATFORM=windows` when WSL generates models for Windows.
 
 ## Build and Install
 
@@ -105,8 +89,11 @@ make -C keymap-overlay \
 
 make -C keymap-overlay \
   KEYBOARDS_DIR="$PWD/keyboards" \
-  install-assets
+  install-assets KEYBOARD_ID=2
 ```
+
+Omit `KEYBOARD_ID` only when every configured keyboard is connected; the
+default VIAL-backed path reads each device in turn.
 
 The released binary installer does not change. Every runtime reads the
 generated JSON layer models from the platform configuration directory.

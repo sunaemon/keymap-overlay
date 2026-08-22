@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from textwrap import wrap
@@ -19,10 +18,17 @@ from model.src.types import (
     KeycodesJson,
     LayoutKey,
     QmkKeymapJson,
+    VialJson,
     VitalyJson,
     parse_json,
 )
-from model.src.util import initialize_logging, parse_keycode_value
+from model.src.util import (
+    initialize_logging,
+    parse_custom_keycode_short_names,
+    parse_keycode_value,
+    parse_qk_kb_keycode,
+    write_stdout_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +185,10 @@ def main(
     vitaly_json: Annotated[
         Path | None, typer.Option(help="Vitaly dump containing encoder_layout")
     ] = None,
+    vial_definition_json: Annotated[
+        Path | None,
+        typer.Option(help="Device-fetched Vial definition containing customKeycodes"),
+    ] = None,
     platform: Annotated[
         OverlayPlatform, typer.Option(help="Target overlay platform")
     ] = "macos",
@@ -196,9 +206,10 @@ def main(
             pixels_per_unit,
             keymap_c=keymap_c,
             vitaly_json=vitaly_json,
+            vial_definition_json=vial_definition_json,
             platform=platform,
         )
-        _write_stdout(
+        write_stdout_bytes(
             (
                 json.dumps(asdict(model), ensure_ascii=False, separators=(",", ":"))
                 + "\n"
@@ -221,6 +232,7 @@ def build_overlay_model(
     *,
     keymap_c: Path | None = None,
     vitaly_json: Path | None = None,
+    vial_definition_json: Path | None = None,
     platform: OverlayPlatform = "macos",
 ) -> OverlayModel:
     """Build one JSON-serializable display model from QMK sources."""
@@ -233,7 +245,12 @@ def build_overlay_model(
     custom_keycodes = parse_json(KeycodesJson, custom_keycodes_json)
     display_labels = {
         **PLATFORM_KEYCODE_LABELS.get(platform, {}),
-        **(_parse_display_labels(keymap_c) if keymap_c else {}),
+        **(parse_custom_keycode_short_names(keymap_c) if keymap_c else {}),
+        **(
+            _vial_custom_keycode_labels(vial_definition_json)
+            if vial_definition_json
+            else {}
+        ),
     }
     layout = keyboard.layout_keys(layout_name)
     _validate_layer(keymap, layout, layer_index)
@@ -365,7 +382,12 @@ def _encoder_pairs_for_layer(
 
 
 def _resolve_custom_keycode(keycode: str, custom_keycodes: KeycodesJson) -> str:
+    # A vitaly-sourced layer (VIAL=true) has no keyboard-specific name table of
+    # its own, so it renders any keycode in Vial's custom range generically as
+    # QK_KB_<n> rather than as a hex value.
     numeric = parse_keycode_value(keycode)
+    if numeric is None:
+        numeric = parse_qk_kb_keycode(keycode)
     if numeric is None:
         return keycode
     return custom_keycodes.root.get(f"0x{numeric:04X}", keycode)
@@ -562,26 +584,14 @@ def _format_keycode(keycode: str, display_labels: dict[str, str]) -> str:
     return keycode.replace("_", " ")
 
 
-def _parse_display_labels(keymap_c: Path) -> dict[str, str]:
-    """Read single-character comment labels off enum custom_keycodes entries."""
-    content = keymap_c.read_text(encoding="utf-8")
-    labels: dict[str, str] = {}
-
-    custom_keycodes = re.search(
-        r"enum\s+custom_keycodes\s*\{(.*?)\};",
-        content,
-        re.DOTALL,
-    )
-    if custom_keycodes:
-        for line in custom_keycodes.group(1).splitlines():
-            match = re.fullmatch(
-                r"\s*([A-Za-z_]\w*)(?:\s*=\s*[^,]+)?\s*,?\s*//\s*(.*?)\s*",
-                line,
-            )
-            if match and len(match.group(2)) == 1:
-                labels[match.group(1)] = match.group(2)
-
-    return labels
+def _vial_custom_keycode_labels(vial_definition_json: Path) -> dict[str, str]:
+    """Read customKeycodes short names off a device-fetched Vial definition."""
+    definition = parse_json(VialJson, vial_definition_json)
+    return {
+        keycode.name: keycode.shortName
+        for keycode in definition.customKeycodes or []
+        if keycode.shortName
+    }
 
 
 def _momentary_layer(keycode: str) -> int | None:
@@ -608,15 +618,6 @@ def _square_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     center_x, center_y = _center(box)
     half = size // 2
     return center_x - half, center_y - half, center_x + half, center_y + half
-
-
-def _write_stdout(data: bytes) -> None:
-    buffer = getattr(sys.stdout, "buffer", None)
-    if buffer is None:
-        raise OSError("Binary stdout is unavailable")
-    sys.stdout.flush()
-    buffer.write(data)
-    buffer.flush()
 
 
 if __name__ == "__main__":

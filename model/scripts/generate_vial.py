@@ -12,13 +12,18 @@ from model.src.types import (
     KleLayout,
     KleRow,
     LayoutKey,
+    VialCustomKeycode,
     VialJson,
     VialLayouts,
     VialMatrix,
     parse_json,
     print_json,
 )
-from model.src.util import initialize_logging
+from model.src.util import (
+    initialize_logging,
+    parse_custom_keycode_names,
+    parse_custom_keycode_short_names,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +38,15 @@ VIAL_ENCODER_LEGEND_SUFFIX = "\n\n\n\n\n\n\n\n\ne"
 def main(
     keyboard_json: Annotated[Path, typer.Option(help="Path to input keyboard.json")],
     layout_name: Annotated[str, typer.Option(help="Layout name in keyboard.json")],
+    keymap_c: Annotated[
+        Path | None,
+        typer.Option(help="keymap.c containing enum custom_keycodes"),
+    ] = None,
 ) -> None:
     """Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout."""
     initialize_logging()
     try:
-        vial_data = generate_vial(keyboard_json, layout_name)
+        vial_data = generate_vial(keyboard_json, layout_name, keymap_c=keymap_c)
         print_json(vial_data, exclude_none=True)
         logger.info("Generated Vial JSON from %s", keyboard_json)
     except Exception:
@@ -45,7 +54,12 @@ def main(
         raise typer.Exit(code=1) from None
 
 
-def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
+def generate_vial(
+    keyboard_json: Path,
+    layout_name: str,
+    *,
+    keymap_c: Path | None = None,
+) -> VialJson:
     """Convert QMK keyboard.json to a Vial-compatible JSON structure."""
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
 
@@ -65,7 +79,19 @@ def generate_vial(keyboard_json: Path, layout_name: str) -> VialJson:
         productId=product_id,
         matrix=VialMatrix(rows=matrix_rows, cols=matrix_cols),
         layouts=VialLayouts(keymap=kle_rows),
+        customKeycodes=(
+            _build_custom_keycodes(keymap_c) if keymap_c is not None else None
+        ),
     )
+
+
+def _build_custom_keycodes(keymap_c: Path) -> list[VialCustomKeycode]:
+    """Embed each custom keycode's identity so the device is self-describing."""
+    short_names = parse_custom_keycode_short_names(keymap_c)
+    return [
+        VialCustomKeycode(name=name, shortName=short_names.get(name, ""))
+        for name in parse_custom_keycode_names(keymap_c)
+    ]
 
 
 def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[float, list[LayoutKey]]:

@@ -8,6 +8,32 @@ from pathlib import Path
 
 from model.src.types import KeyboardJson, LayoutKey, parse_json
 
+# Names an enum custom_keycodes entry may be explicitly assigned to reset the
+# numbering back to the keyboard's custom-keycode base, rather than continuing
+# the previous entry's value.
+CUSTOM_KEYCODE_BASE_NAMES = {"SAFE_RANGE", "QK_USER_0", "QK_KB_0"}
+
+# Vial requires custom keycodes to be assigned starting at QK_KB_0; a device's
+# embedded definition carries no numeric base of its own to look up.
+VIAL_CUSTOM_KEYCODE_BASE = 0x7E00
+_QK_KB_KEYCODE_PATTERN = re.compile(r"QK_KB_(\d+)")
+
+
+def parse_qk_kb_keycode(name: str) -> int | None:
+    """Parse vitaly's generic QK_KB_<n> keycode name into its numeric value."""
+    match = _QK_KB_KEYCODE_PATTERN.fullmatch(name.strip())
+    return VIAL_CUSTOM_KEYCODE_BASE + int(match.group(1)) if match else None
+
+
+def write_stdout_bytes(data: bytes) -> None:
+    """Writes raw bytes to stdout, bypassing the locale codepage on Windows."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        raise OSError("Binary stdout is unavailable")
+    sys.stdout.flush()
+    buffer.write(data)
+    buffer.flush()
+
 
 def initialize_logging() -> None:
     """Initialize logging to stderr for CLI scripts."""
@@ -56,3 +82,59 @@ def load_layout_keys(
     """Load keyboard.json and return layout keys for a named layout."""
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
     return keyboard_data.layout_keys(layout_name)
+
+
+def parse_custom_keycode_names(keymap_c: Path) -> list[str]:
+    """Return enum custom_keycodes member names from keymap.c, in declared order."""
+    content = keymap_c.read_text(encoding="utf-8")
+    match = re.search(
+        r"enum\s+custom_keycodes\s*\{([^}]*)\};", content, re.DOTALL | re.MULTILINE
+    )
+    if match is None:
+        raise ValueError(f"enum custom_keycodes not found in {keymap_c}")
+
+    entries = [
+        entry.strip()
+        for entry in strip_c_comments(match.group(1)).split(",")
+        if entry.strip()
+    ]
+
+    names: list[str] = []
+    for entry in entries:
+        if "=" in entry:
+            name, value = (part.strip() for part in entry.split("=", 1))
+            if value not in CUSTOM_KEYCODE_BASE_NAMES:
+                raise ValueError(
+                    f"Explicit keycode assignment is not supported: {entry}"
+                )
+        else:
+            name = entry
+        names.append(name)
+    return names
+
+
+def parse_custom_keycode_short_names(keymap_c: Path) -> dict[str, str]:
+    """Read comment labels off enum custom_keycodes entries.
+
+    A label is a single whitespace-free token (e.g. "α" or "USB-C"), which
+    distinguishes it from a prose comment (e.g. "a longer explanation is not
+    a label") explaining the entry rather than naming its display glyph.
+    """
+    content = keymap_c.read_text(encoding="utf-8")
+    labels: dict[str, str] = {}
+
+    custom_keycodes = re.search(
+        r"enum\s+custom_keycodes\s*\{(.*?)\};",
+        content,
+        re.DOTALL,
+    )
+    if custom_keycodes:
+        for line in custom_keycodes.group(1).splitlines():
+            match = re.fullmatch(
+                r"\s*([A-Za-z_]\w*)(?:\s*=\s*[^,]+)?\s*,?\s*//\s*(\S+)\s*",
+                line,
+            )
+            if match:
+                labels[match.group(1)] = match.group(2)
+
+    return labels
