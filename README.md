@@ -44,8 +44,8 @@ Installation has two parts:
 
 Firmware comes from this source checkout. The native overlay comes from GitHub
 Releases, so a normal installation does not compile Rust locally. Release
-archives contain the executable, native model generator, minimal definitions
-for the bundled keyboards, MIT license, and third-party notices; generated
+archives contain the executable, minimal definitions for the bundled keyboards,
+MIT license, and third-party notices; generated
 layer models remain a local cache.
 
 See [docs/design.md](docs/design.md) for the Raw HID protocol, data flow, layer
@@ -144,8 +144,8 @@ sh install.sh
 ```
 
 Review the script before leaving `less` with `q`. It selects the release for
-the current system, verifies its SHA-256 checksum, installs the executable and
-model generator, registers login services, and starts them. Keep the keyboard
+the current system, verifies its SHA-256 checksum, installs the executable,
+registers login services, and starts them. Keep the keyboard
 connected for the first start. When authenticated GitHub CLI is available, it
 also verifies the artifact attestation.
 
@@ -317,7 +317,7 @@ powershell.exe -ExecutionPolicy Bypass -File install.ps1
 ```
 
 Review the script before running the final command. It verifies the release,
-installs the executable, generator, and bundled keyboard definitions under
+installs the executable and bundled keyboard definitions under
 `%LOCALAPPDATA%\Programs\keymap-overlay`, registers the current user's
 `KeymapOverlay` Run value, and starts the overlay. Keep the keyboard connected
 for the first start; models are cached under `%LOCALAPPDATA%\keymap-overlay`.

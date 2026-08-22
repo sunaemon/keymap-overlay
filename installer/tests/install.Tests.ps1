@@ -56,8 +56,6 @@ Describe 'install.ps1' {
         $archive = Join-Path $TestDrive "fixture-$Architecture.zip"
         New-Item -ItemType Directory -Path $fixture | Out-Null
         Set-Content -LiteralPath (Join-Path $fixture 'keymap-overlay.exe') -Value 'binary'
-        Set-Content -LiteralPath (Join-Path $fixture 'keymap-overlay-generator.exe') -Value 'generator'
-        Set-Content -LiteralPath (Join-Path $fixture 'GENERATOR-THIRD-PARTY-LICENSES.html') -Value 'generator notices'
         New-Item -ItemType Directory -Path (Join-Path $fixture 'keyboards\1') | Out-Null
         Set-Content -LiteralPath (Join-Path $fixture 'keyboards\1\config.json') -Value '{}'
         Set-Content -LiteralPath (Join-Path $fixture 'keyboards\1\keyboard.json') -Value '{}'
@@ -93,8 +91,8 @@ Describe 'install.ps1' {
         New-Item -ItemType Directory -Path $staging | Out-Null
         Stage-Release -TemporaryDirectory $staging | Should -Be 'v0.0.1'
         (Join-Path $staging 'keymap-overlay.exe') | Should -Exist
-        (Join-Path $staging 'keymap-overlay-generator.exe') | Should -Exist
-        (Join-Path $staging 'GENERATOR-THIRD-PARTY-LICENSES.html') | Should -Exist
+        (Join-Path $staging 'keymap-overlay-generator.exe') | Should -Not -Exist
+        (Join-Path $staging 'GENERATOR-THIRD-PARTY-LICENSES.html') | Should -Not -Exist
         (Join-Path $staging 'keyboards\1\config.json') | Should -Exist
         (Join-Path $staging 'LICENSE') | Should -Exist
         (Join-Path $staging 'THIRD-PARTY-LICENSES.html') | Should -Exist
