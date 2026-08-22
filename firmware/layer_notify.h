@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "raw_hid.h"
 #include "eeconfig.h"
+#include "raw_hid.h"
 
 #ifndef KEYMAP_EEPROM_EPOCH
 #define KEYMAP_EEPROM_EPOCH 0
