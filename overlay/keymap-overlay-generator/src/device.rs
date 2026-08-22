@@ -245,7 +245,7 @@ fn standard_keycode_name(raw: u16) -> String {
         0x00E6 => "KC_RALT".to_string(),
         0x00E7 => "KC_RGUI".to_string(),
         0x5220..=0x523F => format!("MO({})", raw & 0x001F),
-        0x7C53 => "QK_BOOT".to_string(),
+        0x7C00 => "QK_BOOT".to_string(),
         _ => format!("0x{raw:04X}"),
     }
 }
@@ -280,6 +280,11 @@ mod tests {
     #[test]
     fn a_standard_keycode_resolves_via_the_generic_name_table() {
         assert_eq!(resolve_keycode(0x0001, &[]), "KC_TRNS");
+    }
+
+    #[test]
+    fn bootloader_keycode_matches_qmk() {
+        assert_eq!(resolve_keycode(0x7C00, &[]), "QK_BOOT");
     }
 
     #[test]
