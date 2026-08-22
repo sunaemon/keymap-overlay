@@ -13,11 +13,9 @@ CHECKSUM='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 mkdir -p "$FAKE_BIN" "$FIXTURE_DIRECTORY"
 
 printf '#!/usr/bin/env sh\nexit 0\n' >"$FIXTURE_DIRECTORY/keymap-overlay"
-printf '#!/usr/bin/env sh\nexit 0\n' >"$FIXTURE_DIRECTORY/keymap-overlay-generator"
 printf '#!/usr/bin/env sh\nexit 0\n' >"$FIXTURE_DIRECTORY/keymap-overlay-qt"
 printf 'MIT license fixture\n' >"$FIXTURE_DIRECTORY/LICENSE"
 printf 'Third-party notices fixture\n' >"$FIXTURE_DIRECTORY/THIRD-PARTY-LICENSES.html"
-printf 'Generator third-party notices fixture\n' >"$FIXTURE_DIRECTORY/GENERATOR-THIRD-PARTY-LICENSES.html"
 mkdir -p "$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon"
 printf '{}\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/metadata.json"
 printf '// extension fixture\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/extension.js"
@@ -25,8 +23,8 @@ printf '/* stylesheet fixture */\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-over
 mkdir -p "$FIXTURE_DIRECTORY/keyboards/1"
 printf '{}\n' >"$FIXTURE_DIRECTORY/keyboards/1/config.json"
 printf '{}\n' >"$FIXTURE_DIRECTORY/keyboards/1/keyboard.json"
-chmod +x "$FIXTURE_DIRECTORY/keymap-overlay" "$FIXTURE_DIRECTORY/keymap-overlay-generator" "$FIXTURE_DIRECTORY/keymap-overlay-qt"
-tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay keymap-overlay-generator keymap-overlay-qt keyboards gnome-shell LICENSE THIRD-PARTY-LICENSES.html GENERATOR-THIRD-PARTY-LICENSES.html
+chmod +x "$FIXTURE_DIRECTORY/keymap-overlay" "$FIXTURE_DIRECTORY/keymap-overlay-qt"
+tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay keymap-overlay-qt keyboards gnome-shell LICENSE THIRD-PARTY-LICENSES.html
 
 for command in awk cat cp dirname find grep gzip id mkdir mktemp mv rm tar; do
   ln -s "$(command -v "$command")" "$FAKE_BIN/$command"
@@ -180,12 +178,12 @@ test_linux_install_and_uninstall() {
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
 
   test -x "$bin/keymap-overlay"
-  test -x "$bin/keymap-overlay-generator"
+  test ! -e "$bin/keymap-overlay-generator"
   test -x "$bin/keymap-overlay-qt"
   test -x "$state/install.sh"
   test -f "$state/keyboards/1/config.json"
   test -f "$state/keyboards/1/keyboard.json"
-  test -f "$state/GENERATOR-THIRD-PARTY-LICENSES.html"
+  test ! -e "$state/GENERATOR-THIRD-PARTY-LICENSES.html"
   # The binary embeds the notices, so nothing is installed for them.
   test ! -e "$state/LICENSE"
   test ! -e "$state/THIRD-PARTY-LICENSES.html"
@@ -347,7 +345,7 @@ test_missing_layer_assets_are_generated_at_startup() {
   run_installer "$home" Linux x86_64 keymap-overlay-linux-x86_64.tar.gz
 
   test -x "$home/.local/bin/keymap-overlay"
-  test -x "$home/.local/bin/keymap-overlay-generator"
+  test ! -e "$home/.local/bin/keymap-overlay-generator"
   test -f "$home/.config/keymap-overlay/keyboards/1/config.json"
   test -f "$home/.config/systemd/user/keymap-overlay.service"
 }

@@ -39,9 +39,9 @@ function Wait-ForState([string]$description, [string]$pattern, [int]$count = 1) 
 New-Item -ItemType Directory -Path $testDirectory | Out-Null
 New-Item -ItemType Directory -Path $keyboardConfigDirectory | Out-Null
 try {
-    $generator = Join-Path (Split-Path -Parent $overlay) "keymap-overlay-generator.exe"
-    if (-not (Test-Path -LiteralPath $generator -PathType Leaf)) {
-        Fail-Test "model generator is not installed beside the WPF executable"
+    $legacyGenerator = Join-Path (Split-Path -Parent $overlay) "keymap-overlay-generator.exe"
+    if (Test-Path -LiteralPath $legacyGenerator -PathType Leaf) {
+        Fail-Test "legacy model generator must not be installed beside the WPF executable"
     }
     $env:KEYMAP_OVERLAY_E2E_STATE_FILE = $stateFile
     $process = Start-Process -FilePath $overlay `

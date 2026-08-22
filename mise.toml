@@ -10,12 +10,6 @@ python = "3.14.7"
 uv = "0.12.3"
 "pipx:qmk" = "1.2.0"
 
-[env]
-# vitaly is only needed for the VIAL flashing workflow and is an expensive
-# cargo build, so it stays pinned here and is fetched on demand by the Makefile
-# rather than installed with everything else.
-VITALY_VERSION = "0.1.32"
-
 # Formatting and linting tools live in mise.dev.toml; these tasks expect
 # MISE_ENV=dev, which `make format` and `make lint` set.
 

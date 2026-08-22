@@ -55,7 +55,7 @@ def test_recursive_clone_skips_firmware_submodule() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows Run-key wiring")
 def test_windows_source_install_wires_startup_refresh() -> None:
-    """Install the generator and pass both model directories at startup."""
+    """Install one Windows overlay and pass both model directories at startup."""
     root = Path(__file__).parents[2]
     install = subprocess.run(
         [MAKE, "-n", "install-overlay", "MAKE=echo"],
@@ -72,7 +72,7 @@ def test_windows_source_install_wires_startup_refresh() -> None:
         cwd=root,
     )
 
-    assert "keymap-overlay-generator.exe" in install.stdout
+    assert "keymap-overlay-generator.exe" not in install.stdout
     assert "no layer JSON models found" not in install.stdout
     assert 'configs="$(cygpath -w ' in service.stdout
     assert service.stdout.count("--keyboard-config-dir") == 2
@@ -80,7 +80,7 @@ def test_windows_source_install_wires_startup_refresh() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Native Windows HID targets")
 def test_windows_exposes_native_hid_targets() -> None:
-    """Allow device reads and prepared keymap writes without QMK in MSYS2."""
+    """Allow device reads while keeping firmware flashes outside MSYS2."""
     root = Path(__file__).parents[2]
     install = subprocess.run(
         [MAKE, "-n", "_install_assets_windows", "VIAL=true", "MAKE=echo"],
@@ -100,8 +100,10 @@ def test_windows_exposes_native_hid_targets() -> None:
 
     assert "_install_assets" in install.stdout
     assert "must run in WSL" not in install.stdout
-    assert '"$(FLASHER_BINARY)" --qmk-keymap-json' in makefile
-    assert "make prepare-flash-keymap KEYBOARD_ID=$(KEYBOARD_ID)" in makefile
+    assert "KEYMAP_EEPROM_EPOCH=$(EEPROM_RESET_EPOCH)" in makefile
+    assert 'epoch="$$(date +%s)"; \\' in makefile
+    assert '$(MAKE) compile EEPROM_RESET_EPOCH="$$epoch" && \\' in makefile
+    assert '$(MAKE) _flash_$(OS_FAMILY) EEPROM_RESET_EPOCH="$$epoch"' in makefile
     assert source_render.returncode != 0
     assert "needs QMK source processing" in source_render.stderr
 

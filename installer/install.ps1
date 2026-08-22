@@ -136,7 +136,7 @@ function Stage-Release {
     Confirm-AttestationsIfAvailable -Paths @($archivePath, $checksumsPath, $stagedInstallerPath)
     Expand-Archive -LiteralPath $archivePath -DestinationPath $TemporaryDirectory
 
-    foreach ($name in @('keymap-overlay.exe', 'keymap-overlay-generator.exe', 'GENERATOR-THIRD-PARTY-LICENSES.html', 'LICENSE', 'THIRD-PARTY-LICENSES.html')) {
+    foreach ($name in @('keymap-overlay.exe', 'LICENSE', 'THIRD-PARTY-LICENSES.html')) {
         if (-not (Test-Path -LiteralPath (Join-Path $TemporaryDirectory $name) -PathType Leaf)) {
             throw "$assetName does not contain $name."
         }
@@ -250,8 +250,7 @@ function Install-StagedFiles {
     New-Item -ItemType Directory -Path $programDirectory -Force | Out-Null
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
-    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay-generator.exe') -Destination $generatorPath -Force
-    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'GENERATOR-THIRD-PARTY-LICENSES.html') -Destination $generatorLicensesPath -Force
+    Remove-Item -LiteralPath $generatorPath, $generatorLicensesPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $keyboardConfigDirectory -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keyboards') -Destination $keyboardConfigDirectory -Recurse
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Destination $licensePath -Force
@@ -310,8 +309,6 @@ function Write-InstalledFiles {
 
     Write-Output 'Installed:'
     Write-Output "  binary: $binaryPath"
-    Write-Output "  generator: $generatorPath"
-    Write-Output "  generator licenses: $generatorLicensesPath"
     Write-Output "  keyboard configs: $keyboardConfigDirectory"
     Write-Output "  license: $licensePath"
     Write-Output "  third-party licenses: $thirdPartyLicensesPath"

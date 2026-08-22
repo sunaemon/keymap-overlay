@@ -51,10 +51,7 @@ WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WS
 # in the Vial GUI, not just what keymap.c last compiled to. Set VIAL=false to
 # render straight from keymap.c instead, with no device connected.
 VIAL ?= true
-
-# Set DRY_RUN=true to have flash-keymap resolve and print what it would write
-# without touching the device's EEPROM.
-DRY_RUN ?= false
+EEPROM_RESET_EPOCH ?= 0
 
 # ================= TOOLS CONFIGURATION =================
 MISE ?= mise
@@ -71,10 +68,6 @@ else
 # Linux distributions put the ARM and AVR compilers on PATH themselves.
 QMK_ENV =
 endif
-VITALY_VERSION := $(shell awk -F' *= *' '/^VITALY_VERSION *=/ {gsub(/"/,"",$$2); print $$2}' mise.toml)
-ifeq ($(strip $(VITALY_VERSION)),)
-$(error VITALY_VERSION is missing from mise.toml)
-endif
 # Only the Linux targets that write outside $HOME use this: installing
 # distribution packages, the udev rules, and mounting the UF2 bootloader
 # volume while flashing.
@@ -87,7 +80,6 @@ LEFTHOOK ?= $(MISE) exec -- lefthook
 QMK ?= $(QMK_ENV) $(MISE) exec -- qmk
 UV ?= $(MISE) exec -- uv
 CARGO ?= $(MISE) exec -- cargo
-VITALY ?= $(MISE) exec cargo:vitaly@$(VITALY_VERSION) -- vitaly
 
 QMK_TOOLCHAIN_PACKAGES := osx-cross/arm/arm-none-eabi-gcc@8 osx-cross/avr/avr-gcc@9 avrdude dfu-programmer dfu-util
 
@@ -196,6 +188,7 @@ ifeq ($(QMK_KEYBOARD),)
     $(error KEYBOARD_ID=$(KEYBOARD_ID) is not valid or $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json is missing or malformed)
 endif
 QMK_FLAGS += -e KEYBOARD_ID=$(KEYBOARD_ID)
+QMK_FLAGS += -e KEYMAP_EEPROM_EPOCH=$(EEPROM_RESET_EPOCH)
 
 KEYMAP_PREFIX := $(KEYBOARD_ID)_
 
@@ -221,8 +214,7 @@ QMK_FLAGS += -e BUILD_DIR=$(ABS_BUILD_DIR)/qmk_build
 
 # Contains the full, unmodified keymap definition (layers, keycodes) in QMK format.
 # Type: model/src/types.py:QmkKeymapJson
-# Generated from: 'qmk c2json' (source) or 'generate_qmk_keymap_from_vitaly.py' (VIAL).
-# Used by: the overlay asset generator, 'generate_vitaly_layout.py' (flashing).
+# Generated from QMK source with `qmk c2json`.
 QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
 
 # Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
@@ -232,10 +224,7 @@ QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
 KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
 
 # Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from
-# keymap.c, or from the device's embedded Vial definition under VIAL=true.
-# Type: model/src/types.py:KeycodesJson
-# Generated from: 'generate_custom_keycodes.py' parsing 'keymap.c' or $(VIAL_DEFINITION_JSON).
-# Used by: the overlay asset generator and 'generate_vitaly_layout.py'.
+# keymap.c. Used by the offline overlay asset generator.
 CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 
 # VIAL-compatible keyboard definition (matrix, layout, VID/PID, customKeycodes).
@@ -243,12 +232,6 @@ CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
 # Generated from: 'generate_vial.py' using keyboard.json and keymap.c.
 # Used by: 'qmk compile' (embedded in firmware) for VIAL support.
 VIAL_JSON := $(BUILD_DIR)/vial.json
-
-# Temporary dump of the keyboard's current VIAL configuration.
-# Type: model/src/types.py:VitalyJson
-# Generated from: 'vitaly save' (downloaded from device).
-# Used by: 'generate_qmk_keymap_from_vitaly.py' (source for rebuild), 'generate_vitaly_layout.py' (base for merge).
-VITALY_JSON := $(BUILD_DIR)/vitaly.json
 
 # The connected device's own embedded Vial definition, decompressed. Custom
 # keycode identity for VIAL=true rendering comes from here, not keymap.c, so
@@ -274,21 +257,6 @@ ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(ASSET_B
 CONSOLIDATED_ASSET := $(ASSET_BUILD_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)
 
 endif
-
-# ================= NATIVE ASSET GENERATOR =================
-# Standalone Cargo workspace (see its Cargo.toml), not a root workspace
-# member: vitaly wants hidapi's default features, while the platform overlay
-# crates need a specific backend (Linux hidraw, not the libusb default, which
-# detaches the kernel driver and stops the keyboard from typing). A shared
-# Cargo.lock would unify those feature sets across every workspace member.
-GENERATOR_MANIFEST := overlay/keymap-overlay-generator/Cargo.toml
-GENERATOR_BINARY := overlay/keymap-overlay-generator/target/release/keymap-overlay-generator$(EXE_SUFFIX)
-# Second [[bin]] in the same crate/build, built together by _build_generator.
-FLASHER_BINARY := overlay/keymap-overlay-generator/target/release/keymap-overlay-flash-keymap$(EXE_SUFFIX)
-
-.PHONY: _build_generator
-_build_generator:
-	$(CARGO) build --release --manifest-path "$(GENERATOR_MANIFEST)"
 
 # ================= OVERLAY CONFIGURATION =================
 ifeq ($(OS_FAMILY),windows)
@@ -624,9 +592,8 @@ test-release-acceptance-macos: test-installer-sh test-appkit-e2e-macos
 test-release-acceptance-windows: test-installer-ps test-wpf-e2e-windows
 
 .PHONY: test-wpf-e2e-windows
-test-wpf-e2e-windows: build-overlay _build_generator
+test-wpf-e2e-windows: build-overlay
 ifeq ($(OS_FAMILY),windows)
-	install -C "$(GENERATOR_BINARY)" "$(WPF_PUBLISH_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	powershell -NoProfile -ExecutionPolicy Bypass -File overlay/platforms/windows/tests/test_wpf_e2e.ps1
 else
 	$(error test-wpf-e2e-windows is only available on Windows)
@@ -705,10 +672,6 @@ install-overlay: build-overlay
 # underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
-# Installed alongside the frontend so startup refresh can shell out to
-# it by relative path at startup.
-	@$(MAKE) _build_generator
-	install -C "$(GENERATOR_BINARY)" "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	@$(MAKE) _install_renderer_$(OS_FAMILY)
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
@@ -879,6 +842,7 @@ _install_service_windows:
 uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_BINARY)"
+	# Remove the legacy separate generator when upgrading an older install.
 	rm -f "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	@$(MAKE) _uninstall_renderer_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.png
@@ -994,8 +958,9 @@ endif
 ifndef KEYBOARD_ID
 	$(error KEYBOARD_ID is required for flash)
 endif
-	@$(MAKE) compile
-	@$(MAKE) _flash_$(OS_FAMILY)
+	@epoch="$$(date +%s)"; \
+	$(MAKE) compile EEPROM_RESET_EPOCH="$$epoch" && \
+	$(MAKE) _flash_$(OS_FAMILY) EEPROM_RESET_EPOCH="$$epoch"
 
 .PHONY: _flash_macos
 _flash_macos:
@@ -1033,65 +998,6 @@ _mount_uf2_volume:
 _unmount_uf2_volume:
 	$(UV) run python -m firmware.tools.mount_uf2_volume --label "$(UF2_VOLUME_LABEL)" --sudo "$(SUDO)" --unmount
 
-.PHONY: flash-keymap
-flash-keymap:
-ifeq ($(OS_FAMILY),windows)
-	@echo "ERROR: flash-keymap includes QMK source processing, which is not supported in MSYS2."; \
-		echo "Run 'make prepare-flash-keymap KEYBOARD_ID=<id>' in WSL, then"; \
-		echo "run 'make write-keymap KEYBOARD_ID=<id>' here for the native HID write."; \
-		exit 1
-else
-# Only an explicit VIAL=true is an error here, not the plain default: VIAL=true
-# would read the device and write it straight back, but flash-keymap always
-# reads keymap.c regardless of the default, via the VIAL=false below.
-ifeq ($(VIAL),true)
-ifneq ($(origin VIAL),file)
-	$(error flash-keymap writes keymap.c to the device; VIAL=true would read the device and write it straight back)
-endif
-endif
-ifdef KEYBOARD_ID
-	@$(MAKE) prepare-flash-keymap
-	@$(MAKE) write-keymap
-else
-	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
-endif
-endif
-
-.PHONY: prepare-flash-keymap
-prepare-flash-keymap:
-ifeq ($(OS_FAMILY),windows)
-	$(error prepare-flash-keymap $(WINDOWS_FIRMWARE_ERROR))
-endif
-ifdef KEYBOARD_ID
-	@$(MAKE) VIAL=false $(QMK_KEYMAP_JSON)
-else
-	+@$(call FOR_EACH_KEYBOARD,preparing,Preparing keymap for,prepare-flash-keymap)
-endif
-
-.PHONY: write-keymap
-write-keymap:
-ifdef KEYBOARD_ID
-	@if [ ! -s "$(QMK_KEYMAP_JSON)" ]; then \
-		echo "ERROR: prepared QMK keymap JSON is missing: $(QMK_KEYMAP_JSON)"; \
-		echo "Run 'make prepare-flash-keymap KEYBOARD_ID=$(KEYBOARD_ID)' in WSL, macOS or Linux first."; \
-		exit 1; \
-	fi
-	@$(MAKE) _build_generator
-# The renderer resolves KC_TRNS only in memory; the flasher writes qmk
-# c2json's output as-is, so EEPROM keeps the literal transparent marker and
-# transparent-key inheritance keeps working. It writes the keymap and
-# encoders directly (vitaly::protocol::set_keymap/set_encoder) — no
-# read-current-state-and-merge round trip, since nothing else is touched.
-ifeq ($(DRY_RUN),true)
-	@echo "Resolving keymap.c for the device (dry run, nothing will be written)..."
-else
-	@echo "Writing keymap.c to the device..."
-endif
-	"$(FLASHER_BINARY)" --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)" $(if $(filter true,$(DRY_RUN)),--dry-run)
-else
-	+@$(call FOR_EACH_KEYBOARD,writing,Writing keymap for,write-keymap)
-endif
-
 .PHONY: patch-load
 patch-load:
 ifdef KEYBOARD_ID
@@ -1111,7 +1017,6 @@ print-vars:
 	@echo "MISE=$(MISE)"
 	@echo "QMK=$(QMK)"
 	@echo "UV=$(UV)"
-	@echo "VITALY=$(VITALY)"
 	@echo ""
 	@echo "QMK_HOME=$(QMK_HOME)"
 	@echo "QMK_KEYBOARD=$(QMK_KEYBOARD)"
@@ -1130,12 +1035,10 @@ print-vars:
 	@echo "KEYCODES_JSON=$(KEYCODES_JSON)"
 	@echo "CUSTOM_KEYCODES_JSON=$(CUSTOM_KEYCODES_JSON)"
 	@echo "VIAL_JSON=$(VIAL_JSON)"
-	@echo "VITALY_JSON=$(VITALY_JSON)"
 	@echo "VIAL_DEFINITION_JSON=$(VIAL_DEFINITION_JSON)"
 	@echo "LAYERS=$(LAYERS)"
 	@echo "ASSETS=$(ASSETS)"
 	@echo "CONSOLIDATED_ASSET=$(CONSOLIDATED_ASSET)"
-	@echo "GENERATOR_BINARY=$(GENERATOR_BINARY)"
 	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
 	@echo ""
 	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
@@ -1177,26 +1080,17 @@ $(ASSET_BUILD_DIR):
 	mkdir -p $(ASSET_BUILD_DIR)
 
 RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) model/scripts/encoder_map.py model/scripts/generate_overlay_asset.py model/src/types.py model/src/util.py
-ifeq ($(VIAL),true)
-# Sourced from the connected device's own embedded Vial definition, not
-# keymap.c, so deleting keymap.c after flashing does not break rendering.
-RENDER_ASSET_DEPS += $(VIAL_DEFINITION_JSON)
-RENDER_ENCODER_INPUT := --vitaly-json "$(VITALY_JSON)" --vial-definition-json "$(VIAL_DEFINITION_JSON)"
-else
 RENDER_ASSET_DEPS += $(QMK_KEYMAP_C)
 RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
-endif
 
 $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(ASSET_BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
 
 ifeq ($(VIAL),true)
-# Reads the connected device directly in one HID session (customKeycodes,
-# every layer, every encoder) and renders straight to the consolidated file;
-# there is no per-layer file or separate consolidation step on this path.
-$(CONSOLIDATED_ASSET): _force_build $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(shell find overlay/keymap-overlay-generator/src -name '*.rs') | $(ASSET_BUILD_DIR)
-	@$(MAKE) _build_generator
-	$(call WRITE_OUTPUT,$@,"$(GENERATOR_BINARY)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --layout-name "$(LAYOUT_NAME)" --keyboard-id "$(KEYBOARD_ID)" --platform "$(OVERLAY_PLATFORM)" --pixels-per-unit "$(PIXELS_PER_UNIT)")
+# Vial models are refreshed by the running overlay, in-process. This avoids a
+# second executable and makes startup the sole live-device read path.
+$(CONSOLIDATED_ASSET):
+	$(error Live Vial models refresh in the running overlay; use make install-overlay instead)
 else
 # Passed the exact current $(ASSETS) paths, not a directory to glob, so a
 # leftover from a shrunk layer count can never sneak into the installed file.
@@ -1216,9 +1110,6 @@ _force_build:
 QMK_KEYMAP_JSON_DEPS := $(sort $(QMK_KEYMAP_C) $(KEYBOARD_JSON) \
 	$(wildcard $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/*))
 QMK_KEYMAP_JSON_ORDER_DEPS := $(BUILD_DIR)
-ifeq ($(VIAL),true)
-QMK_KEYMAP_JSON_DEPS += _force_build
-else
 # The example's keyboard definition and keymap live outside QMK's vendored
 # tree. Install them before c2json validates -kb, including on a fresh clone.
 #
@@ -1229,24 +1120,16 @@ else
 # This only has to have run before c2json validates -kb, which is what
 # order-only means. The files it copies are tracked above, as themselves.
 QMK_KEYMAP_JSON_ORDER_DEPS += _copy_firmware
-endif
 
 $(QMK_KEYMAP_JSON): $(QMK_KEYMAP_JSON_DEPS) | $(QMK_KEYMAP_JSON_ORDER_DEPS)
-ifeq ($(VIAL),true)
-	@echo "Dumping QMK JSON from VIAL EEPROM..."
-	$(VITALY) -i $(DEVICE_PID) save -f $(VITALY_JSON)
-	@[ -s "$(VITALY_JSON)" ] || (echo "ERROR: No VIAL dump found at $(VITALY_JSON)"; exit 1)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_qmk_keymap_from_vitaly --vitaly-json $(VITALY_JSON) --keyboard-json "$(KEYBOARD_JSON)" --layout-name "$(LAYOUT_NAME)")
-else
 	@echo "Compiling QMK JSON from source..."
 	$(call WRITE_OUTPUT,$@,$(QMK) c2json --no-cpp -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) "$(QMK_KEYMAP_C)")
-endif
 
 $(KEYCODES_JSON): model/scripts/generate_keycodes.py | $(BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_keycodes --qmk-dir "$(QMK_HOME)")
 
 ifeq ($(VIAL),true)
-# Re-fetched from the device on every build, same as $(VITALY_JSON) above.
+# Re-fetched from the device on every source-asset build.
 $(VIAL_DEFINITION_JSON): _force_build model/scripts/fetch_vial_definition.py | $(BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.fetch_vial_definition --keyboard-json "$(KEYBOARD_JSON)")
 
