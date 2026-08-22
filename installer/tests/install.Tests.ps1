@@ -47,7 +47,7 @@ Describe 'install.ps1' {
     }
 
     It 'accepts a generated layer model as an asset' {
-        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.json') -Value '{}'
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1.json') -Value '{}'
 
         { Assert-LayerAssets } | Should -Not -Throw
     }
@@ -94,7 +94,7 @@ Describe 'install.ps1' {
 
     It 'keeps layer models and logs when uninstalling' {
         New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.json') -Value '{}'
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1.json') -Value '{}'
         Set-Content -LiteralPath $binaryPath -Value 'binary'
         Set-Content -LiteralPath $licensePath -Value 'license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'notices'
@@ -108,7 +108,7 @@ Describe 'install.ps1' {
         $licensePath | Should -Not -Exist
         $thirdPartyLicensesPath | Should -Not -Exist
         $installerPath | Should -Not -Exist
-        (Join-Path $assetDirectory '1_L0.json') | Should -Exist
+        (Join-Path $assetDirectory '1.json') | Should -Exist
         $logDirectory | Should -Exist
     }
 
@@ -134,7 +134,7 @@ Describe 'install.ps1' {
     }
 
     It 'restores an existing installation when autostart setup fails' {
-        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.json') -Value '{}'
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1.json') -Value '{}'
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
         Set-Content -LiteralPath $licensePath -Value 'old license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'old notices'
@@ -165,7 +165,7 @@ Describe 'install.ps1' {
     }
 
     It 'continues rollback when stopping the failed installation times out' {
-        Set-Content -LiteralPath (Join-Path $assetDirectory '1_L0.json') -Value '{}'
+        Set-Content -LiteralPath (Join-Path $assetDirectory '1.json') -Value '{}'
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
         Set-Content -LiteralPath $licensePath -Value 'old license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'old notices'

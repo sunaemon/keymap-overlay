@@ -6,11 +6,7 @@ from pathlib import Path
 import pytest
 
 from model.scripts.encoder_map import parse_encoder_map
-from model.scripts.generate_overlay_asset import (
-    _parse_display_labels,
-    _resolve_layer,
-    build_overlay_model,
-)
+from model.scripts.generate_overlay_asset import _resolve_layer, build_overlay_model
 from model.src.types import KeycodesJson, QmkKeymapJson
 
 
@@ -87,6 +83,39 @@ def test_builds_keys_and_an_encoder_into_the_shared_model(tmp_path: Path) -> Non
     assert model.encoders[0].press == "MUTE"
 
 
+def test_a_multi_character_custom_keycode_comment_renders_as_its_glyph(
+    tmp_path: Path,
+) -> None:
+    """A multi-character keymap.c label reaches the rendered key."""
+    # Regression test: labels such as "USB-C" used to fall back to the raw
+    # keycode name because only single-character comments were accepted.
+    keymap = _write(
+        tmp_path / "keymap.json",
+        {"layout": "LAYOUT", "layers": [["KC_USB_C", "KC_MUTE"]]},
+    )
+    keyboard = _write(tmp_path / "keyboard.json", _keyboard())
+    config = _write(
+        tmp_path / "config.json",
+        {"qmk_keyboard": "test", "encoders": [{"matrix": [0, 1]}]},
+    )
+    custom = _write(tmp_path / "custom.json", {})
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        """
+        enum custom_keycodes {
+          KC_USB_C = SAFE_RANGE, // USB-C
+        };
+        """,
+        encoding="utf-8",
+    )
+
+    model = build_overlay_model(
+        keymap, keyboard, config, custom, "LAYOUT", 0, 64, keymap_c=keymap_c
+    )
+
+    assert model.keys[0].label == ["USB-C"]
+
+
 def test_encoder_parser_preserves_nested_keycode_arguments(tmp_path: Path) -> None:
     keymap_c = tmp_path / "keymap.c"
     keymap_c.write_text(
@@ -156,27 +185,6 @@ def test_encoder_parser_rejects_empty_actions(tmp_path: Path, arguments: str) ->
         parse_encoder_map(keymap_c)
 
 
-def test_uses_single_character_custom_keycode_comments_as_labels(
-    tmp_path: Path,
-) -> None:
-    keymap_c = tmp_path / "keymap.c"
-    keymap_c.write_text(
-        """
-        enum custom_keycodes {
-          KC_ALPHA = SAFE_RANGE, // α
-          KC_BETA,               // β
-          KC_INTERNAL            // a longer explanation is not a label
-        };
-        """,
-        encoding="utf-8",
-    )
-
-    assert _parse_display_labels(keymap_c) == {
-        "KC_ALPHA": "α",
-        "KC_BETA": "β",
-    }
-
-
 def test_platform_labels_come_from_built_in_tables(tmp_path: Path) -> None:
     """Common and platform-specific label tables are overlay-owned, not keymap.c."""
     keymap = _write(
@@ -238,6 +246,98 @@ def test_custom_keycode_comment_overrides_platform_label(tmp_path: Path) -> None
     )
 
     assert model.keys[0].label == ["★"]
+
+
+def test_vial_definition_json_labels_custom_keycodes(tmp_path: Path) -> None:
+    """VIAL-mode rendering labels custom keycodes from the device, not keymap.c."""
+    keymap = _write(
+        tmp_path / "keymap.json",
+        {"layout": "LAYOUT", "layers": [["0x7E00"]]},
+    )
+    keyboard = _write(
+        tmp_path / "keyboard.json",
+        {
+            "keyboard_name": "Test",
+            "usb": {"vid": "0x0001", "pid": "0x0002", "device_version": "1.0.0"},
+            "matrix_pins": {"rows": ["A0"], "cols": ["A1"]},
+            "layouts": {"LAYOUT": {"layout": [{"matrix": [0, 0], "x": 0, "y": 0}]}},
+        },
+    )
+    config = _write(tmp_path / "config.json", {"qmk_keyboard": "test"})
+    custom = _write(tmp_path / "custom.json", {"0x7E00": "KC_ALPHA"})
+    vitaly_json = _write(tmp_path / "vitaly.json", {"layout": [[["0x7E00"]]]})
+    vial_definition_json = _write(
+        tmp_path / "vial_definition.json",
+        {
+            "name": "Test",
+            "vendorId": "0xFEED",
+            "productId": "0x0001",
+            "matrix": {"rows": 1, "cols": 1},
+            "layouts": {"keymap": [["0,0"]]},
+            "customKeycodes": [{"name": "KC_ALPHA", "title": "", "shortName": "α"}],
+        },
+    )
+
+    model = build_overlay_model(
+        keymap,
+        keyboard,
+        config,
+        custom,
+        "LAYOUT",
+        0,
+        64,
+        vitaly_json=vitaly_json,
+        vial_definition_json=vial_definition_json,
+    )
+
+    assert model.keys[0].label == ["α"]
+
+
+def test_vial_definition_json_labels_custom_keycodes_from_vitaly_generic_name(
+    tmp_path: Path,
+) -> None:
+    """vitaly has no keyboard-specific names, so it emits generic QK_KB_<n>."""
+    keymap = _write(
+        tmp_path / "keymap.json",
+        {"layout": "LAYOUT", "layers": [["QK_KB_0"]]},
+    )
+    keyboard = _write(
+        tmp_path / "keyboard.json",
+        {
+            "keyboard_name": "Test",
+            "usb": {"vid": "0x0001", "pid": "0x0002", "device_version": "1.0.0"},
+            "matrix_pins": {"rows": ["A0"], "cols": ["A1"]},
+            "layouts": {"LAYOUT": {"layout": [{"matrix": [0, 0], "x": 0, "y": 0}]}},
+        },
+    )
+    config = _write(tmp_path / "config.json", {"qmk_keyboard": "test"})
+    custom = _write(tmp_path / "custom.json", {"0x7E00": "KC_ALPHA"})
+    vitaly_json = _write(tmp_path / "vitaly.json", {"layout": [[["QK_KB_0"]]]})
+    vial_definition_json = _write(
+        tmp_path / "vial_definition.json",
+        {
+            "name": "Test",
+            "vendorId": "0xFEED",
+            "productId": "0x0001",
+            "matrix": {"rows": 1, "cols": 1},
+            "layouts": {"keymap": [["0,0"]]},
+            "customKeycodes": [{"name": "KC_ALPHA", "title": "", "shortName": "α"}],
+        },
+    )
+
+    model = build_overlay_model(
+        keymap,
+        keyboard,
+        config,
+        custom,
+        "LAYOUT",
+        0,
+        64,
+        vitaly_json=vitaly_json,
+        vial_definition_json=vial_definition_json,
+    )
+
+    assert model.keys[0].label == ["α"]
 
 
 def test_resolves_display_layer_without_changing_raw_keymap() -> None:

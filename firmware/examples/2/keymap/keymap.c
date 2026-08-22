@@ -23,7 +23,7 @@
 #include "lib/layer_status/layer_status.h"
 
 enum custom_keycodes {
-  DUMMY_KEY = SAFE_RANGE,
+  DUMMY_KEY = QK_KB_0,
 };
 
 // clang-format off

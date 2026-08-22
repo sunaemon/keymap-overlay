@@ -5,24 +5,53 @@ momentary layer in a native overlay, on macOS, Linux and Windows.
 
 ## Display Asset Generation
 
+Under the default `VIAL=true`, generation reads the connected device
+directly and needs no Python:
+
 ```text
-keymap.c (or VIAL EEPROM with VIAL=true)
-  ↓ QMK c2json / Vitaly export
+VIAL EEPROM (live device, over Raw HID)
+  ↓ keymap-overlay-generator (Rust; vitaly as a library, one HID session)
+  + keyboard.json + config.json
+build/<keyboard>/assets/<platform>/<keyboard>.json — every layer, one file
+  ↓ make install-assets
+installed models directory/<keyboard>.json
+```
+
+`VIAL=false` (render straight from `keymap.c`, no device connected) keeps the
+original Python pipeline, one process per layer, then consolidated:
+
+```text
+keymap.c
+  ↓ QMK c2json
 build/<keyboard>/qmk-keymap.json
   + keyboard.json + config.json + encoder map
-  ↓ first-party display-model generator
-platform-neutral geometry, labels, transparency, and state (one model per layer)
+  ↓ generate_overlay_asset.py, one process per layer
   ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
   ├─ Linux: build/<keyboard>/assets/linux/<keyboard>_L<n>.json
   └─ Windows: build/<keyboard>/assets/windows/<keyboard>_L<n>.json
+  ↓ consolidate_layer_models.py
+build/<keyboard>/assets/<platform>/<keyboard>.json
   ↓ make install-assets
-platform configuration directory/<keyboard>_L<n>.json
+installed models directory/<keyboard>.json
 ```
 
-`make install-assets` is the platform-independent model-generation and copy
-target. It installs JSON on every platform. On Windows, generate models from
-WSL with `make install-assets`, then run native `make install-overlay`; WSL
-writes them directly to `%LOCALAPPDATA%/keymap-overlay/`.
+Either way, only the combined `<keyboard>.json` — every layer keyed by
+number, in one file — is installed; any per-layer file on the `VIAL=false`
+path is a build-time intermediate. `make install-assets` is the
+platform-independent model-generation and copy target on both paths. On
+Windows, generate models from WSL with `make install-assets`, then run
+native `make install-overlay`; WSL writes them directly to
+`%LOCALAPPDATA%/keymap-overlay/`. On macOS and Linux the installed models
+directory is `~/.cache/keymap-overlay`: a regenerable cache of what the
+connected device already knows, not configuration — and `make install-overlay`
+no longer depends on `install-assets` there, since the running overlay
+regenerates anything missing itself (see Startup Self-Heal below). Running
+`install-assets` by hand on macOS/Linux is still useful to force a refresh
+after changing the connected device through Vial or `flash-keymap`, since
+self-heal only fills in what's missing, not what's stale; the release
+`install.sh`/`install.ps1` installer also still
+needs it run first, since a downloaded release binary has no generator
+alongside it to self-heal with (see Startup Self-Heal below).
 
 ## Runtime Data Flow
 
@@ -40,7 +69,7 @@ native transparent window
     └─ Qt Quick + KDE LayerShellQt (other desktops)
   Windows: WPF
   ↓
-active <keyboard>_L<layer> assets are composed and displayed
+active keyboard/layer models are composed and displayed
   ↓
 matching layer key released
   ↓
@@ -51,6 +80,20 @@ The overlay remains visible for the complete key hold. Within one keyboard,
 held layers use QMK's numeric precedence and transparent keys fall through the
 other active layers before the base layer. Between keyboards, the most recently
 used keyboard owns the overlay. It hides once no momentary layers remain held.
+
+### Startup Self-Heal
+
+Before the listener starts (never on the keypress hot path above), the
+runtime optionally fills in any keyboard missing from `--asset-dir`: given
+`--keyboard-config-dir` (the Makefile passes `KEYBOARDS_DIR`), it shells out
+to `keymap-overlay-generator` — installed alongside the frontend, not linked
+in, for the same reason `keymap-overlay-generator` is its own Cargo
+workspace — once per keyboard subdirectory whose `<id>.json` doesn't exist
+yet. A keyboard that isn't currently connected is skipped with a log warning,
+not a startup failure; it's picked up on the next restart once it is. This
+only covers the Makefile-driven install (`install-overlay`); the generic
+`install.sh`/`install.ps1` release installer has no equivalent
+`--keyboard-config-dir` to point at, since it's a private, per-user path.
 
 ## Raw HID Protocol
 
@@ -227,10 +270,11 @@ source-build workflow:
 
 `make install-overlay` performs the following steps:
 
-1. On macOS and Linux, uses the `install-assets` target to generate and
-   install all layer assets as JSON. On Windows, verifies
-   that WSL has already generated JSON models under
-   `%LOCALAPPDATA%/keymap-overlay/`.
+1. On Windows, verifies that WSL has already generated JSON models under
+   `%LOCALAPPDATA%/keymap-overlay/`, since there is no self-heal fallback
+   there yet (see Startup Self-Heal). macOS and Linux need no such check:
+   `keymap-overlay-generator` is installed alongside the frontend below, and
+   the running overlay fills in any missing layer assets itself at startup.
 2. Builds the platform executable and installs it as
    `~/.local/bin/keymap-overlay` on macOS and Linux — with the Qt renderer
    beside it as `~/.local/bin/keymap-overlay-qt` — and as
@@ -305,13 +349,32 @@ everything else natively.
 ### VIAL over VIA
 
 The project uses VIAL because `vitaly` can read and write VIAL keymap data for
-the EEPROM-based workflow. This is optional: the default image-generation
-path reads the keymap source compiled into the firmware.
+the EEPROM-based workflow, and because the connected keyboard is the default
+source of truth for both halves of the display model. `keymap-overlay-generator`
+(`overlay/keymap-overlay-generator`) depends on `vitaly` as a Rust library,
+not just its CLI: `vitaly::protocol::load_layers_keys` reads the dynamic
+keymap out of EEPROM and `vitaly::protocol::load_vial_meta` reads the
+keyboard's own embedded Vial definition — including the identity of its
+custom keycodes — directly from the device, in the same HID session.
+`keymap.c` is not consulted for either, so a live edit made in the Vial app is
+reflected without recompiling. `VIAL=false` renders straight from `keymap.c`
+instead, with no device connected and no Rust involved — useful for keyboards
+whose keymap is never edited outside source; that path stays the Python
+pipeline described above.
+
+`keymap.c` remains the source that firmware is compiled and flashed from either
+way, and `generate_vial.py` embeds each custom keycode's name and display label
+from a single whitespace-free comment token into the `vial.json` compiled into that firmware
+(starting at Vial's fixed `QK_KB_0` keycode range). Once a keyboard has been
+flashed, VIAL-mode rendering reads its keymap and custom-keycode metadata from
+the device rather than from the contents of `keymap.c`; the source file must
+still remain present as a Make dependency.
 
 ### Shared Display Model
 
-The Python generator converts QMK's keymap and keyboard JSON into one small,
-versioned display model per layer. The model contains only canvas geometry,
+The generator — native Rust under `VIAL=true`, Python under `VIAL=false` —
+converts QMK's keymap and keyboard JSON into one small, versioned display
+model per layer. The model contains only canvas geometry,
 labels, transparency metadata, held-state metadata, and encoder actions; it
 contains no toolkit-specific objects and does not pass through keymap-drawer,
 YAML, SVG, or another schema. All three platforms install these models as JSON,
@@ -319,12 +382,14 @@ compose the held layers in memory using QMK precedence, and render the result
 with AppKit, GNOME Shell, Qt Quick, or WPF. Keys use quiet, nearly opaque fills
 and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
-key alone receives its pale tint. Display-only Unicode labels for custom
-keycodes come from single-character comments on `custom_keycodes` entries in
-`keymap.c`. Generic and platform-specific aliases — arrow glyphs, ⌘/Super/⊞ for
+key alone receives its pale tint. Display-only labels for custom keycodes come
+from single whitespace-free comment tokens such as `α`, `USB-C`, or `PbyP` on
+`custom_keycodes` entries in `keymap.c`. Generic and platform-specific aliases — arrow glyphs, ⌘/Super/⊞ for
 the GUI key, and so on — are overlay-owned presentation policy, not keyboard
-data: they live in `generate_overlay_asset.py`'s built-in label tables, keyed
-by `OVERLAY_PLATFORM`, which defaults to the current host. Encoder placement
+data: they live in built-in label tables keyed by `OVERLAY_PLATFORM` (which
+defaults to the current host) — `generate_overlay_asset.py`'s under
+`VIAL=false`, `keymap-overlay-generator`'s `labels.rs` under `VIAL=true`, kept
+in sync by hand. Encoder placement
 is the only project-specific geometry: QMK knows the encoder count and pins
 but not where knobs sit, so `config.json`
 maps each encoder to its push-switch matrix position or to explicit `x`/`y`

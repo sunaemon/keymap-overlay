@@ -23,6 +23,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
+mod self_heal;
+
 /// Vendor-defined usage page carrying keymap overlay reports.
 pub const RAW_USAGE_PAGE: u16 = 0xFF60;
 /// Usage within [`RAW_USAGE_PAGE`] carrying keymap overlay reports.
@@ -66,17 +68,24 @@ pub const THIRD_PARTY_LICENSES: &str = include_str!("../../../THIRD-PARTY-LICENS
     long_about = None
 )]
 pub struct Arguments {
-    /// Directory holding the installed <keyboard>_L<layer>.json models
+    /// Directory holding the installed <keyboard_id>.json models
     #[cfg_attr(
         target_os = "windows",
         doc = "[default: %LOCALAPPDATA%\\keymap-overlay]"
     )]
     #[cfg_attr(
         not(target_os = "windows"),
-        doc = "[default: $HOME/.config/keymap-overlay]"
+        doc = "[default: $HOME/.cache/keymap-overlay]"
     )]
     #[arg(long, value_name = "PATH")]
     pub asset_dir: Option<PathBuf>,
+
+    /// Directory of per-keyboard keyboard.json/config.json sources; if set,
+    /// any keyboard missing from --asset-dir is generated at startup before
+    /// the listener starts (never on the keypress hot path). A keyboard that
+    /// isn't currently connected is skipped with a warning, not a failure.
+    #[arg(long, value_name = "PATH")]
+    pub keyboard_config_dir: Option<PathBuf>,
 
     /// Write the log to this file, rotating it, instead of to stderr
     #[arg(long, value_name = "PATH")]
@@ -152,7 +161,14 @@ pub fn run_overlay(
         .clone()
         .map_or_else(default_asset_dir, Ok)?;
     let simulated = arguments.simulate;
+    let keyboard_config_dir = arguments.keyboard_config_dir.clone();
     initialize_logging(arguments.log_destination())?;
+
+    if let Some(keyboard_config_dir) = &keyboard_config_dir
+        && let Err(error) = self_heal::fill_missing_models(&directory, keyboard_config_dir)
+    {
+        warn!("Self-heal skipped: {error:#}");
+    }
 
     if let Err(error) = frontend(directory, simulated) {
         error!("Keymap overlay stopped: {error:#}");
@@ -237,6 +253,14 @@ pub struct DisplayEncoder {
 }
 
 pub type ModelCache = HashMap<(u8, u8), OverlayModel>;
+
+/// One keyboard's installed `<keyboard_id>.json`: every layer in one file, since
+/// a keyboard's layers are generated, installed, and read together.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct KeyboardModels {
+    keyboard_id: u8,
+    layers: HashMap<u8, OverlayModel>,
+}
 
 /// Coalesces platform arrival notifications into listener enumerations.
 #[derive(Clone)]
@@ -418,37 +442,47 @@ pub fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
         let entry = entry
             .with_context(|| format!("Failed to read an entry in {}", assets_dir.display()))?;
         let path = entry.path();
-        let Some(key) = model_key(&path) else {
+        let Some(keyboard_id) = keyboard_id_from_path(&path) else {
             continue;
         };
-        let model: OverlayModel = serde_json::from_reader(
+        let keyboard_models: KeyboardModels = serde_json::from_reader(
             File::open(&path).with_context(|| format!("Failed to open {}", path.display()))?,
         )
         .with_context(|| format!("Failed to parse {}", path.display()))?;
-        if !matches!(model.version, 1 | 2) {
+        if keyboard_models.keyboard_id != keyboard_id {
             anyhow::bail!(
-                "Unsupported overlay model version {} in {}",
-                model.version,
+                "Keyboard ID in {} does not match its filename",
                 path.display()
             );
         }
-        if model.layer != key.1 {
-            anyhow::bail!("Layer in {} does not match its filename", path.display());
+        for (layer, model) in keyboard_models.layers {
+            if !matches!(model.version, 1 | 2) {
+                anyhow::bail!(
+                    "Unsupported overlay model version {} in {}",
+                    model.version,
+                    path.display()
+                );
+            }
+            if model.layer != layer {
+                anyhow::bail!(
+                    "Layer in {} does not match its key in \"layers\"",
+                    path.display()
+                );
+            }
+            models.insert((keyboard_id, layer), model);
         }
-        models.insert(key, model);
     }
     Ok(models)
 }
 
-fn model_key(path: &Path) -> Option<(u8, u8)> {
+fn keyboard_id_from_path(path: &Path) -> Option<u8> {
     if !path
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
     {
         return None;
     }
-    let (keyboard_id, layer) = path.file_stem()?.to_str()?.split_once("_L")?;
-    Some((keyboard_id.parse().ok()?, layer.parse().ok()?))
+    path.file_stem()?.to_str()?.parse().ok()
 }
 
 pub fn compose_model(models: &ModelCache, keyboard_id: u8, layers: &[u8]) -> Option<OverlayModel> {
@@ -609,8 +643,10 @@ fn resolve_home_directory(
 
 /// Where the installed layer models live when the command line names no path.
 ///
-/// Each system is asked where its own per-user data belongs: `$XDG_CONFIG_HOME`
-/// means nothing to Windows, and `%LOCALAPPDATA%` means nothing to Unix.
+/// Each system is asked where its own per-user data belongs: `$XDG_CACHE_HOME`
+/// means nothing to Windows, and `%LOCALAPPDATA%` means nothing to Unix. The
+/// models are a regenerable cache of what a VIAL-flashed device already knows,
+/// not configuration, so they sit under `.cache` rather than `.config`.
 pub fn default_asset_dir() -> Result<PathBuf> {
     resolve_default_asset_dir(env::var_os("LOCALAPPDATA"), home_directory())
 }
@@ -628,7 +664,7 @@ fn resolve_default_asset_dir(
     {
         let _ = local_app_data;
         let home = home.context("No home directory is set")?;
-        Ok(PathBuf::from(home).join(".config/keymap-overlay"))
+        Ok(PathBuf::from(home).join(".cache/keymap-overlay"))
     }
 }
 
@@ -987,6 +1023,113 @@ mod tests {
         assert_eq!(without_layer_one.keys[0].label, ["BASE A"]);
     }
 
+    fn write_keyboard_models(dir: &TempDir, filename: &str, keyboard_models: &KeyboardModels) {
+        fs::write(
+            dir.path().join(filename),
+            serde_json::to_string(keyboard_models).expect("serialize keyboard models"),
+        )
+        .expect("write keyboard models file");
+    }
+
+    #[test]
+    fn load_model_cache_reads_every_layer_from_one_keyboard_file() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut layers = HashMap::new();
+        layers.insert(0, overlay_model(0, vec![display_key("BASE", false, None)]));
+        layers.insert(
+            1,
+            overlay_model(1, vec![display_key("LAYER 1", false, None)]),
+        );
+        write_keyboard_models(
+            &dir,
+            "1.json",
+            &KeyboardModels {
+                keyboard_id: 1,
+                layers,
+            },
+        );
+
+        let models = load_model_cache(dir.path()).expect("load model cache");
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[&(1, 0)].keys[0].label, ["BASE"]);
+        assert_eq!(models[&(1, 1)].keys[0].label, ["LAYER 1"]);
+    }
+
+    #[test]
+    fn load_model_cache_ignores_files_that_are_not_a_keyboard_id() {
+        let dir = TempDir::new().expect("temp dir");
+        fs::write(dir.path().join("README.md"), "not a model").expect("write readme");
+        fs::write(dir.path().join("notes.json"), "{}").expect("write stray json");
+
+        let models = load_model_cache(dir.path()).expect("load model cache");
+
+        assert!(models.is_empty());
+    }
+
+    #[test]
+    fn load_model_cache_rejects_a_keyboard_id_that_does_not_match_its_filename() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut layers = HashMap::new();
+        layers.insert(0, overlay_model(0, vec![]));
+        write_keyboard_models(
+            &dir,
+            "1.json",
+            &KeyboardModels {
+                keyboard_id: 2,
+                layers,
+            },
+        );
+
+        let error = load_model_cache(dir.path()).expect_err("mismatched keyboard id");
+
+        assert!(error.to_string().contains("does not match its filename"));
+    }
+
+    #[test]
+    fn load_model_cache_rejects_a_layer_that_does_not_match_its_map_key() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut layers = HashMap::new();
+        layers.insert(0, overlay_model(1, vec![]));
+        write_keyboard_models(
+            &dir,
+            "1.json",
+            &KeyboardModels {
+                keyboard_id: 1,
+                layers,
+            },
+        );
+
+        let error = load_model_cache(dir.path()).expect_err("mismatched layer key");
+
+        assert!(error.to_string().contains("does not match its key"));
+    }
+
+    #[test]
+    fn load_model_cache_rejects_an_unsupported_model_version() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut model = overlay_model(0, vec![]);
+        model.version = 99;
+        let mut layers = HashMap::new();
+        layers.insert(0, model);
+        write_keyboard_models(
+            &dir,
+            "1.json",
+            &KeyboardModels {
+                keyboard_id: 1,
+                layers,
+            },
+        );
+
+        let error = load_model_cache(dir.path()).expect_err("unsupported version");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Unsupported overlay model version")
+        );
+    }
+
     /// Each system is asked where its own per-user data belongs.
     #[cfg(not(target_os = "windows"))]
     #[test]
@@ -994,7 +1137,7 @@ mod tests {
         assert_eq!(
             resolve_default_asset_dir(None, Some(OsString::from("/home/user")))
                 .expect("HOME is enough on its own"),
-            PathBuf::from("/home/user/.config/keymap-overlay")
+            PathBuf::from("/home/user/.cache/keymap-overlay")
         );
         assert!(resolve_default_asset_dir(None, None).is_err());
     }

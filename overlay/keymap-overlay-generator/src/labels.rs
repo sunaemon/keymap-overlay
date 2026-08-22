@@ -1,0 +1,97 @@
+use std::collections::HashMap;
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum Platform {
+    Macos,
+    Linux,
+    Windows,
+}
+
+pub fn keycode_labels() -> HashMap<&'static str, &'static str> {
+    HashMap::from([
+        ("KC_NO", ""),
+        ("XXXXXXX", ""),
+        ("KC_AUDIO_MUTE", "MUTE"),
+        ("KC_MUTE", "MUTE"),
+        ("KC_AUDIO_VOL_DOWN", "VOL -"),
+        ("KC_VOLD", "VOL -"),
+        ("KC_AUDIO_VOL_UP", "VOL +"),
+        ("KC_VOLU", "VOL +"),
+        ("KC_MEDIA_PREV_TRACK", "PREV"),
+        ("KC_MPRV", "PREV"),
+        ("KC_MEDIA_NEXT_TRACK", "NEXT"),
+        ("KC_MNXT", "NEXT"),
+        ("KC_MEDIA_PLAY_PAUSE", "PLAY"),
+        ("KC_MPLY", "PLAY"),
+        ("KC_BRIGHTNESS_DOWN", "BRIGHT -"),
+        ("KC_BRID", "BRIGHT -"),
+        ("KC_BRIGHTNESS_UP", "BRIGHT +"),
+        ("KC_BRIU", "BRIGHT +"),
+        ("EIZO_BRIGHTNESS_DOWN", "BRI -"),
+        ("EIZO_BRIGHTNESS_UP", "BRI +"),
+        ("EIZO_USB_C", "EIZO USB-C"),
+        ("EIZO_DP", "EIZO DP"),
+        ("EIZO_PBYP", "EIZO PbyP"),
+        ("QK_BOOT", "QK BOOT"),
+        ("KC_UP", "↑"),
+        ("KC_DOWN", "↓"),
+        ("KC_LEFT", "←"),
+        ("KC_RIGHT", "→"),
+        ("KC_HOME", "↖"),
+        ("KC_END", "↘"),
+        ("KC_PGUP", "⇞"),
+        ("KC_PGDN", "⇟"),
+        ("KC_ESC", "⎋"),
+        ("KC_TAB", "⇥"),
+        ("KC_BSPC", "⌫"),
+        ("KC_DEL", "⌦"),
+        ("KC_ENT", "↩"),
+        ("KC_APP", "☰"),
+        ("KC_MINS", "-"),
+        ("KC_EQL", "="),
+        ("KC_BSLS", "\\"),
+        ("KC_GRV", "`"),
+        ("KC_LBRC", "["),
+        ("KC_RBRC", "]"),
+        ("KC_SCLN", ";"),
+        ("KC_QUOT", "'"),
+        ("KC_COMM", ","),
+        ("KC_DOT", "."),
+        ("KC_SLSH", "/"),
+    ])
+}
+
+pub fn platform_keycode_labels(platform: Platform) -> HashMap<&'static str, &'static str> {
+    match platform {
+        Platform::Macos => HashMap::from([
+            ("KC_LGUI", "⌘"),
+            ("KC_RGUI", "⌘"),
+            ("KC_LALT", "⌥"),
+            ("KC_RALT", "⌥"),
+            ("KC_LCTL", "⌃"),
+            ("KC_RCTL", "⌃"),
+            ("KC_LSFT", "⇧"),
+            ("KC_RSFT", "⇧"),
+        ]),
+        Platform::Linux => HashMap::from([
+            ("KC_LGUI", "Super"),
+            ("KC_RGUI", "Super"),
+            ("KC_LALT", "Alt"),
+            ("KC_RALT", "Alt"),
+            ("KC_LCTL", "Ctrl"),
+            ("KC_RCTL", "Ctrl"),
+            ("KC_LSFT", "Shift"),
+            ("KC_RSFT", "Shift"),
+        ]),
+        Platform::Windows => HashMap::from([
+            ("KC_LGUI", "⊞"),
+            ("KC_RGUI", "⊞"),
+            ("KC_LALT", "Alt"),
+            ("KC_RALT", "Alt"),
+            ("KC_LCTL", "Ctrl"),
+            ("KC_RCTL", "Ctrl"),
+            ("KC_LSFT", "Shift"),
+            ("KC_RSFT", "Shift"),
+        ]),
+    }
+}

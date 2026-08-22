@@ -2,6 +2,16 @@ using System.Text.Json.Serialization;
 
 namespace KeymapOverlay;
 
+/// <summary>Describes one keyboard's installed `&lt;keyboard_id&gt;.json`: every layer in one file.</summary>
+internal sealed class KeyboardModels
+{
+    [JsonPropertyName("keyboard_id")]
+    public byte KeyboardId { get; set; }
+
+    [JsonPropertyName("layers")]
+    public required Dictionary<byte, OverlayModel?>? Layers { get; set; }
+}
+
 /// <summary>Describes one platform-neutral keyboard layer display model.</summary>
 internal sealed class OverlayModel
 {
