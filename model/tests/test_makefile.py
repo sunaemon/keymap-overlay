@@ -90,7 +90,7 @@ def test_windows_exposes_native_hid_targets() -> None:
         cwd=root,
     )
     write = subprocess.run(
-        [MAKE, "-n", "write-keymap", "KEYBOARD_ID=1"],
+        [MAKE, "-n", "write-keymap", "KEYBOARD_ID=1", "SHELL=bash"],
         check=True,
         capture_output=True,
         text=True,
