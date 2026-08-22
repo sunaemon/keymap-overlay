@@ -46,7 +46,13 @@ pub fn build_layer_model(
     pixels_per_unit: i64,
 ) -> Result<OverlayModel> {
     let layout = keyboard.layout_keys(layout_name)?;
-    validate_layer(layout, layer, base_layer, keyboard.encoder_count())?;
+    validate_layer(
+        layout,
+        layer,
+        base_layer,
+        keyboard.encoder_count(),
+        pixels_per_unit,
+    )?;
 
     let placements = resolve_encoder_placements(keyboard, config, layout)?;
 
@@ -105,7 +111,14 @@ fn validate_layer(
     layer: &LayerSource,
     base_layer: &LayerSource,
     encoder_count: usize,
+    pixels_per_unit: i64,
 ) -> Result<()> {
+    if layout.is_empty() {
+        bail!("Layout must contain at least one key");
+    }
+    if pixels_per_unit <= 0 {
+        bail!("Pixels per unit must be positive");
+    }
     if layer.keys.len() != layout.len() {
         bail!(
             "Layer has {} keys, layout has {}",
@@ -123,6 +136,18 @@ fn validate_layer(
     }
     if layout.iter().any(|key| key.r != 0.0) {
         bail!("Rotated QMK layouts are not supported yet");
+    }
+    if layout.iter().any(|key| {
+        !key.x.is_finite()
+            || !key.y.is_finite()
+            || !key.w.is_finite()
+            || !key.h.is_finite()
+            || key.w <= 0.0
+            || key.h <= 0.0
+            || !geometry_end_is_valid(key.x, key.w)
+            || !geometry_end_is_valid(key.y, key.h)
+    }) {
+        bail!("Layout coordinates must be finite and key sizes must be positive");
     }
     Ok(())
 }
@@ -177,7 +202,21 @@ fn resolve_encoder_placement(
         let key = &layout[key_index];
         return Ok((Some(key_index), key.x, key.y, key.w, key.h));
     }
-    Ok((None, placement.x.unwrap(), placement.y.unwrap(), 1.0, 1.0))
+    let x = placement.x.unwrap();
+    let y = placement.y.unwrap();
+    if !x.is_finite()
+        || !y.is_finite()
+        || !geometry_end_is_valid(x, 1.0)
+        || !geometry_end_is_valid(y, 1.0)
+    {
+        bail!("Encoder coordinates must be finite");
+    }
+    Ok((None, x, y, 1.0, 1.0))
+}
+
+fn geometry_end_is_valid(start: f64, size: f64) -> bool {
+    let end = start + size;
+    end.is_finite() && end > start
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -214,7 +253,7 @@ fn build_model(
         .iter()
         .map(|(_, y, _, h)| y + h)
         .fold(f64::NEG_INFINITY, f64::max);
-    let (width, height) = canvas_size(min_x, min_y, max_x, max_y, pixels_per_unit);
+    let (width, height) = canvas_size(min_x, min_y, max_x, max_y, pixels_per_unit)?;
 
     let encoder_key_indices: HashSet<usize> =
         placements.iter().filter_map(|(index, ..)| *index).collect();
@@ -225,19 +264,25 @@ fn build_model(
             continue;
         }
         let box_ = inset_box(
-            pixel_box(key.x, key.y, key.w, key.h, min_x, min_y, pixels_per_unit),
+            pixel_box(key.x, key.y, key.w, key.h, min_x, min_y, pixels_per_unit)?,
             KEY_INSET,
-        );
+        )?;
         let (left, top, right, bottom) = box_;
+        let width = right
+            .checked_sub(left)
+            .context("Key width exceeds the supported range")?;
+        let height = bottom
+            .checked_sub(top)
+            .context("Key height exceeds the supported range")?;
         let keycode = &display_keys[key_index];
         let raw_keycode = &raw_keys[key_index];
         // Held styling follows the displayed fallthrough key, while metadata
         // describing a layer switch always follows the raw key at this layer.
         keys.push(DisplayKey {
-            x: left as u32,
-            y: top as u32,
-            width: (right - left) as u32,
-            height: (bottom - top) as u32,
+            x: display_value(left, "key x coordinate")?,
+            y: display_value(top, "key y coordinate")?,
+            width: display_value(width, "key width")?,
+            height: display_value(height, "key height")?,
             label: wrap_label(
                 &format_keycode(keycode, display_labels, generic_labels),
                 3,
@@ -259,15 +304,23 @@ fn build_model(
             min_x,
             min_y,
             pixels_per_unit,
-        );
+        )?;
         let press = key_index.map_or("KC_NO".to_string(), |index| display_keys[index].clone());
         let raw_press = key_index.map_or("KC_NO".to_string(), |index| raw_keys[index].clone());
-        let (left, top, right, bottom) = inset_box(square_box(box_), 2);
+        let (left, top, right, bottom) = inset_box(square_box(box_)?, 2)?;
+        let size = right
+            .checked_sub(left)
+            .context("Encoder size exceeds the supported range")?
+            .min(
+                bottom
+                    .checked_sub(top)
+                    .context("Encoder size exceeds the supported range")?,
+            );
         let directions = &display_encoders[encoder_index];
         encoders.push(DisplayEncoder {
-            x: left as u32,
-            y: top as u32,
-            size: ((right - left).min(bottom - top)) as u32,
+            x: display_value(left, "encoder x coordinate")?,
+            y: display_value(top, "encoder y coordinate")?,
+            size: display_value(size, "encoder size")?,
             counter_clockwise: wrap_label(
                 &format_keycode(&directions[0], display_labels, generic_labels),
                 2,
@@ -300,10 +353,23 @@ fn build_model(
     })
 }
 
-fn canvas_size(min_x: f64, min_y: f64, max_x: f64, max_y: f64, pixels_per_unit: i64) -> (u32, u32) {
-    let width = round((max_x - min_x) * pixels_per_unit as f64) + 2 * PADDING;
-    let height = round((max_y - min_y) * pixels_per_unit as f64) + 2 * PADDING + HEADER_HEIGHT;
-    (width as u32, height as u32)
+fn canvas_size(
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+    pixels_per_unit: i64,
+) -> Result<(u32, u32)> {
+    let width = checked_round((max_x - min_x) * pixels_per_unit as f64, "canvas width")?
+        .checked_add(2 * PADDING)
+        .context("Canvas width exceeds the supported range")?;
+    let height = checked_round((max_y - min_y) * pixels_per_unit as f64, "canvas height")?
+        .checked_add(2 * PADDING + HEADER_HEIGHT)
+        .context("Canvas height exceeds the supported range")?;
+    Ok((
+        display_value(width, "canvas width")?,
+        display_value(height, "canvas height")?,
+    ))
 }
 
 fn pixel_box(
@@ -314,22 +380,38 @@ fn pixel_box(
     min_x: f64,
     min_y: f64,
     pixels_per_unit: i64,
-) -> (i64, i64, i64, i64) {
-    let left = round((x - min_x) * pixels_per_unit as f64) + PADDING;
-    let top = round((y - min_y) * pixels_per_unit as f64) + PADDING + HEADER_HEIGHT;
-    (
+) -> Result<(i64, i64, i64, i64)> {
+    let left = checked_round((x - min_x) * pixels_per_unit as f64, "x coordinate")?
+        .checked_add(PADDING)
+        .context("X coordinate exceeds the supported range")?;
+    let top = checked_round((y - min_y) * pixels_per_unit as f64, "y coordinate")?
+        .checked_add(PADDING + HEADER_HEIGHT)
+        .context("Y coordinate exceeds the supported range")?;
+    let pixel_width = checked_round(width * pixels_per_unit as f64, "key width")?;
+    let pixel_height = checked_round(height * pixels_per_unit as f64, "key height")?;
+    Ok((
         left,
         top,
-        left + round(width * pixels_per_unit as f64),
-        top + round(height * pixels_per_unit as f64),
-    )
+        left.checked_add(pixel_width)
+            .context("Right coordinate exceeds the supported range")?,
+        top.checked_add(pixel_height)
+            .context("Bottom coordinate exceeds the supported range")?,
+    ))
 }
 
 /// Matches Python's `round()` (ties to even), not Rust's default
 /// round-half-away-from-zero, so pixel geometry stays identical to the
 /// existing Python-rendered output.
-fn round(value: f64) -> i64 {
-    value.round_ties_even() as i64
+fn checked_round(value: f64, description: &str) -> Result<i64> {
+    let rounded = value.round_ties_even();
+    if !rounded.is_finite() || rounded < i64::MIN as f64 || rounded >= 9_223_372_036_854_775_808.0 {
+        bail!("{description} exceeds the supported range");
+    }
+    Ok(rounded as i64)
+}
+
+fn display_value(value: i64, description: &str) -> Result<u32> {
+    u32::try_from(value).with_context(|| format!("{description} exceeds the supported range"))
 }
 
 fn wrap_label(label: &str, max_lines: usize, max_chars: usize) -> Vec<String> {
@@ -416,27 +498,60 @@ fn momentary_layer(keycode: &str) -> Option<u8> {
     inner.parse().ok()
 }
 
-fn inset_box(box_: (i64, i64, i64, i64), inset: i64) -> (i64, i64, i64, i64) {
+fn inset_box(box_: (i64, i64, i64, i64), inset: i64) -> Result<(i64, i64, i64, i64)> {
     let (left, top, right, bottom) = box_;
-    (left + inset, top + inset, right - inset, bottom - inset)
+    Ok((
+        left.checked_add(inset)
+            .context("Inset exceeds the supported range")?,
+        top.checked_add(inset)
+            .context("Inset exceeds the supported range")?,
+        right
+            .checked_sub(inset)
+            .context("Inset exceeds the supported range")?,
+        bottom
+            .checked_sub(inset)
+            .context("Inset exceeds the supported range")?,
+    ))
 }
 
-fn center(box_: (i64, i64, i64, i64)) -> (i64, i64) {
+fn center(box_: (i64, i64, i64, i64)) -> Result<(i64, i64)> {
     let (left, top, right, bottom) = box_;
-    ((left + right).div_euclid(2), (top + bottom).div_euclid(2))
+    Ok((
+        left.checked_add(right)
+            .context("Horizontal center exceeds the supported range")?
+            .div_euclid(2),
+        top.checked_add(bottom)
+            .context("Vertical center exceeds the supported range")?
+            .div_euclid(2),
+    ))
 }
 
-fn square_box(box_: (i64, i64, i64, i64)) -> (i64, i64, i64, i64) {
+fn square_box(box_: (i64, i64, i64, i64)) -> Result<(i64, i64, i64, i64)> {
     let (left, top, right, bottom) = box_;
-    let size = (right - left).min(bottom - top);
-    let (center_x, center_y) = center(box_);
+    let size = right
+        .checked_sub(left)
+        .context("Encoder width exceeds the supported range")?
+        .min(
+            bottom
+                .checked_sub(top)
+                .context("Encoder height exceeds the supported range")?,
+        );
+    let (center_x, center_y) = center(box_)?;
     let half = size.div_euclid(2);
-    (
-        center_x - half,
-        center_y - half,
-        center_x + half,
-        center_y + half,
-    )
+    Ok((
+        center_x
+            .checked_sub(half)
+            .context("Encoder square exceeds the supported range")?,
+        center_y
+            .checked_sub(half)
+            .context("Encoder square exceeds the supported range")?,
+        center_x
+            .checked_add(half)
+            .context("Encoder square exceeds the supported range")?,
+        center_y
+            .checked_add(half)
+            .context("Encoder square exceeds the supported range")?,
+    ))
 }
 
 #[cfg(test)]
@@ -705,6 +820,114 @@ mod tests {
         .expect_err("rotated layout");
 
         assert!(error.to_string().contains("Rotated"));
+    }
+
+    #[test]
+    fn empty_layouts_are_rejected() {
+        let keyboard = keyboard(
+            r#"{
+                "usb": {"vid": "0x0001", "pid": "0x0002"},
+                "layouts": {"LAYOUT": {"layout": []}}
+            }"#,
+        );
+        let base = layer(&[], &[]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config("{}"),
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            64,
+        )
+        .expect_err("empty layout");
+
+        assert!(error.to_string().contains("at least one key"));
+    }
+
+    #[test]
+    fn non_positive_key_sizes_are_rejected() {
+        let keyboard = keyboard(
+            r#"{
+                "usb": {"vid": "0x0001", "pid": "0x0002"},
+                "layouts": {"LAYOUT": {"layout": [
+                    {"x": 0, "y": 0, "w": 0, "matrix": [0, 0]}
+                ]}}
+            }"#,
+        );
+        let base = layer(&["KC_A"], &[]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config("{}"),
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            64,
+        )
+        .expect_err("zero-width key");
+
+        assert!(error.to_string().contains("sizes must be positive"));
+    }
+
+    #[test]
+    fn large_finite_layout_coordinates_are_rejected() {
+        let keyboard = keyboard(
+            r#"{
+                "usb": {"vid": "0x0001", "pid": "0x0002"},
+                "layouts": {"LAYOUT": {"layout": [
+                    {"x": 1e308, "y": 0, "matrix": [0, 0]}
+                ]}}
+            }"#,
+        );
+        let base = layer(&["KC_A"], &[]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config("{}"),
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            64,
+        )
+        .expect_err("unrepresentable layout coordinate");
+
+        assert!(error.to_string().contains("coordinates must be finite"));
+    }
+
+    #[test]
+    fn large_finite_encoder_coordinates_are_rejected() {
+        let keyboard = two_key_keyboard_with_encoder();
+        let config = config(r#"{"encoders": [{"x": 1e308, "y": 0}]}"#);
+        let base = layer(&["KC_A", "KC_B"], &[["KC_VOLD", "KC_VOLU"]]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config,
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            64,
+        )
+        .expect_err("unrepresentable encoder coordinate");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Encoder coordinates must be finite")
+        );
     }
 
     #[test]

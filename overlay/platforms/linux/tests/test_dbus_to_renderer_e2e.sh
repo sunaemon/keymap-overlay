@@ -24,7 +24,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 fail() {
-  printf 'E2E failure: %s\n' "$1" >&2
+  printf 'D-Bus-to-renderer E2E failure: %s\n' "$1" >&2
   if [ -f "$TEST_DIRECTORY/daemon.log" ]; then
     printf '%s\n' 'Daemon log:' >&2
     sed 's/^/  /' "$TEST_DIRECTORY/daemon.log" >&2
@@ -112,4 +112,4 @@ if [ -s "$TEST_DIRECTORY/renderer.log" ]; then
   fail 'Qt renderer logged an error while consuming state transitions'
 fi
 
-printf '%s\n' 'Linux overlay E2E test passed'
+printf '%s\n' 'Linux D-Bus-to-renderer E2E test passed'

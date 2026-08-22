@@ -595,23 +595,28 @@ test-installer-sh:
 test-rust:
 	$(CARGO) test --workspace
 
-.PHONY: test-e2e-linux
-test-e2e-linux: build-overlay
+# Linux's release go/no-go gate. The installer test covers upgrade rollback;
+# the two E2E halves meet at the typed D-Bus contract the project owns.
+.PHONY: test-release-acceptance-linux
+test-release-acceptance-linux: test-installer-sh test-hid-to-dbus-e2e-linux test-dbus-to-renderer-e2e-linux
+
+.PHONY: test-dbus-to-renderer-e2e-linux
+test-dbus-to-renderer-e2e-linux: build-overlay
 ifeq ($(OS_FAMILY),linux)
-	dbus-run-session -- ./overlay/platforms/linux/tests/test_overlay_e2e.sh
+	dbus-run-session -- ./overlay/platforms/linux/tests/test_dbus_to_renderer_e2e.sh
 else
-	$(error test-e2e-linux is only available on Linux)
+	$(error test-dbus-to-renderer-e2e-linux is only available on Linux)
 endif
 
-.PHONY: test-hid-dbus-e2e-linux
-test-hid-dbus-e2e-linux: build-overlay
+.PHONY: test-hid-to-dbus-e2e-linux
+test-hid-to-dbus-e2e-linux: build-overlay
 ifeq ($(OS_FAMILY),linux)
 	$(CC) -o target/virtual-raw-hid \
 		-std=c11 -Wall -Wextra -Wpedantic -Werror \
 		overlay/platforms/linux/tests/virtual_raw_hid.c
-	dbus-run-session -- ./overlay/platforms/linux/tests/test_hid_dbus_e2e.sh
+	dbus-run-session -- ./overlay/platforms/linux/tests/test_hid_to_dbus_e2e.sh
 else
-	$(error test-hid-dbus-e2e-linux is only available on Linux)
+	$(error test-hid-to-dbus-e2e-linux is only available on Linux)
 endif
 
 .PHONY: clean
