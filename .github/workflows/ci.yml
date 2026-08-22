@@ -107,7 +107,16 @@ jobs:
   # same way the layer-shell and launchd paths have always needed a real
   # machine.
   windows-build-and-test:
-    runs-on: windows-latest
+    name: windows-${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x86_64
+            runner: windows-latest
+          - architecture: arm64
+            runner: windows-11-vs2026-arm
+    runs-on: ${{ matrix.runner }}
 
     defaults:
       run:
@@ -133,24 +142,21 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/Documents/WindowsPowerShell/Modules/Pester
-          key: pester-5.7.1-${{ runner.os }}
+          key: pester-5.7.1-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install Pester
         if: steps.cache-pester.outputs.cache-hit != 'true'
         shell: powershell
         run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
 
-      - name: Test release installer
-        shell: powershell
-        run: Invoke-Pester -Path installer/tests/install.Tests.ps1 -CI
-
       - name: Run Rust Tests
         run: make test-rust
 
-      # Publishes the self-contained single-file WPF executable and embeds the
-      # Rust bridge DLL for extraction by the .NET bundle host.
-      - name: Build the release overlay
-        run: make build-overlay
+      # Publishes the self-contained single-file WPF executable, then exercises
+      # simulated runtime events through the dispatcher, model composition,
+      # and native WPF presentation state.
+      - name: Run Windows release acceptance
+        run: make test-release-acceptance-windows
 
       # Keep the experimental pure-Rust WinUI frontend compiling without
       # changing the installed or released WPF implementation.

@@ -55,17 +55,24 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.should_release == 'true'
-    name: ${{ matrix.platform }}
+    name: ${{ matrix.platform }}-${{ matrix.architecture }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: Linux
             runner: ubuntu-latest
+            architecture: x86_64
           - platform: macOS
             runner: macos-latest
+            architecture: arm64
           - platform: Windows
             runner: windows-latest
+            architecture: x86_64
+          - platform: Windows-arm64
+            package_platform: Windows
+            runner: windows-11-vs2026-arm
+            architecture: arm64
     runs-on: ${{ matrix.runner }}
 
     defaults:
@@ -101,8 +108,8 @@ jobs:
         id: package
         run: |
           mise exec -- uv run python -m installer.release.package_release \
-            --platform "$RUNNER_OS" \
-            --architecture "$(uname -m)" \
+            --platform "${{ matrix.package_platform || matrix.platform }}" \
+            --architecture "${{ matrix.architecture }}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Upload release asset

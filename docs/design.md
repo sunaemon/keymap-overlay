@@ -177,6 +177,9 @@ taskbar and Alt-Tab. `SetWindowPos` always includes `SWP_NOACTIVATE`.
 Windows publishes one self-contained `keymap-overlay.exe`. The .NET single-file
 bundle contains the Rust bridge DLL and extracts native content automatically
 before launch; installation and autostart still manage one executable.
+Release builds publish matching WPF and Rust bridge binaries for both x64 and
+ARM64 Windows; the installer selects the archive for the operating system's
+native architecture.
 
 On **Linux**, `overlay/platforms/linux/daemon` loads and
 validates the installed models, owns
@@ -419,6 +422,12 @@ therefore a semantic requirement rather than a styling choice.
 Windows and macOS use different native-window implementations because macOS
 can compose Liquid Glass and native controls directly while Windows needs the mapped,
 non-activating behaviour described above.
+
+Windows CI runs the release WPF executable with `--simulate`, then asserts the
+visible, hidden, and visible-again native presentation states. This covers the
+dispatcher wake-up, model composition, and WPF visual-tree path without a
+physical keyboard. Focus, topmost, and click-through behavior still require a
+real interactive desktop.
 
 The cost is three windows to maintain, each exercised only by the CI job for
 its own system. Linux CI also runs the release daemon and Qt renderer on an

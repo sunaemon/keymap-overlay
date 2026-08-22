@@ -70,6 +70,22 @@ def test_windows_archive_contains_wpf_and_dotnet_licenses(tmp_path: Path) -> Non
     }
 
 
+def test_windows_arm64_archive_uses_native_architecture_name(tmp_path: Path) -> None:
+    root = create_release_tree(tmp_path)
+    dotnet_root = create_dotnet_tree(tmp_path)
+
+    asset = package_release(
+        "Windows",
+        "arm64",
+        root=root,
+        output_dir=root / "dist",
+        dotnet_root=dotnet_root,
+        runner=dotnet_runner,
+    )
+
+    assert asset.name == "keymap-overlay-windows-arm64.zip"
+
+
 def test_windows_requires_dotnet_root(tmp_path: Path) -> None:
     root = create_release_tree(tmp_path)
 

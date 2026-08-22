@@ -515,14 +515,38 @@ Develop the native Windows overlay in MSYS2 UCRT64, not WSL. In PowerShell:
 ```powershell
 winget install --id MSYS2.MSYS2 -e --source winget
 winget install --id jdx.mise -e --source winget
-winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --includeRecommended"
 ```
 
-Create a Windows Terminal profile that runs:
+WinGet normally exposes `mise.exe` through
+`%LOCALAPPDATA%\Microsoft\WinGet\Links`. If `mise` is not found after opening a
+new terminal, add that directory to the user `PATH` from PowerShell, then close
+and reopen Windows Terminal (and any editor or Codex process that launches
+builds):
 
-```text
+```powershell
+$miseBin = "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($userPath -split ";") -notcontains $miseBin) {
+    [Environment]::SetEnvironmentVariable(
+        "Path",
+        ($userPath.TrimEnd(";") + ";" + $miseBin),
+        "User"
+    )
+}
+```
+
+Open the architecture-matching Visual Studio developer command prompt (`ARM64
+Native Tools Command Prompt for VS 2022` on Windows on Arm, or `x64 Native
+Tools Command Prompt for VS 2022` on x64), then start UCRT64 from it so the
+MSVC linker and Windows SDK environment are inherited:
+
+```bat
 C:\msys64\msys2_shell.cmd -defterm -here -no-start -ucrt64 -use-full-path
 ```
+
+In UCRT64, `type -a link` must list Visual Studio's architecture-matching
+`link.exe` before MSYS2's `/usr/bin/link`; Rust needs the former.
 
 In that shell:
 
@@ -536,11 +560,27 @@ cd "$WINDOWS_HOME"
 git -c core.autocrlf=false clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 make setup
+command -v mise
+mise exec -- dotnet --info
 make test
 make test-rust
-make build-overlay
+make test-release-acceptance-windows
 make install-overlay
 ```
+
+The native build follows the host architecture: x64 produces a `win-x64` WPF
+executable and x64 Rust bridge, while Windows on Arm produces `win-arm64` for
+both. Confirm that Rust and .NET agree before building:
+
+```bash
+mise exec -- rustc -vV | grep '^host:'
+mise exec -- dotnet --info | grep 'RID:'
+```
+
+The pairs must be `x86_64-pc-windows-msvc` with `win-x64`, or
+`aarch64-pc-windows-msvc` with `win-arm64`. The Visual Studio install command
+above includes both x64 and ARM64 C++ tools so either native build has the MSVC
+linker and Windows SDK it needs.
 
 `make install-overlay` expects layer models already generated into the Windows
 profile by WSL. Firmware and asset targets intentionally stop in MSYS2.
@@ -565,9 +605,11 @@ make audit
 make test-installer-sh
 ```
 
-Windows CI additionally runs the `install.ps1` Pester suite. Verify manually
-that the overlay never takes focus: type into an editor while repeatedly
-holding a layer key and confirm every keystroke remains in the editor.
+Windows release acceptance runs the `install.ps1` Pester suite and the WPF E2E
+test, which checks visible, hidden, and visible-again presentation states using
+simulated layer events. Verify manually that the overlay never takes focus:
+type into an editor while repeatedly holding a layer key and confirm every
+keystroke remains in the editor.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and
 [docs/releasing.md](docs/releasing.md) for the release checklist.

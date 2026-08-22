@@ -29,6 +29,7 @@ internal sealed class OverlayWindow : Window
     private readonly Dictionary<(byte Keyboard, byte Layer), OverlayModel> models;
     private readonly Dictionary<(byte Keyboard, string Layers), OverlayModel> composedModels = [];
     private readonly NativeMethods.WakeCallback wakeCallback;
+    private readonly string? e2eStateFile = Environment.GetEnvironmentVariable("KEYMAP_OVERLAY_E2E_STATE_FILE");
     private nint handle;
 
     internal OverlayWindow(string assetsDirectory)
@@ -178,6 +179,10 @@ internal sealed class OverlayWindow : Window
         Width = width;
         Height = height;
         PositionOnCursorMonitor(width, height);
+        var heldCount = model.Keys.Count(key => key.Held) + model.Encoders.Count(encoder => encoder.Held);
+        RecordE2eState(
+            $"show keyboard={keyboard} layers=[{string.Join(',', layers)}] size={width}x{height} " +
+            $"keys={model.Keys.Count} encoders={model.Encoders.Count} held={heldCount}");
     }
 
     private OverlayModel? ComposeModel(byte keyboard, byte[] layers)
@@ -285,6 +290,23 @@ internal sealed class OverlayWindow : Window
         Width = 1;
         Height = 1;
         NativeMethods.SetWindowPos(handle, NativeMethods.HwndTopmost, 0, 0, 1, 1, NativeMethods.SwpNoActivate);
+        RecordE2eState("hide size=1x1");
+    }
+
+    private void RecordE2eState(string state)
+    {
+        if (e2eStateFile is null)
+        {
+            return;
+        }
+        try
+        {
+            File.AppendAllText(e2eStateFile, state + Environment.NewLine);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"Failed to record Windows E2E state in {e2eStateFile}: {error}");
+        }
     }
 
     private void PositionOnCursorMonitor(double width, double height)

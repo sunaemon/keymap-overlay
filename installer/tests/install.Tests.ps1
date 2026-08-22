@@ -52,6 +52,11 @@ Describe 'install.ps1' {
         { Assert-LayerAssets } | Should -Not -Throw
     }
 
+    It 'accepts the current Windows release architecture' {
+        { Get-ReleaseArchitecture } | Should -Not -Throw
+        Get-ReleaseArchitecture | Should -BeIn @('x86_64', 'arm64')
+    }
+
     It 'extracts and validates a complete release archive' {
         $fixture = Join-Path $TestDrive 'fixture'
         $archive = Join-Path $TestDrive 'fixture.zip'
@@ -66,11 +71,12 @@ Describe 'install.ps1' {
         $installerHash = (Get-FileHash -LiteralPath $installerFixture -Algorithm SHA256).Hash.ToLowerInvariant()
 
         Mock Invoke-RestMethod { [pscustomobject]@{ tag_name = 'v0.0.1' } }
+        Mock Get-ReleaseArchitecture { 'arm64' }
         Mock Invoke-WebRequest {
             param([string]$Uri, [string]$OutFile)
             if ($Uri -like '*/SHA256SUMS') {
                 Set-Content -LiteralPath $OutFile -Value @(
-                    "$hash  keymap-overlay-windows-x86_64.zip"
+                    "$hash  keymap-overlay-windows-arm64.zip"
                     "$installerHash  install.ps1"
                 )
             }
