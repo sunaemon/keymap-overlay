@@ -2,8 +2,8 @@
 set -eu
 
 PROJECT_DIRECTORY=$(CDPATH='' cd -- "$(dirname "$0")/../../../.." && pwd)
-ASSET_DIRECTORY="$PROJECT_DIRECTORY/overlay/platforms/linux/tests/fixtures"
-GOLDEN_IMAGE="$ASSET_DIRECTORY/qt-overlay.png"
+ASSET_DIRECTORY="$PROJECT_DIRECTORY/overlay/tests/fixtures"
+GOLDEN_IMAGE="$PROJECT_DIRECTORY/overlay/platforms/linux/tests/fixtures/qt-overlay.png"
 DAEMON=${KEYMAP_OVERLAY_E2E_DAEMON:-"$PROJECT_DIRECTORY/target/release/keymap-overlay"}
 RENDERER=${KEYMAP_OVERLAY_E2E_RENDERER:-"$PROJECT_DIRECTORY/target/release/keymap-overlay-qt"}
 TEST_DIRECTORY=$(mktemp -d)

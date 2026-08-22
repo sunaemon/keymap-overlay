@@ -90,16 +90,13 @@ jobs:
       - name: Run Tests
         run: make test
 
-      - name: Test release installer
-        run: make test-installer-sh
-
       - name: Run Rust Tests
         run: make test-rust
 
-      # `make install-overlay` ships this binary, so a release-only build
-      # failure would surface at install time rather than here.
-      - name: Build the release binary
-        run: make build-overlay
+      # Covers installer rollback and simulated runtime events through the
+      # main-queue wake-up, model composition, and native AppKit view state.
+      - name: Run macOS release acceptance
+        run: make test-release-acceptance-macos
 
   # The Windows half: hidapi's own Windows backend behind a narrow Rust DLL,
   # a WPF-owned window, and a per-user Run key instead of a login agent. Every

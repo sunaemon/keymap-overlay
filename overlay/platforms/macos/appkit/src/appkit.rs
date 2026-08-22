@@ -27,6 +27,8 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSPointInRect, NSRect, NSSize, NSString};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -97,6 +99,7 @@ struct OverlayApp {
     glass: Retained<NSGlassEffectView>,
     content_host: Retained<NSView>,
     screen_frame: Option<NSRect>,
+    e2e_state_file: Option<PathBuf>,
 }
 
 thread_local! {
@@ -136,6 +139,7 @@ pub(crate) fn run(assets_dir: PathBuf, simulated: Option<SimulatedLayer>) -> Res
         glass,
         content_host,
         screen_frame: current_screen_frame(),
+        e2e_state_file: std::env::var_os("KEYMAP_OVERLAY_E2E_STATE_FILE").map(PathBuf::from),
     };
 
     application.finishLaunching();
@@ -522,16 +526,31 @@ impl OverlayApp {
             return;
         };
         self.content_host.addSubview(&native.view);
+        let native_subviews = native.view.subviews().len();
         self.window
             .setFrame_display(centered_frame(native.size), true);
         self.window.orderFrontRegardless();
         self.visible_layer = Some(key);
+        let frame = self.window.frame();
+        self.record_e2e_state(&format!(
+            "show keyboard={keyboard_id} layers={layers:?} size={}x{} subviews={} native_subviews={native_subviews}",
+            frame.size.width,
+            frame.size.height,
+            self.content_host.subviews().len()
+        ));
     }
 
     fn hide(&mut self) {
         self.detach_visible_layer();
         self.visible_layer = None;
         self.window.setFrame_display(idle_rect(), false);
+        let frame = self.window.frame();
+        self.record_e2e_state(&format!(
+            "hide size={}x{} subviews={}",
+            frame.size.width,
+            frame.size.height,
+            self.content_host.subviews().len()
+        ));
     }
 
     fn rebuild_layers(&mut self) {
@@ -576,6 +595,23 @@ impl OverlayApp {
         };
         self.window
             .setFrame_display(centered_frame_on_screen(native.size, screen_frame), true);
+    }
+
+    fn record_e2e_state(&self, state: &str) {
+        let Some(path) = &self.e2e_state_file else {
+            return;
+        };
+        let result = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| writeln!(file, "{state}"));
+        if let Err(error) = result {
+            warn!(
+                "Failed to record macOS E2E state in {}: {error}",
+                path.display()
+            );
+        }
     }
 }
 

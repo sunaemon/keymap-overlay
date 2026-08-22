@@ -24,6 +24,11 @@ Releases are beta until the project explicitly declares 1.0 stability.
    make audit
    ```
 
+   On macOS, `make test-release-acceptance-macos` combines the installer and
+   release build with the AppKit E2E test. On Linux,
+   `make test-release-acceptance-linux` does the same with both Linux E2E
+   halves.
+
    On Windows PowerShell, also run this before creating the release tag:
 
    ```powershell

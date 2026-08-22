@@ -471,13 +471,18 @@ make install-overlay
 `make install-overlay` exercises the source-built installation path. Use
 `make run-overlay` for a foreground UI session.
 
-On Linux, `make test-release-acceptance-linux` is the release go/no-go check. It
-tests installer upgrades and rollback, then runs two E2E halves around the
-project-owned D-Bus contract. The HID-to-D-Bus half creates a virtual device
-through `/dev/uhid`, sends Raw HID layer reports through the kernel `hidraw`
-path, and asserts the daemon's public state. The D-Bus-to-renderer half exercises
-the daemon and Qt renderer together, including a golden-image comparison of the
-rendered Qt Quick overlay. The HID half requires the `uhid` kernel module.
+On macOS, `make test-release-acceptance-macos` tests installer upgrades and
+rollback, then drives simulated layer events through the native AppKit overlay
+and verifies two show cycles with the hidden transition between them.
+
+On Linux, `make test-release-acceptance-linux` is the equivalent release
+go/no-go check. It tests installer upgrades and rollback, then runs two E2E
+halves around the project-owned D-Bus contract. The HID-to-D-Bus half creates a
+virtual device through `/dev/uhid`, sends Raw HID layer reports through the
+kernel `hidraw` path, and asserts the daemon's public state. The
+D-Bus-to-renderer half exercises the daemon and Qt renderer together, including
+a golden-image comparison of the rendered Qt Quick overlay. The HID half
+requires the `uhid` kernel module.
 
 To exercise the complete native overlay without a physical keyboard, name a
 generated keyboard and momentary layer:
@@ -542,6 +547,7 @@ make lint
 make test
 make test-rust
 make build-overlay
+make test-release-acceptance-macos # macOS only: installer rollback + AppKit E2E
 make test-release-acceptance-linux # Linux only: installer rollback + both E2E halves
 make audit
 make test-installer-sh
