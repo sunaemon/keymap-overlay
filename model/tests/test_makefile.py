@@ -89,13 +89,6 @@ def test_windows_exposes_native_hid_targets() -> None:
         text=True,
         cwd=root,
     )
-    write = subprocess.run(
-        [MAKE, "-n", "write-keymap", "KEYBOARD_ID=1", "SHELL=bash"],
-        check=True,
-        capture_output=True,
-        text=True,
-        cwd=root,
-    )
     source_render = subprocess.run(
         [MAKE, "_install_assets_windows", "VIAL=false", "KEYBOARD_ID=1"],
         check=False,
@@ -103,11 +96,12 @@ def test_windows_exposes_native_hid_targets() -> None:
         text=True,
         cwd=root,
     )
+    makefile = (root / "Makefile").read_text(encoding="utf-8")
 
     assert "_install_assets" in install.stdout
     assert "must run in WSL" not in install.stdout
-    assert "keymap-overlay-flash-keymap.exe" in write.stdout
-    assert "prepare-flash-keymap" in write.stdout
+    assert '"$(FLASHER_BINARY)" --qmk-keymap-json' in makefile
+    assert "make prepare-flash-keymap KEYBOARD_ID=$(KEYBOARD_ID)" in makefile
     assert source_render.returncode != 0
     assert "needs QMK source processing" in source_render.stderr
 
