@@ -71,6 +71,7 @@ def test_windows_archive_contains_wpf_and_dotnet_licenses(tmp_path: Path) -> Non
 
 
 def test_windows_arm64_archive_uses_native_architecture_name(tmp_path: Path) -> None:
+    """Verify that Windows ARM64 archives use the native architecture name."""
     root = create_release_tree(tmp_path)
     dotnet_root = create_dotnet_tree(tmp_path)
 

@@ -528,9 +528,14 @@ builds):
 $miseBin = "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (($userPath -split ";") -notcontains $miseBin) {
+    $updatedPath = if ([string]::IsNullOrWhiteSpace($userPath)) {
+        $miseBin
+    } else {
+        $userPath.TrimEnd(";") + ";" + $miseBin
+    }
     [Environment]::SetEnvironmentVariable(
         "Path",
-        ($userPath.TrimEnd(";") + ";" + $miseBin),
+        $updatedPath,
         "User"
     )
 }
