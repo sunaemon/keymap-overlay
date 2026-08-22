@@ -40,9 +40,8 @@ EXE_SUFFIX :=
 endif
 
 # QMK's Windows toolchain is QMK MSYS, a separate environment from the one that
-# builds the overlay, and the boards here flash over USB or a mounted UF2
-# volume that MSYS2 cannot reach either. Rather than half-support it, the
-# firmware targets say where to go.
+# builds the overlay. Keep QMK source processing and firmware deployment there;
+# native Raw HID reads and writes use the portable Rust tooling below.
 WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WSL, macOS or Linux (see Platform Support in README.md)
 
 # ================= VIA CONFIGURATION =================
@@ -466,9 +465,9 @@ _setup_toolchain_windows:
 		echo "the Windows PowerShell directory on PATH."; \
 		exit 1; \
 	fi
-	@echo "NOTE: firmware is not built or flashed on Windows."
-	@echo "      Use WSL, macOS or Linux for 'make compile', 'make flash' and"
-	@echo "      'make flash-keymap'; see the Platform Support section of README.md."
+	@echo "NOTE: firmware and QMK source processing do not run in this shell."
+	@echo "      Use WSL, macOS or Linux for 'make compile', 'make flash', and"
+	@echo "      'make prepare-flash-keymap'; native Raw HID targets run here."
 
 .PHONY: doctor
 doctor:
@@ -480,35 +479,30 @@ doctor:
 # This is no longer part of the normal source-install workflow: every native
 # overlay owns its installed model directory through startup self-heal
 # (`--keyboard-config-dir`). It remains useful for a manual force-refresh when
-# fill-if-missing would not pick up a connected-device change. Windows runs
-# that manual workflow from WSL because MSYS2 deliberately has no firmware or
-# asset-generation targets.
+# fill-if-missing would not pick up a connected-device change. The default
+# VIAL=true path is a native Raw HID read and therefore also runs on Windows.
 #
 # Under VIAL=false, LAYERS depends on $(QMK_KEYMAP_JSON), so install-assets
 # and draw-layers build the QMK JSON in a first make invocation, then re-enter
 # make to expand assets. Under VIAL=true the native generator (FILE RULES)
 # determines its own layer count from the device, so this first pass — and
 # the extra device read building $(QMK_KEYMAP_JSON) would cost — is skipped.
-ifeq ($(OS_FAMILY),windows)
 .PHONY: install-assets
-install-assets:
-	@echo "ERROR: install-assets must run in WSL, not MSYS2."; \
-		echo "Run it from the shared checkout in WSL, passing KEYMAP_OVERLAY_DIR"; \
-		echo "the Windows %LOCALAPPDATA%\\keymap-overlay path. The commands that"; \
-		echo "derive it are in the Setup on Windows section of README.md."; \
-		exit 1
-else
 install-assets:
 ifdef KEYBOARD_ID
 ifeq ($(VIAL),true)
 	@$(MAKE) _internal_install
 else
+	@if [ "$(OS_FAMILY)" = "windows" ]; then \
+		echo "ERROR: install-assets VIAL=false needs QMK source processing."; \
+		echo "Run it from WSL, macOS or Linux; native Windows supports VIAL=true."; \
+		exit 1; \
+	fi
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
 endif
 else
 	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
-endif
 endif
 
 # Kept as a compatibility alias for existing scripts. New callers should use
@@ -1035,8 +1029,11 @@ _unmount_uf2_volume:
 .PHONY: flash-keymap
 flash-keymap:
 ifeq ($(OS_FAMILY),windows)
-	$(error flash-keymap $(WINDOWS_FIRMWARE_ERROR))
-endif
+	@echo "ERROR: flash-keymap includes QMK source processing, which is not supported in MSYS2."; \
+		echo "Run 'make prepare-flash-keymap KEYBOARD_ID=<id>' in WSL, then"; \
+		echo "run 'make write-keymap KEYBOARD_ID=<id>' here for the native HID write."; \
+		exit 1
+else
 # Only an explicit VIAL=true is an error here, not the plain default: VIAL=true
 # would read the device and write it straight back, but flash-keymap always
 # reads keymap.c regardless of the default, via the VIAL=false below.
@@ -1046,7 +1043,32 @@ ifneq ($(origin VIAL),file)
 endif
 endif
 ifdef KEYBOARD_ID
+	@$(MAKE) prepare-flash-keymap
+	@$(MAKE) write-keymap
+else
+	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
+endif
+endif
+
+.PHONY: prepare-flash-keymap
+prepare-flash-keymap:
+ifeq ($(OS_FAMILY),windows)
+	$(error prepare-flash-keymap $(WINDOWS_FIRMWARE_ERROR))
+endif
+ifdef KEYBOARD_ID
 	@$(MAKE) VIAL=false $(QMK_KEYMAP_JSON)
+else
+	+@$(call FOR_EACH_KEYBOARD,preparing,Preparing keymap for,prepare-flash-keymap)
+endif
+
+.PHONY: write-keymap
+write-keymap:
+ifdef KEYBOARD_ID
+	@if [ ! -s "$(QMK_KEYMAP_JSON)" ]; then \
+		echo "ERROR: prepared QMK keymap JSON is missing: $(QMK_KEYMAP_JSON)"; \
+		echo "Run 'make prepare-flash-keymap KEYBOARD_ID=$(KEYBOARD_ID)' in WSL, macOS or Linux first."; \
+		exit 1; \
+	fi
 	@$(MAKE) _build_generator
 # The renderer resolves KC_TRNS only in memory; the flasher writes qmk
 # c2json's output as-is, so EEPROM keeps the literal transparent marker and
@@ -1060,7 +1082,7 @@ else
 endif
 	"$(FLASHER_BINARY)" --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json" --keymap-c "$(QMK_KEYMAP_C)" --layout-name "$(LAYOUT_NAME)" $(if $(filter true,$(DRY_RUN)),--dry-run)
 else
-	+@$(call FOR_EACH_KEYBOARD,flashing,Flashing keymap for,flash-keymap)
+	+@$(call FOR_EACH_KEYBOARD,writing,Writing keymap for,write-keymap)
 endif
 
 .PHONY: patch-load

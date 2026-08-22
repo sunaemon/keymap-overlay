@@ -47,8 +47,9 @@ at startup (see Startup Self-Heal below). The installed directory is
 connected device already knows rather than configuration. Running
 `install-assets` by hand is still useful to force a refresh after changing the
 connected device through Vial or `flash-keymap`, since self-heal only fills in
-what is missing, not what is stale; run that manual workflow from WSL on
-Windows. The release `install.sh`/`install.ps1` installer still needs models
+what is missing, not what is stale. Its default `VIAL=true` path is a native
+Raw HID read and runs in MSYS2 UCRT64 on Windows; only `VIAL=false` source
+rendering needs QMK in WSL. The release `install.sh`/`install.ps1` installer still needs models
 generated first, since a downloaded release binary has no generator alongside
 it to self-heal with (see Startup Self-Heal below).
 
@@ -335,14 +336,15 @@ keyboard device
 The shared `firmware/layer_notify.h` helper is copied into the QMK keymap as
 part of the firmware build. It constructs the `KMO` reports described above.
 
-This workflow does not run from the overlay's Windows shell. QMK's toolchain
-there is QMK MSYS, separate from the MSYS2 UCRT64 shell that builds the overlay,
-so `compile`, `flash`, and `flash-keymap` stop with a message pointing at QMK
-MSYS, WSL, macOS, or Linux. This does not prevent manual flashing of an
-already-built `.uf2`: Windows can mount the bootloader's `RPI-RP2` volume and
-copy the file onto it in Explorer. The images and the overlay itself are
-unaffected, so a Windows user builds firmware once elsewhere and does
-everything else natively.
+QMK source processing and firmware deployment do not run from the overlay's
+Windows shell. QMK's toolchain there is QMK MSYS, separate from the MSYS2
+UCRT64 shell that builds the overlay, so `compile`, `flash`, and
+`prepare-flash-keymap` point at WSL, macOS, or Linux. Raw HID is not subject to
+that boundary: `install-assets VIAL=true` reads the device and `write-keymap`
+writes an already-prepared `qmk-keymap.json` natively on Windows. The combined
+`flash-keymap` target remains available on macOS and Linux. This also does not
+prevent manual flashing of an already-built `.uf2`: Windows can mount the
+bootloader's `RPI-RP2` volume and copy the file onto it in Explorer.
 
 ## Design Decisions
 

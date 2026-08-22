@@ -73,6 +73,40 @@ def test_windows_source_install_wires_startup_self_heal() -> None:
     assert service.stdout.count("--keyboard-config-dir") == 2
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Native Windows HID targets")
+def test_windows_exposes_native_hid_targets() -> None:
+    """Allow device reads and prepared keymap writes without QMK in MSYS2."""
+    root = Path(__file__).parents[2]
+    install = subprocess.run(
+        ["make", "-n", "install-assets", "KEYBOARD_ID=1", "MAKE=echo"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    write = subprocess.run(
+        ["make", "-n", "write-keymap", "KEYBOARD_ID=1", "MAKE=echo"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    source_render = subprocess.run(
+        ["make", "install-assets", "VIAL=false", "KEYBOARD_ID=1"],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+
+    assert "_internal_install" in install.stdout
+    assert "must run in WSL" not in install.stdout
+    assert "keymap-overlay-flash-keymap.exe" in write.stdout
+    assert "prepare-flash-keymap" in write.stdout
+    assert source_render.returncode != 0
+    assert "needs QMK source processing" in source_render.stdout
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Firmware builds are unsupported")
 def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
     """Tell QMK not to undo the selective firmware setup during a build."""

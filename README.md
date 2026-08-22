@@ -237,6 +237,10 @@ Windows uses two environments:
 - **PowerShell** installs and runs the released native overlay.
 
 MSYS2 and Visual Studio Build Tools are needed only for development.
+The WSL model-generation step below is a release-package constraint, not a Raw
+HID limitation: the downloaded installer does not include the generator or
+keyboard source configuration. A source checkout can perform the live device
+read natively with MSYS2 as described under Development.
 
 Install Windows Terminal first, in an administrator PowerShell:
 
@@ -361,8 +365,23 @@ make install-assets KEYBOARD_ID=<keyboard-id>
 To render directly from the edited source without updating EEPROM, use
 `make install-assets VIAL=false KEYBOARD_ID=<keyboard-id>` instead.
 
-On Windows, use WSL and the Windows-profile arguments from the installation
-section. Restart the runtime after installing new models:
+On Windows, build and flash the firmware in WSL. The default `VIAL=true`
+`install-assets` step reads Raw HID directly and can instead run in MSYS2
+UCRT64, where it writes the native Windows model directory. To update EEPROM
+from `keymap.c`, split source preparation from the native HID write:
+
+```bash
+# WSL (from the same checkout, or copy the generated JSON afterward)
+make prepare-flash-keymap KEYBOARD_ID=<keyboard-id>
+
+# MSYS2 UCRT64
+make write-keymap KEYBOARD_ID=<keyboard-id>
+make install-assets KEYBOARD_ID=<keyboard-id>
+```
+
+`write-keymap` reads `build/<keyboard-id>/qmk-keymap.json`; set
+`QMK_KEYMAP_JSON=<path>` if WSL generated it in another checkout. Restart the
+runtime after installing new models:
 
 ```bash
 # macOS
@@ -454,6 +473,10 @@ Parse `keymap.c` and write it to EEPROM without rebuilding firmware:
 ```bash
 make flash-keymap
 ```
+
+That convenience target performs both steps on macOS and Linux. On Windows,
+run `prepare-flash-keymap` in WSL and `write-keymap` in MSYS2 UCRT64 as shown
+above; only the preparation step needs QMK.
 
 `flash-keymap` preserves `KC_TRNS`, so transparent keys continue to inherit
 lower layers.
@@ -590,9 +613,10 @@ linker and Windows SDK it needs.
 `make install-overlay` installs `keymap-overlay-generator.exe` beside the WPF
 frontend and fills in missing layer models from the connected Vial keyboard at
 startup. Keep the keyboard connected for the first run; a keyboard that is not
-available is retried the next time the overlay starts. Firmware and manual
-asset-generation targets still stop in MSYS2, so use WSL when forcing a refresh
-after changing an already-installed model.
+available is retried the next time the overlay starts. `make install-assets`
+also performs that native Raw HID read in MSYS2 when forcing a refresh.
+`VIAL=false` rendering and `prepare-flash-keymap` still need QMK in WSL;
+`write-keymap` performs the prepared EEPROM write natively.
 
 After changing the Windows bridge, also run:
 
