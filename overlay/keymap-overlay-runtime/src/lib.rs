@@ -17,6 +17,7 @@ use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -31,6 +32,8 @@ const MAX_LOG_FILES: u8 = 3;
 /// How long a reader blocks before checking for disconnects or UI shutdown.
 const READ_TIMEOUT: i32 = 1_000;
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
+const SIMULATED_PRESS_DURATION: Duration = Duration::from_secs(2);
+const SIMULATED_RELEASE_DURATION: Duration = Duration::from_secs(1);
 
 /// This project's own licence terms.
 ///
@@ -79,6 +82,10 @@ pub struct Arguments {
     #[arg(long, value_name = "PATH")]
     pub log_out: Option<PathBuf>,
 
+    /// Repeatedly simulate holding KEYBOARD_ID:LAYER instead of reading HID
+    #[arg(long, value_name = "KEYBOARD_ID:LAYER")]
+    pub simulate: Option<SimulatedLayer>,
+
     /// Print this project's own licence terms
     #[arg(long, exclusive = true)]
     pub license: bool,
@@ -86,6 +93,31 @@ pub struct Arguments {
     /// Print the third-party notices, as HTML
     #[arg(long, exclusive = true)]
     pub third_party_licenses: bool,
+}
+
+/// One keyboard and momentary layer to exercise without HID hardware.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SimulatedLayer {
+    pub keyboard_id: u8,
+    pub layer: u8,
+}
+
+impl FromStr for SimulatedLayer {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (keyboard_id, layer) = value
+            .split_once(':')
+            .ok_or_else(|| "expected KEYBOARD_ID:LAYER".to_owned())?;
+        Ok(Self {
+            keyboard_id: keyboard_id
+                .parse()
+                .map_err(|_| "keyboard ID must be an integer from 0 to 255".to_owned())?,
+            layer: layer
+                .parse()
+                .map_err(|_| "layer must be an integer from 0 to 255".to_owned())?,
+        })
+    }
 }
 
 impl Arguments {
@@ -108,7 +140,9 @@ impl Arguments {
 }
 
 /// Initializes the shared runtime and gives the asset directory to a frontend.
-pub fn run_overlay(frontend: impl FnOnce(PathBuf) -> Result<()>) -> Result<()> {
+pub fn run_overlay(
+    frontend: impl FnOnce(PathBuf, Option<SimulatedLayer>) -> Result<()>,
+) -> Result<()> {
     let arguments = Arguments::parse();
     if let Some(notice) = arguments.notice() {
         return write_notice(notice);
@@ -117,9 +151,10 @@ pub fn run_overlay(frontend: impl FnOnce(PathBuf) -> Result<()>) -> Result<()> {
         .asset_dir
         .clone()
         .map_or_else(default_asset_dir, Ok)?;
+    let simulated = arguments.simulate;
     initialize_logging(arguments.log_destination())?;
 
-    if let Err(error) = frontend(directory) {
+    if let Err(error) = frontend(directory, simulated) {
         error!("Keymap overlay stopped: {error:#}");
         return Err(error);
     }
@@ -238,6 +273,63 @@ impl EnumerationRequester {
 #[derive(Clone)]
 pub struct RawHidListenerHandle {
     requester: EnumerationRequester,
+}
+
+/// A hardware listener, or a synthetic event source used for manual testing.
+#[derive(Clone)]
+pub enum LayerEventSourceHandle {
+    RawHid(RawHidListenerHandle),
+    Simulated,
+}
+
+impl LayerEventSourceHandle {
+    /// Requests hardware enumeration; simulation mode has no devices to scan.
+    pub fn device_arrived(&self) -> bool {
+        match self {
+            Self::RawHid(listener) => listener.device_arrived(),
+            Self::Simulated => false,
+        }
+    }
+
+    /// Returns whether this source needs platform device-arrival notifications.
+    pub fn uses_raw_hid(&self) -> bool {
+        matches!(self, Self::RawHid(_))
+    }
+}
+
+/// Starts either the real Raw HID listener or a repeating synthetic key hold.
+pub fn spawn_layer_event_source(
+    sink: impl LayerEventSink + 'static,
+    simulated: Option<SimulatedLayer>,
+) -> LayerEventSourceHandle {
+    let Some(simulated) = simulated else {
+        return LayerEventSourceHandle::RawHid(spawn_raw_hid_listener(sink));
+    };
+    thread::spawn(move || {
+        info!(
+            "Simulating layer events: keyboard={} layer={}",
+            simulated.keyboard_id, simulated.layer
+        );
+        loop {
+            if !sink.send(LayerEvent::Report(RawLayerEvent {
+                keyboard_id: simulated.keyboard_id,
+                layer: simulated.layer,
+                pressed: true,
+            })) {
+                return;
+            }
+            thread::sleep(SIMULATED_PRESS_DURATION);
+            if !sink.send(LayerEvent::Report(RawLayerEvent {
+                keyboard_id: simulated.keyboard_id,
+                layer: simulated.layer,
+                pressed: false,
+            })) {
+                return;
+            }
+            thread::sleep(SIMULATED_RELEASE_DURATION);
+        }
+    });
+    LayerEventSourceHandle::Simulated
 }
 
 impl RawHidListenerHandle {
@@ -737,6 +829,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    #[derive(Clone)]
+    struct ChannelSink(mpsc::Sender<LayerEvent>);
+
+    impl LayerEventSink for ChannelSink {
+        fn send(&self, event: LayerEvent) -> bool {
+            self.0.send(event).is_ok()
+        }
+    }
+
     fn display_key(label: &str, transparent: bool, momentary_layer: Option<u8>) -> DisplayKey {
         DisplayKey {
             x: 0,
@@ -796,6 +897,28 @@ mod tests {
 
         assert!(requester.request());
         assert_eq!(receiver.try_recv(), Ok(()));
+    }
+
+    #[test]
+    fn a_simulated_source_immediately_presses_the_requested_layer() {
+        let (sender, receiver) = mpsc::channel();
+        let source = spawn_layer_event_source(
+            ChannelSink(sender),
+            Some(SimulatedLayer {
+                keyboard_id: 12,
+                layer: 3,
+            }),
+        );
+
+        assert!(!source.uses_raw_hid());
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(1)),
+            Ok(LayerEvent::Report(RawLayerEvent {
+                keyboard_id: 12,
+                layer: 3,
+                pressed: true,
+            }))
+        );
     }
 
     #[test]
@@ -923,6 +1046,27 @@ mod tests {
 
         assert_eq!(arguments.notice(), None);
         assert_eq!(arguments.asset_dir, Some(PathBuf::from("/somewhere/else")));
+    }
+
+    #[test]
+    fn a_simulated_layer_identifies_the_keyboard_and_layer() {
+        let arguments = parse(&["--simulate", "12:3"]).expect("a simulated layer is valid");
+
+        assert_eq!(
+            arguments.simulate,
+            Some(SimulatedLayer {
+                keyboard_id: 12,
+                layer: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn a_simulated_layer_rejects_malformed_or_out_of_range_values() {
+        assert!(parse(&["--simulate", "1"]).is_err());
+        assert!(parse(&["--simulate", "256:2"]).is_err());
+        assert!(parse(&["--simulate", "1:256"]).is_err());
+        assert!(parse(&["--simulate", "one:two"]).is_err());
     }
 
     /// A bare path used to be accepted positionally, which turned a mistyped

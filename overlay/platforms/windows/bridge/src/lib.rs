@@ -1,8 +1,8 @@
 //! Narrow C ABI between the WPF frontend and the shared Rust HID runtime.
 
 use keymap_overlay_runtime::{
-    LayerEvent, LayerEventSink, LogDestination, PendingTransition, RawHidListenerHandle,
-    Transition, default_log_file, initialize_logging, spawn_raw_hid_listener,
+    LayerEvent, LayerEventSink, LayerEventSourceHandle, LogDestination, PendingTransition,
+    SimulatedLayer, Transition, default_log_file, initialize_logging, spawn_layer_event_source,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -21,7 +21,7 @@ struct BridgeSink {
 }
 
 struct SharedState {
-    listener: OnceLock<RawHidListenerHandle>,
+    listener: OnceLock<LayerEventSourceHandle>,
     pending: Mutex<PendingTransition>,
     published_layers: Mutex<Vec<u8>>,
     wake: extern "system" fn(),
@@ -42,7 +42,20 @@ impl LayerEventSink for BridgeSink {
 /// Starts the HID listener. Returns zero, or a negative value on failure.
 #[unsafe(no_mangle)]
 pub extern "system" fn keymap_overlay_start(wake: extern "system" fn()) -> i32 {
-    catch_unwind(AssertUnwindSafe(|| start(wake))).unwrap_or(-1)
+    catch_unwind(AssertUnwindSafe(|| start(wake, None))).unwrap_or(-1)
+}
+
+/// Starts a synthetic layer source instead of HID. Returns zero on success.
+#[unsafe(no_mangle)]
+pub extern "system" fn keymap_overlay_start_simulated(
+    wake: extern "system" fn(),
+    keyboard_id: u8,
+    layer: u8,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        start(wake, Some(SimulatedLayer { keyboard_id, layer }))
+    }))
+    .unwrap_or(-1)
 }
 
 /// Re-enumerates Raw HID interfaces after Windows reports a device arrival.
@@ -55,7 +68,7 @@ pub extern "system" fn keymap_overlay_device_arrived() {
     });
 }
 
-fn start(wake: extern "system" fn()) -> i32 {
+fn start(wake: extern "system" fn(), simulated: Option<SimulatedLayer>) -> i32 {
     if STATE.get().is_some() {
         return -2;
     }
@@ -84,9 +97,12 @@ fn start(wake: extern "system" fn()) -> i32 {
     if STATE.set(Arc::clone(&shared)).is_err() {
         return -2;
     }
-    let listener = spawn_raw_hid_listener(BridgeSink {
-        state: Arc::clone(&shared),
-    });
+    let listener = spawn_layer_event_source(
+        BridgeSink {
+            state: Arc::clone(&shared),
+        },
+        simulated,
+    );
     if shared.listener.set(listener).is_err() {
         return -2;
     }

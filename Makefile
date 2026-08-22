@@ -538,7 +538,7 @@ clean:
 
 .PHONY: run-overlay
 run-overlay:
-	$(KEYMAP_OVERLAY) --asset-dir "$(KEYMAP_OVERLAY_DIR)"
+	$(KEYMAP_OVERLAY) --asset-dir "$(KEYMAP_OVERLAY_DIR)" $(if $(SIMULATE),--simulate "$(SIMULATE)")
 
 .PHONY: build-overlay
 build-overlay:

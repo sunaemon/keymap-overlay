@@ -6,8 +6,8 @@ mod native;
 use anyhow::{Context, Result};
 use keymap_overlay_runtime::{
     Arguments, LayerEvent, LayerEventSink, LogDestination, ModelCache, OverlayModel, Parser as _,
-    PendingTransition, Transition, compose_model, default_asset_dir, default_log_file,
-    initialize_logging, load_model_cache, spawn_raw_hid_listener, write_notice,
+    PendingTransition, SimulatedLayer, Transition, compose_model, default_asset_dir,
+    default_log_file, initialize_logging, load_model_cache, spawn_layer_event_source, write_notice,
 };
 use std::sync::{Arc, Mutex};
 use windows_reactor::{
@@ -55,11 +55,12 @@ const OVERLAY_STROKE: Color = Color {
 
 pub(super) struct OverlayComponent {
     models: Arc<ModelCache>,
+    simulated: Option<SimulatedLayer>,
 }
 
 impl Component for OverlayComponent {
     fn render(&self, _props: &(), context: &mut RenderCx) -> Element {
-        render(context, Arc::clone(&self.models))
+        render(context, Arc::clone(&self.models), self.simulated)
     }
 }
 
@@ -94,6 +95,7 @@ pub(crate) fn run() -> Result<()> {
     }
     // A GUI process has no console, so an unnamed log goes to the default file
     // rather than to stderr.
+    let simulated = arguments.simulate;
     let destination = match arguments.log_out {
         Some(path) => LogDestination::File(path),
         None => LogDestination::File(default_log_file()?),
@@ -102,13 +104,17 @@ pub(crate) fn run() -> Result<()> {
     let directory = arguments.asset_dir.map_or_else(default_asset_dir, Ok)?;
     let models = Arc::new(load_model_cache(&directory)?);
     windows_reactor::bootstrap().context("Failed to initialize the Windows App SDK runtime")?;
-    native::run(OverlayComponent { models }).context("The WinUI event loop failed")?;
+    native::run(OverlayComponent { models, simulated }).context("The WinUI event loop failed")?;
     Ok(())
 }
 
-fn render(context: &mut windows_reactor::RenderCx, models: Arc<ModelCache>) -> Element {
+fn render(
+    context: &mut windows_reactor::RenderCx,
+    models: Arc<ModelCache>,
+    simulated: Option<SimulatedLayer>,
+) -> Element {
     let (transition, set_transition) = context.use_async_state(Transition::Hide);
-    context.use_effect((), move || start_listener(set_transition));
+    context.use_effect((), move || start_listener(set_transition, simulated));
 
     let model = match &transition {
         Transition::Show {
@@ -140,11 +146,14 @@ fn render(context: &mut windows_reactor::RenderCx, models: Arc<ModelCache>) -> E
     model.map_or_else(hidden_canvas, model_canvas)
 }
 
-fn start_listener(set_transition: AsyncSetState<Transition>) {
-    let listener = spawn_raw_hid_listener(WinUiSink {
-        pending: Arc::new(Mutex::new(PendingTransition::default())),
-        set_transition,
-    });
+fn start_listener(set_transition: AsyncSetState<Transition>, simulated: Option<SimulatedLayer>) {
+    let listener = spawn_layer_event_source(
+        WinUiSink {
+            pending: Arc::new(Mutex::new(PendingTransition::default())),
+            set_transition,
+        },
+        simulated,
+    );
     native::install_listener(listener);
 }
 

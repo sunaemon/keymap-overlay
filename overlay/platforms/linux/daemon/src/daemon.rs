@@ -10,8 +10,8 @@ use keymap_overlay_linux_protocol::{
     BUS_NAME, OBJECT_PATH, RENDERER_INTERFACE, RendererService, RendererStateStore,
 };
 use keymap_overlay_runtime::{
-    LayerEvent, LayerEventSink, ModelCache, PendingTransition, RawHidListenerHandle, Transition,
-    compose_model, load_model_cache, spawn_raw_hid_listener,
+    LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, PendingTransition,
+    SimulatedLayer, Transition, compose_model, load_model_cache, spawn_layer_event_source,
 };
 use log::{info, warn};
 use rustix::event::{PollFd, PollFlags, poll};
@@ -113,7 +113,7 @@ impl RendererState {
     }
 }
 
-pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
+pub(crate) fn run(assets_dir: PathBuf, simulated: Option<SimulatedLayer>) -> Result<()> {
     let models = load_model_cache(&assets_dir)?;
     // Seed generations with wall time so a renderer can distinguish a daemon
     // restart from an old queued signal without any persistent state.
@@ -130,8 +130,10 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
         .context("Failed to own the keymap overlay D-Bus name")?;
 
     let (sender, receiver) = mpsc::channel();
-    let listener = spawn_raw_hid_listener(ChannelSink(sender));
-    spawn_device_watcher(listener);
+    let source = spawn_layer_event_source(ChannelSink(sender), simulated);
+    if source.uses_raw_hid() {
+        spawn_device_watcher(source);
+    }
     let mut pending = PendingTransition::default();
 
     for event in &receiver {
@@ -165,7 +167,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn spawn_device_watcher(listener: RawHidListenerHandle) {
+fn spawn_device_watcher(listener: LayerEventSourceHandle) {
     thread::spawn(move || {
         if let Err(error) = watch_for_arrivals(&listener) {
             // Not fatal: without it, keyboards are still picked up whenever
@@ -176,7 +178,7 @@ fn spawn_device_watcher(listener: RawHidListenerHandle) {
 }
 
 /// Blocks on udev events, so an idle overlay costs nothing.
-fn watch_for_arrivals(listener: &RawHidListenerHandle) -> Result<()> {
+fn watch_for_arrivals(listener: &LayerEventSourceHandle) -> Result<()> {
     let socket = udev::MonitorBuilder::new()
         .context("Failed to open a udev monitor")?
         .match_subsystem("hidraw")
