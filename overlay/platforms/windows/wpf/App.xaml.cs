@@ -23,7 +23,7 @@ public partial class App : Application
 
             if (options.KeyboardConfigDirectory is not null && NativeMethods.Prepare() != 0)
             {
-                throw new InvalidOperationException("Rust model self-heal failed to start.");
+                throw new InvalidOperationException("Rust model refresh failed to start.");
             }
             var window = new OverlayWindow(assetsDirectory);
             MainWindow = window;

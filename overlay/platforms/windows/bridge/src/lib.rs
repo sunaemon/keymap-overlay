@@ -3,7 +3,7 @@
 use keymap_overlay_runtime::{
     Arguments, LayerEvent, LayerEventSink, LayerEventSourceHandle, LogDestination, Parser,
     PendingTransition, SimulatedLayer, Transition, default_asset_dir, default_log_file,
-    fill_missing_models, initialize_logging, spawn_layer_event_source,
+    initialize_logging, refresh_models, spawn_layer_event_source,
 };
 use std::env;
 use std::ffi::OsString;
@@ -44,7 +44,7 @@ impl LayerEventSink for BridgeSink {
     }
 }
 
-/// Generates missing models before WPF loads the asset directory.
+/// Refreshes connected keyboard models before WPF loads the asset directory.
 #[unsafe(no_mangle)]
 pub extern "system" fn keymap_overlay_prepare() -> i32 {
     catch_unwind(prepare).unwrap_or(-1)
@@ -122,9 +122,9 @@ fn prepare() -> i32 {
         }
     };
     if let Some(keyboard_config_dir) = keyboard_config_dir
-        && let Err(error) = fill_missing_models(&asset_dir, &keyboard_config_dir)
+        && let Err(error) = refresh_models(&asset_dir, &keyboard_config_dir)
     {
-        eprintln!("Self-heal skipped: {error:#}");
+        eprintln!("Startup refresh skipped: {error:#}");
     }
     0
 }

@@ -160,7 +160,7 @@ QMK_KEYMAP ?= keymap
 QMK_FLAGS += -e SKIP_GIT=yes
 
 KEYBOARDS_DIR ?= firmware/examples
-# The installed service passes this to the overlay for startup self-heal
+# The installed service passes this to the overlay for startup refresh
 # (FILE RULES); it needs to survive being launched with an unrelated cwd.
 KEYBOARDS_DIR_ABS := $(abspath $(KEYBOARDS_DIR))
 
@@ -476,11 +476,10 @@ doctor:
 	status=$${PIPESTATUS[0]}; \
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
-# This is no longer part of the normal source-install workflow: every native
-# overlay owns its installed model directory through startup self-heal
-# (`--keyboard-config-dir`). It remains useful for a manual force-refresh when
-# fill-if-missing would not pick up a connected-device change. The default
-# VIAL=true path is a native Raw HID read and therefore also runs on Windows.
+# This is no longer part of normal source or release installation: every native
+# overlay refreshes connected keyboards at startup (`--keyboard-config-dir`).
+# It remains an explicit development tool, especially for offline VIAL=false
+# rendering. The VIAL=true path is a native Raw HID read on every platform.
 #
 # Under VIAL=false, LAYERS depends on $(QMK_KEYMAP_JSON), so install-assets
 # and draw-layers build the QMK JSON in a first make invocation, then re-enter
@@ -490,19 +489,30 @@ doctor:
 .PHONY: install-assets
 install-assets:
 ifdef KEYBOARD_ID
+	@$(MAKE) _install_assets_$(OS_FAMILY)
+else
+	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
+endif
+
+.PHONY: _install_assets_macos
+_install_assets_macos _install_assets_linux:
+	@$(MAKE) _install_assets
+
+.PHONY: _install_assets_windows
+_install_assets_windows:
+ifeq ($(VIAL),true)
+	@$(MAKE) _install_assets
+else
+	$(error install-assets VIAL=false needs QMK source processing; run it from WSL, macOS or Linux)
+endif
+
+.PHONY: _install_assets
+_install_assets:
 ifeq ($(VIAL),true)
 	@$(MAKE) _internal_install
 else
-	@if [ "$(OS_FAMILY)" = "windows" ]; then \
-		echo "ERROR: install-assets VIAL=false needs QMK source processing."; \
-		echo "Run it from WSL, macOS or Linux; native Windows supports VIAL=true."; \
-		exit 1; \
-	fi
 	@$(MAKE) $(QMK_KEYMAP_JSON)
 	@$(MAKE) _internal_install
-endif
-else
-	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
 endif
 
 # Kept as a compatibility alias for existing scripts. New callers should use
@@ -684,13 +694,10 @@ else
 	$(error build-winui-overlay is only available on Windows)
 endif
 
+# Not install-assets: startup refresh (FILE RULES, --keyboard-config-dir below)
+# updates every connected keyboard once the service starts, so installation
+# does not generate or copy layer models itself.
 .PHONY: install-overlay
-# Not install-assets: startup self-heal (FILE RULES, --keyboard-config-dir
-# below) now generates any keyboard missing from $(KEYMAP_OVERLAY_DIR) itself
-# once the service starts, so installing doesn't need to write there too.
-# Run `make install-assets` by hand to force a refresh after changing the
-# connected device through Vial or flash-keymap, since self-heal only fills in
-# what's missing, not what's stale.
 install-overlay: build-overlay
 	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
 # Windows holds an open executable locked, so the running overlay has to go
@@ -698,7 +705,7 @@ install-overlay: build-overlay
 # underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
-# Installed alongside the frontend so self-heal (FILE RULES) can shell out to
+# Installed alongside the frontend so startup refresh can shell out to
 # it by relative path at startup.
 	@$(MAKE) _build_generator
 	install -C "$(GENERATOR_BINARY)" "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"

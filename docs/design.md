@@ -12,9 +12,7 @@ directly and needs no Python:
 VIAL EEPROM (live device, over Raw HID)
   ↓ keymap-overlay-generator (Rust; vitaly as a library, one HID session)
   + keyboard.json + config.json
-build/<keyboard>/assets/<platform>/<keyboard>.json — every layer, one file
-  ↓ make install-assets
-installed models directory/<keyboard>.json
+installed models directory/<keyboard>.json — every layer, one file
 ```
 
 `VIAL=false` (render straight from `keymap.c`, no device connected) keeps the
@@ -37,21 +35,14 @@ installed models directory/<keyboard>.json
 
 Either way, only the combined `<keyboard>.json` — every layer keyed by
 number, in one file — is installed; any per-layer file on the `VIAL=false`
-path is a build-time intermediate. `make install-assets` is the manual
-model-generation and copy target on both paths. A source-built
-`make install-overlay` no longer depends on it on any platform: it installs the
-native generator beside the frontend and regenerates anything missing itself
-at startup (see Startup Self-Heal below). The installed directory is
+path is a build-time intermediate. The normal path installs the native
+generator and minimal keyboard definitions beside the application, then
+refreshes connected keyboards at startup (see Startup Refresh below).
+`make install-assets VIAL=false` remains an explicit offline development path.
+The installed model directory is
 `~/.cache/keymap-overlay` on macOS and Linux and
 `%LOCALAPPDATA%/keymap-overlay` on Windows, a regenerable cache of what the
-connected device already knows rather than configuration. Running
-`install-assets` by hand is still useful to force a refresh after changing the
-connected device through Vial or `flash-keymap`, since self-heal only fills in
-what is missing, not what is stale. Its default `VIAL=true` path is a native
-Raw HID read and runs in MSYS2 UCRT64 on Windows; only `VIAL=false` source
-rendering needs QMK in WSL. The release `install.sh`/`install.ps1` installer still needs models
-generated first, since a downloaded release binary has no generator alongside
-it to self-heal with (see Startup Self-Heal below).
+connected device already knows rather than configuration.
 
 ## Runtime Data Flow
 
@@ -81,19 +72,20 @@ held layers use QMK's numeric precedence and transparent keys fall through the
 other active layers before the base layer. Between keyboards, the most recently
 used keyboard owns the overlay. It hides once no momentary layers remain held.
 
-### Startup Self-Heal
+### Startup Refresh
 
 Before the listener starts (never on the keypress hot path above), the
-runtime optionally fills in any keyboard missing from `--asset-dir`: given
-`--keyboard-config-dir` (the Makefile passes `KEYBOARDS_DIR`), it shells out
-to `keymap-overlay-generator` — installed alongside the frontend, not linked
-in, for the same reason `keymap-overlay-generator` is its own Cargo
-workspace — once per keyboard subdirectory whose `<id>.json` doesn't exist
-yet. A keyboard that isn't currently connected is skipped with a log warning,
-not a startup failure; it's picked up on the next restart once it is. This
-only covers the Makefile-driven install (`install-overlay`); the generic
-`install.sh`/`install.ps1` release installer has no equivalent
-`--keyboard-config-dir` to point at, since it's a private, per-user path.
+runtime refreshes every connected keyboard under `--keyboard-config-dir` into
+`--asset-dir`. It shells out to `keymap-overlay-generator`—installed alongside
+the frontend, not linked in, for the same reason the generator is its own Cargo
+workspace—once per configured keyboard. Output is validated in a temporary
+file before replacing the cache. A disconnected keyboard or failed generation
+keeps the previous model and logs a warning rather than failing startup.
+
+Source installs pass the checkout's `KEYBOARDS_DIR`. Release archives carry
+the generator and only each bundled keyboard's `keyboard.json` and
+`config.json`; their installers place those definitions beside the application
+and pass that installed directory to the login command.
 
 ## Raw HID Protocol
 
@@ -248,25 +240,27 @@ the active monitor's DPI scale when positioning the native window.
 
 ## Installation and Autostart
 
-The normal installation path separates generated assets from the native
-application. `make install-assets` builds keyboard-specific JSON models
-from the source checkout. The platform installer then downloads the latest versioned
-release archive, requires a matching entry in `SHA256SUMS`, and, when the
-optional GitHub CLI is present, verifies GitHub artifact attestations.
+The platform installer downloads the latest versioned release archive,
+requires a matching entry in `SHA256SUMS`, and, when the optional GitHub CLI is
+present, verifies GitHub artifact attestations. The archive includes the native
+overlay, model generator, and minimal bundled keyboard definitions; generated
+models are not release artifacts.
 
-Release archives carry the MIT license and the generated third-party notices,
-which also serves anyone packaging the overlay where a distribution requires
-them as files. On macOS and Linux nothing installs them: the binary embeds both
-and prints them with `keymap-overlay --license` and `--third-party-licenses`,
-so a copy carried away from its install directory still states its terms. The
-Windows package installs both beside the executable, because WPF owns that
-process and reaches the shared runtime through a C ABI that carries no strings,
-leaving it nothing to print.
+Release archives carry the MIT license and separate generated third-party
+notices for the overlay and generator, which also serves anyone packaging them
+where a distribution requires notices as files. The overlay binary embeds its
+own two notices and prints them with `keymap-overlay --license` and
+`--third-party-licenses`, so a copy carried away from its install directory
+still states its terms. The generator notice is installed with its keyboard
+configuration. The Windows package also installs the overlay's two files
+beside the executable, because WPF owns that process and reaches the shared
+runtime through a C ABI that carries no strings, leaving it nothing to print.
 
-The installers stop the running service before replacing its binary, preserve
-the previous binary, notices and service definition until the new service
-starts, and restore them if installation fails. Their uninstall modes remove
-the executable, notices and login entry while retaining generated assets and logs.
+The installers stop the running service before replacing its files, preserve
+the previous binaries, keyboard definitions, notices, and service definition
+until the new service starts, and restore them if installation fails. Their
+uninstall modes remove those installed files and the login entry while
+retaining generated assets and logs.
 
 Developers can instead use `make install-overlay`, which performs the following
 source-build workflow:
@@ -275,7 +269,7 @@ source-build workflow:
 
 1. Builds and installs `keymap-overlay-generator` beside the frontend, passes
    the checkout's keyboard configuration directory to the login command, and
-   fills in any missing layer assets before the frontend loads its model cache.
+   refreshes connected keyboards before the frontend loads its model cache.
 2. Builds the platform executable and installs it as
    `~/.local/bin/keymap-overlay` on macOS and Linux — with the Qt renderer
    beside it as `~/.local/bin/keymap-overlay-qt` — and as
@@ -340,8 +334,8 @@ QMK source processing and firmware deployment do not run from the overlay's
 Windows shell. QMK's toolchain there is QMK MSYS, separate from the MSYS2
 UCRT64 shell that builds the overlay, so `compile`, `flash`, and
 `prepare-flash-keymap` point at WSL, macOS, or Linux. Raw HID is not subject to
-that boundary: `install-assets VIAL=true` reads the device and `write-keymap`
-writes an already-prepared `qmk-keymap.json` natively on Windows. The combined
+that boundary: startup refresh reads the device and `write-keymap` writes an
+already-prepared `qmk-keymap.json` natively on Windows. The combined
 `flash-keymap` target remains available on macOS and Linux. This also does not
 prevent manual flashing of an already-built `.uf2`: Windows can mount the
 bootloader's `RPI-RP2` volume and copy the file onto it in Explorer.

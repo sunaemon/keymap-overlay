@@ -195,12 +195,11 @@ make install-overlay    # Build and install the login service
 ```
 
 `install-overlay` no longer depends on `install-assets` on any platform: the
-running overlay fills in any missing layer model itself at startup (Startup
-Self-Heal in `docs/design.md`). Run `make install-assets` by hand only to force
-a refresh after changing the connected device through Vial or `flash-keymap` —
-self-heal fills in what's missing, not what's stale. The default `VIAL=true`
-refresh is a native Raw HID read and runs in MSYS2 UCRT64 on Windows;
-`VIAL=false` source rendering still needs QMK in WSL.
+running overlay refreshes every connected keyboard model itself at startup
+(Startup Refresh in `docs/design.md`). A disconnected keyboard retains its
+existing cached model. Release archives ship the generator and minimal bundled
+keyboard definitions too, so release installation does not require
+`install-assets`; that target remains an explicit development/offline tool.
 
 `make setup` and everything that installs or starts the overlay dispatch on
 `OS_FAMILY`, derived from `uname -s` at the top of the Makefile — `windows`
@@ -230,8 +229,8 @@ so targets that never flash do not pay for the lookup.
 The overlay build shell on Windows is MSYS2 UCRT64, not QMK MSYS, so
 `make compile`, `make flash`, and the QMK-backed
 `make prepare-flash-keymap` deliberately stop there. Native Raw HID operations
-do not: `make install-assets VIAL=true` reads the device and
-`make write-keymap` writes an already-prepared JSON keymap. This does not
+do not: startup refresh reads the device and `make write-keymap` writes an
+already-prepared JSON keymap. This does not
 prevent manual flashing of an already-built `.uf2`: put the keyboard in its
 bootloader and copy the file onto the mounted `RPI-RP2` volume in Explorer.
 

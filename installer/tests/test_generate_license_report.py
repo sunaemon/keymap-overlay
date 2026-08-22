@@ -32,6 +32,28 @@ def test_generate_report_invokes_cargo_about_and_normalizes_output(
     assert commands[0][commands[0].index("--config") + 1] == str(config)
 
 
+def test_generate_report_accepts_a_standalone_manifest(tmp_path: Path) -> None:
+    commands: list[list[str]] = []
+    template = tmp_path / "licenses.hbs"
+    template.write_text("template")
+    config = tmp_path / "about.toml"
+    config.write_text("accepted = []")
+    manifest = tmp_path / "standalone/Cargo.toml"
+
+    def capture_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return report_runner(command)
+
+    generate_license_report(
+        template,
+        config=config,
+        manifest=manifest,
+        runner=capture_command,
+    )
+
+    assert commands[0][commands[0].index("--manifest-path") + 1] == str(manifest)
+
+
 def test_current_report_passes_the_check(tmp_path: Path) -> None:
     report = tmp_path / "THIRD-PARTY-LICENSES.html"
     report.write_text("current\n")
