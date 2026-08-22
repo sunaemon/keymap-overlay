@@ -258,20 +258,6 @@ CONSOLIDATED_ASSET := $(ASSET_BUILD_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)
 
 endif
 
-# ================= NATIVE ASSET GENERATOR =================
-# Standalone Cargo workspace (see its Cargo.toml), not a root workspace
-# member: it needs a platform-specific HID backend, while the platform overlay
-# crates need a specific backend (Linux hidraw, not the libusb default, which
-# detaches the kernel driver and stops the keyboard from typing). A shared
-# Cargo.lock would unify those feature sets across every workspace member.
-GENERATOR_MANIFEST := overlay/keymap-overlay-generator/Cargo.toml
-GENERATOR_BINARY := overlay/keymap-overlay-generator/target/release/keymap-overlay-generator$(EXE_SUFFIX)
-# Second [[bin]] in the same crate/build, built together by _build_generator.
-
-.PHONY: _build_generator
-_build_generator:
-	$(CARGO) build --release --manifest-path "$(GENERATOR_MANIFEST)"
-
 # ================= OVERLAY CONFIGURATION =================
 ifeq ($(OS_FAMILY),windows)
 # MSYS2's HOME is private to MSYS2, so installed paths come from the Windows
@@ -606,9 +592,8 @@ test-release-acceptance-macos: test-installer-sh test-appkit-e2e-macos
 test-release-acceptance-windows: test-installer-ps test-wpf-e2e-windows
 
 .PHONY: test-wpf-e2e-windows
-test-wpf-e2e-windows: build-overlay _build_generator
+test-wpf-e2e-windows: build-overlay
 ifeq ($(OS_FAMILY),windows)
-	install -C "$(GENERATOR_BINARY)" "$(WPF_PUBLISH_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	powershell -NoProfile -ExecutionPolicy Bypass -File overlay/platforms/windows/tests/test_wpf_e2e.ps1
 else
 	$(error test-wpf-e2e-windows is only available on Windows)
@@ -687,10 +672,6 @@ install-overlay: build-overlay
 # underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
-# Installed alongside the frontend so startup refresh can shell out to
-# it by relative path at startup.
-	@$(MAKE) _build_generator
-	install -C "$(GENERATOR_BINARY)" "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	@$(MAKE) _install_renderer_$(OS_FAMILY)
 	@$(MAKE) _install_service_$(OS_FAMILY)
 	@echo "✔ Overlay installed and started; logs: $(KEYMAP_OVERLAY_LOG_DIR)"
@@ -861,6 +842,7 @@ _install_service_windows:
 uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_BINARY)"
+	# Remove the legacy separate generator when upgrading an older install.
 	rm -f "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	@$(MAKE) _uninstall_renderer_$(OS_FAMILY)
 	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.png
@@ -977,7 +959,7 @@ ifndef KEYBOARD_ID
 	$(error KEYBOARD_ID is required for flash)
 endif
 	@epoch="$$(date +%s)"; \
-	$(MAKE) compile EEPROM_RESET_EPOCH="$$epoch"; \
+	$(MAKE) compile EEPROM_RESET_EPOCH="$$epoch" && \
 	$(MAKE) _flash_$(OS_FAMILY) EEPROM_RESET_EPOCH="$$epoch"
 
 .PHONY: _flash_macos
@@ -1057,7 +1039,6 @@ print-vars:
 	@echo "LAYERS=$(LAYERS)"
 	@echo "ASSETS=$(ASSETS)"
 	@echo "CONSOLIDATED_ASSET=$(CONSOLIDATED_ASSET)"
-	@echo "GENERATOR_BINARY=$(GENERATOR_BINARY)"
 	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
 	@echo ""
 	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
@@ -1106,12 +1087,10 @@ $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) |
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
 
 ifeq ($(VIAL),true)
-# Reads the connected device directly in one HID session (customKeycodes,
-# every layer, every encoder) and renders straight to the consolidated file;
-# there is no per-layer file or separate consolidation step on this path.
-$(CONSOLIDATED_ASSET): _force_build $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(shell find overlay/keymap-overlay-generator/src -name '*.rs') | $(ASSET_BUILD_DIR)
-	@$(MAKE) _build_generator
-	$(call WRITE_OUTPUT,$@,"$(GENERATOR_BINARY)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --layout-name "$(LAYOUT_NAME)" --keyboard-id "$(KEYBOARD_ID)" --platform "$(OVERLAY_PLATFORM)" --pixels-per-unit "$(PIXELS_PER_UNIT)")
+# Vial models are refreshed by the running overlay, in-process. This avoids a
+# second executable and makes startup the sole live-device read path.
+$(CONSOLIDATED_ASSET):
+	$(error Live Vial models refresh in the running overlay; use make install-overlay instead)
 else
 # Passed the exact current $(ASSETS) paths, not a directory to glob, so a
 # leftover from a shrunk layer count can never sneak into the installed file.

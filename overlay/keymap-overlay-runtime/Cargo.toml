@@ -12,6 +12,7 @@ workspace = true
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 keymap-core = { path = "../keymap-core" }
+keymap-overlay-generator = { path = "../keymap-overlay-generator" }
 log = "0.4.33"
 env_logger = "0.11.11"
 serde = { version = "1.0", features = ["derive"] }

@@ -85,10 +85,6 @@ def package_release(
             root / "THIRD-PARTY-LICENSES.html",
             package / "THIRD-PARTY-LICENSES.html",
         )
-        copy_file(
-            root / "GENERATOR-THIRD-PARTY-LICENSES.html",
-            package / "GENERATOR-THIRD-PARTY-LICENSES.html",
-        )
         copy_keyboard_configs(root, package)
 
         if platform == "Linux":
@@ -100,11 +96,6 @@ def package_release(
                 root / "target/release/keymap-overlay-qt",
                 package / "keymap-overlay-qt",
             )
-            copy_file(
-                root
-                / "overlay/keymap-overlay-generator/target/release/keymap-overlay-generator",
-                package / "keymap-overlay-generator",
-            )
             shutil.copytree(
                 root / "overlay/platforms/linux/gnome-shell", package / "gnome-shell"
             )
@@ -114,11 +105,6 @@ def package_release(
             copy_file(
                 root / "target/release/keymap-overlay", package / "keymap-overlay"
             )
-            copy_file(
-                root
-                / "overlay/keymap-overlay-generator/target/release/keymap-overlay-generator",
-                package / "keymap-overlay-generator",
-            )
             create_tar_archive(package, asset)
         elif platform == "Windows":
             if dotnet_root is None:
@@ -127,11 +113,6 @@ def package_release(
             copy_file(
                 root / "target/wpf-publish/keymap-overlay.exe",
                 package / "keymap-overlay.exe",
-            )
-            copy_file(
-                root
-                / "overlay/keymap-overlay-generator/target/release/keymap-overlay-generator.exe",
-                package / "keymap-overlay-generator.exe",
             )
             add_dotnet_licenses(package, dotnet_root, run)
             create_zip_archive(package, asset)

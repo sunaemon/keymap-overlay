@@ -581,12 +581,10 @@ The pairs must be `x86_64-pc-windows-msvc` with `win-x64`, or
 above includes both x64 and ARM64 C++ tools so either native build has the MSVC
 linker and Windows SDK it needs.
 
-`make install-overlay` installs `keymap-overlay-generator.exe` beside the WPF
-frontend and refreshes layer models from every connected Vial keyboard at
-startup. If a keyboard is unavailable, its existing cached model is retained
-and refresh is retried the next time the overlay starts. `VIAL=false` rendering
-and `prepare-flash-keymap` still need QMK in WSL; `write-keymap` performs the
-prepared EEPROM write natively.
+`make install-overlay` refreshes layer models from every connected Vial
+keyboard at startup, in the overlay process. If a keyboard is unavailable, its
+existing cached model is retained and refresh is retried the next time the
+overlay starts. `VIAL=false` rendering still needs QMK in WSL.
 
 After changing the Windows bridge, also run:
 
@@ -622,13 +620,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and
 Firmware under `firmware/` and keyboard files under `firmware/examples/` are
 GPL-2.0-or-later. The tools and application are MIT licensed. See
 [LICENSE.md](LICENSE.md), [firmware/examples/LICENSE](firmware/examples/LICENSE), and the generated
-[overlay dependency notices](THIRD-PARTY-LICENSES.html) and
-[model-generator dependency notices](GENERATOR-THIRD-PARTY-LICENSES.html).
+[overlay dependency notices](THIRD-PARTY-LICENSES.html).
 
 On macOS and Linux, the installed overlay embeds its MIT license and dependency
 notices, so a binary copied away from its install directory can still state its
 terms: run `keymap-overlay --license` or
 `keymap-overlay --third-party-licenses`. On Windows, the notice files must
-remain beside `keymap-overlay.exe`. The generator's separate notice is
-installed beside its configuration, and all license files remain in every
+remain beside `keymap-overlay.exe`, and all license files remain in every
 release archive for downstream packaging.

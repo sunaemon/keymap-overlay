@@ -1,39 +1,29 @@
 use anyhow::{Context, Result};
 use log::{info, warn};
-use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 
 const LAYOUT_NAME: &str = "LAYOUT";
 
 #[cfg(target_os = "macos")]
-const PLATFORM: &str = "macos";
+const PLATFORM: keymap_overlay_generator::labels::Platform =
+    keymap_overlay_generator::labels::Platform::Macos;
 #[cfg(target_os = "linux")]
-const PLATFORM: &str = "linux";
+const PLATFORM: keymap_overlay_generator::labels::Platform =
+    keymap_overlay_generator::labels::Platform::Linux;
 #[cfg(target_os = "windows")]
-const PLATFORM: &str = "windows";
+const PLATFORM: keymap_overlay_generator::labels::Platform =
+    keymap_overlay_generator::labels::Platform::Windows;
 
 /// Refreshes each connected keyboard's `<keyboard_id>.json` in `asset_dir`,
-/// for every keyboard configured under `keyboard_config_dir`, by shelling out to
-/// `keymap-overlay-generator` (a standalone binary installed alongside this
-/// one — see its own crate for why it isn't linked in directly). Runs once
-/// at startup, ahead of the listener, never on the keypress hot path. Each
+/// for every keyboard configured under `keyboard_config_dir`. Runs once at
+/// startup, ahead of the listener, never on the keypress hot path. Each
 /// keyboard is independent and best-effort: one that isn't currently
 /// connected keeps its existing cached model and is skipped with a warning.
 pub fn refresh_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()> {
     fs::create_dir_all(asset_dir)
         .with_context(|| format!("Failed to create asset directory {}", asset_dir.display()))?;
     recover_model_backups(asset_dir)?;
-    let generator = generator_binary_path()?;
-    if !generator.is_file() {
-        warn!(
-            "Skipping startup refresh: {} not found next to this executable",
-            generator.display()
-        );
-        return Ok(());
-    }
-
     let entries = fs::read_dir(keyboard_config_dir).with_context(|| {
         format!(
             "Failed to read keyboard config directory {}",
@@ -59,7 +49,7 @@ pub fn refresh_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()
         } else {
             info!("Generating model for keyboard {keyboard_id}...");
         }
-        generate_one(&generator, &path, keyboard_id, &output_path);
+        generate_one(&path, keyboard_id, &output_path);
     }
     Ok(())
 }
@@ -108,36 +98,26 @@ fn keyboard_id_from_dir(path: &Path) -> Option<u8> {
     path.file_name()?.to_str()?.parse().ok()
 }
 
-fn generate_one(generator: &Path, keyboard_dir: &Path, keyboard_id: u8, output_path: &Path) {
-    let result = Command::new(generator)
-        .arg("--keyboard-json")
-        .arg(keyboard_dir.join("keyboard.json"))
-        .arg("--keyboard-config")
-        .arg(keyboard_dir.join("config.json"))
-        .arg("--layout-name")
-        .arg(LAYOUT_NAME)
-        .arg("--keyboard-id")
-        .arg(keyboard_id.to_string())
-        .arg("--platform")
-        .arg(PLATFORM)
-        .output();
-
-    let output = match result {
+fn generate_one(keyboard_dir: &Path, keyboard_id: u8, output_path: &Path) {
+    let model = keymap_overlay_generator::read_live_keyboard_models(
+        &keyboard_dir.join("keyboard.json"),
+        &keyboard_dir.join("config.json"),
+        LAYOUT_NAME,
+        keyboard_id,
+        PLATFORM,
+        64,
+    );
+    let output = match model.and_then(|model| serde_json::to_vec(&model).map_err(Into::into)) {
         Ok(output) => output,
         Err(error) => {
-            warn!("Could not run the model generator for keyboard {keyboard_id}: {error:#}");
+            warn!(
+                "Model refresh failed for keyboard {keyboard_id}, probably not connected: {error:#}"
+            );
             return;
         }
     };
-    if !output.status.success() {
-        warn!(
-            "Model generator failed for keyboard {keyboard_id}, probably not connected: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-        return;
-    }
 
-    if let Err(error) = install_generated_model(output_path, keyboard_id, &output.stdout) {
+    if let Err(error) = install_generated_model(output_path, keyboard_id, &output) {
         warn!("Failed to install the generated model for keyboard {keyboard_id}: {error:#}");
     } else {
         info!("Updated model for keyboard {keyboard_id}");
@@ -187,16 +167,6 @@ fn replace_model_file(tmp_path: &Path, output_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn generator_binary_path() -> Result<PathBuf> {
-    let mut path = env::current_exe().context("Failed to determine this executable's path")?;
-    path.pop();
-    #[cfg(target_os = "windows")]
-    path.push("keymap-overlay-generator.exe");
-    #[cfg(not(target_os = "windows"))]
-    path.push("keymap-overlay-generator");
-    Ok(path)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_models_preserves_an_existing_model_without_a_generator() {
+    fn refresh_models_preserves_an_existing_model_when_the_keyboard_is_unavailable() {
         let config_dir = TempDir::new().expect("temp dir");
         let keyboard = config_dir.path().join("1");
         fs::create_dir(&keyboard).expect("mkdir");

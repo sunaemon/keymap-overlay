@@ -1,5 +1,3 @@
-[workspace]
-
 [package]
 name = "keymap-overlay-generator"
 version = "0.0.5"
@@ -7,26 +5,14 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/sunaemon/keymap-overlay"
 
-# Deliberately not a member of the root workspace: its HID client needs
-# platform-specific features, while keymap-overlay-runtime needs
-# default-features = false with a specific backend (macOS device sharing,
-# Linux hidraw-not-libusb — libusb detaches the kernel driver and stops the
-# keyboard from typing). Sharing one Cargo.lock would unify those feature
-# sets across every workspace member; a standalone Cargo.toml keeps this
-# crate's hidapi resolution from leaking into the platform overlay crates.
+# This is a library of display-model generation code. The runtime links it
+# directly so refresh happens inside the platform overlay process.
 [lints.rust]
 unsafe_code = "forbid"
 
 [lib]
 name = "keymap_overlay_generator"
 path = "src/lib.rs"
-
-# Not src/bin/ — this repo's root .gitignore has a **/bin/ rule for .NET
-# build output (bin/obj) elsewhere in the workspace, which would silently
-# swallow Cargo's own src/bin/ convention too.
-[[bin]]
-name = "keymap-overlay-generator"
-path = "src/main_generator.rs"
 
 [dependencies]
 anyhow = "1.0"

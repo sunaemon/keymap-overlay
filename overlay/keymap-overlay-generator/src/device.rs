@@ -52,7 +52,7 @@ pub fn read_keyboard_models(
     let device_model = vial::read_device_model(dev, keyboard.encoder_count())?;
     let rows = device_model.matrix_rows;
     let cols = device_model.matrix_cols;
-    let custom_keycodes = parse_custom_keycodes(&device_model.custom_keycodes)?;
+    let custom_keycodes = parse_custom_keycodes(&device_model.vial_definition)?;
     let display_labels = custom_keycode_labels(&custom_keycodes);
 
     let layout = keyboard.layout_keys(layout_name)?;
@@ -159,12 +159,83 @@ fn standard_keycode_name(raw: u16) -> String {
         0x0050 => "KC_LEFT".to_string(),
         0x0051 => "KC_DOWN".to_string(),
         0x0052 => "KC_UP".to_string(),
+        0x0053 => "KC_NUM".to_string(),
+        0x0054 => "KC_PSLS".to_string(),
+        0x0055 => "KC_PAST".to_string(),
+        0x0056 => "KC_PMNS".to_string(),
+        0x0057 => "KC_PPLS".to_string(),
+        0x0058 => "KC_PENT".to_string(),
+        0x0059..=0x0061 => format!("KC_P{}", raw - 0x0058),
+        0x0062 => "KC_P0".to_string(),
+        0x0063 => "KC_PDOT".to_string(),
+        0x0064 => "KC_NUBS".to_string(),
+        0x0065 => "KC_APP".to_string(),
+        0x0066 => "KC_PWR".to_string(),
+        0x0067 => "KC_PEQL".to_string(),
+        0x0068..=0x0073 => format!("KC_F{}", raw - 0x0055),
+        0x0074 => "KC_EXEC".to_string(),
+        0x0075 => "KC_HELP".to_string(),
+        0x0076 => "KC_MENU".to_string(),
+        0x0077 => "KC_SLCT".to_string(),
+        0x0078 => "KC_STOP".to_string(),
+        0x0079 => "KC_AGIN".to_string(),
+        0x007A => "KC_UNDO".to_string(),
+        0x007B => "KC_CUT".to_string(),
+        0x007C => "KC_COPY".to_string(),
+        0x007D => "KC_PSTE".to_string(),
+        0x007E => "KC_FIND".to_string(),
         0x007F => "KC_MUTE".to_string(),
         0x0080 => "KC_VOLU".to_string(),
         0x0081 => "KC_VOLD".to_string(),
-        0x00B5 => "KC_MNXT".to_string(),
-        0x00B6 => "KC_MPRV".to_string(),
-        0x00CD => "KC_MPLY".to_string(),
+        0x0082 => "KC_LCAP".to_string(),
+        0x0083 => "KC_LNUM".to_string(),
+        0x0084 => "KC_LSCR".to_string(),
+        0x0085 => "KC_PCMM".to_string(),
+        0x0086 => "KC_KP_EQUAL_AS400".to_string(),
+        0x0087..=0x008F => format!("KC_INT{}", raw - 0x0086),
+        0x0090..=0x0098 => format!("KC_LNG{}", raw - 0x008F),
+        0x0099 => "KC_ERAS".to_string(),
+        0x009A => "KC_SYRQ".to_string(),
+        0x009B => "KC_CNCL".to_string(),
+        0x009C => "KC_CLR".to_string(),
+        0x009D => "KC_PRIR".to_string(),
+        0x009E => "KC_RETN".to_string(),
+        0x009F => "KC_SEPR".to_string(),
+        0x00A0 => "KC_OUT".to_string(),
+        0x00A1 => "KC_OPER".to_string(),
+        0x00A2 => "KC_CLAG".to_string(),
+        0x00A3 => "KC_CRSL".to_string(),
+        0x00A4 => "KC_EXSL".to_string(),
+        0x00A5 => "KC_PWR".to_string(),
+        0x00A6 => "KC_SLEP".to_string(),
+        0x00A7 => "KC_WAKE".to_string(),
+        0x00A8 => "KC_MUTE".to_string(),
+        0x00A9 => "KC_VOLU".to_string(),
+        0x00AA => "KC_VOLD".to_string(),
+        0x00AB => "KC_MNXT".to_string(),
+        0x00AC => "KC_MPRV".to_string(),
+        0x00AD => "KC_MSTP".to_string(),
+        0x00AE => "KC_MPLY".to_string(),
+        0x00AF => "KC_MSEL".to_string(),
+        0x00B0 => "KC_EJCT".to_string(),
+        0x00B1 => "KC_MAIL".to_string(),
+        0x00B2 => "KC_CALC".to_string(),
+        0x00B3 => "KC_MYCM".to_string(),
+        0x00B4 => "KC_WSCH".to_string(),
+        0x00B5 => "KC_WHOM".to_string(),
+        0x00B6 => "KC_WBAK".to_string(),
+        0x00B7 => "KC_WFWD".to_string(),
+        0x00B8 => "KC_WSTP".to_string(),
+        0x00B9 => "KC_WREF".to_string(),
+        0x00BA => "KC_WFAV".to_string(),
+        0x00BB => "KC_MFFD".to_string(),
+        0x00BC => "KC_MRWD".to_string(),
+        0x00BD => "KC_BRIU".to_string(),
+        0x00BE => "KC_BRID".to_string(),
+        0x00BF => "KC_CPNL".to_string(),
+        0x00C0 => "KC_ASSISTANT".to_string(),
+        0x00C1 => "KC_MISSION_CONTROL".to_string(),
+        0x00C2 => "KC_LAUNCHPAD".to_string(),
         0x00E0 => "KC_LCTL".to_string(),
         0x00E1 => "KC_LSFT".to_string(),
         0x00E2 => "KC_LALT".to_string(),
@@ -220,5 +291,22 @@ mod tests {
     fn standard_modifier_names_match_the_platform_label_table() {
         assert_eq!(resolve_keycode(0x00E3, &[]), "KC_LGUI");
         assert_eq!(resolve_keycode(0x00E7, &[]), "KC_RGUI");
+    }
+
+    #[test]
+    fn standard_keypad_and_consumer_keycodes_keep_their_qmk_names() {
+        assert_eq!(resolve_keycode(0x0059, &[]), "KC_P1");
+        assert_eq!(resolve_keycode(0x0063, &[]), "KC_PDOT");
+        assert_eq!(resolve_keycode(0x00AB, &[]), "KC_MNXT");
+        assert_eq!(resolve_keycode(0x00AE, &[]), "KC_MPLY");
+    }
+
+    #[test]
+    fn full_vial_definition_preserves_custom_keycode_names() {
+        let definition = serde_json::json!({
+            "customKeycodes": [{ "name": "KC_ALPHA", "shortName": "α" }]
+        });
+        let custom_keycodes = parse_custom_keycodes(&definition).expect("valid Vial metadata");
+        assert_eq!(resolve_keycode(0x7E00, &custom_keycodes), "KC_ALPHA");
     }
 }

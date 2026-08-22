@@ -20,14 +20,18 @@ const CMD_VIAL_GET_KEYBOARD_ID: u8 = 0x00;
 const CMD_VIAL_GET_SIZE: u8 = 0x01;
 const CMD_VIAL_GET_DEFINITION: u8 = 0x02;
 const CMD_VIAL_GET_ENCODER: u8 = 0x03;
-const BUFFER_FETCH_CHUNK: u16 = 28;
+const BUFFER_FETCH_CHUNK: usize = 28;
+// Definitions are normally a few KiB. Limits keep a malformed HID device from
+// forcing an unbounded allocation or XZ decompression while the overlay starts.
+const MAX_COMPRESSED_DEFINITION_BYTES: usize = 1_048_576;
+const MAX_DECODED_DEFINITION_BYTES: usize = 4_194_304;
 
 /// The Vial values needed to render a device-owned keymap.
 pub struct DeviceModel {
     pub layer_count: u8,
     pub matrix_rows: u8,
     pub matrix_cols: u8,
-    pub custom_keycodes: Value,
+    pub vial_definition: Value,
     pub keycodes: Vec<u16>,
     pub encoders: Vec<Vec<[u16; 2]>>,
 }
@@ -47,14 +51,11 @@ pub fn read_device_model(device: &HidDevice, encoder_count: usize) -> Result<Dev
     let matrix = definition
         .get("matrix")
         .context("matrix missing from the device's Vial definition")?;
-    let matrix_rows = matrix["rows"]
-        .as_u64()
-        .context("matrix/rows missing from the device's Vial definition")?
-        as u8;
-    let matrix_cols = matrix["cols"]
-        .as_u64()
-        .context("matrix/cols missing from the device's Vial definition")?
-        as u8;
+    let matrix_rows = matrix_dimension(matrix, "rows")?;
+    let matrix_cols = matrix_dimension(matrix, "cols")?;
+    if encoder_count > usize::from(u8::MAX) + 1 {
+        bail!("Device configuration has too many encoders for the Vial protocol");
+    }
     let keycodes = read_keycodes(device, layer_count, matrix_rows, matrix_cols)?;
     let encoders = (0..layer_count)
         .map(|layer| read_encoders(device, layer, encoder_count))
@@ -64,10 +65,17 @@ pub fn read_device_model(device: &HidDevice, encoder_count: usize) -> Result<Dev
         layer_count,
         matrix_rows,
         matrix_cols,
-        custom_keycodes: definition["customKeycodes"].clone(),
+        vial_definition: definition,
         keycodes,
         encoders,
     })
+}
+
+fn matrix_dimension(matrix: &Value, name: &str) -> Result<u8> {
+    let dimension = matrix[name]
+        .as_u64()
+        .with_context(|| format!("matrix/{name} missing from the device's Vial definition"))?;
+    u8::try_from(dimension).with_context(|| format!("matrix/{name} exceeds Vial's supported range"))
 }
 
 fn read_definition(device: &HidDevice) -> Result<Value> {
@@ -76,6 +84,11 @@ fn read_definition(device: &HidDevice) -> Result<Value> {
         bail!("Device does not expose a Vial definition");
     }
     let size = u32::from_le_bytes([size[0], size[1], size[2], size[3]]) as usize;
+    if size > MAX_COMPRESSED_DEFINITION_BYTES {
+        bail!(
+            "Device Vial definition is {size} bytes, exceeding the {MAX_COMPRESSED_DEFINITION_BYTES}-byte compressed limit"
+        );
+    }
     let mut compressed = Vec::with_capacity(size);
     for block in 0..size.div_ceil(MESSAGE_LENGTH) {
         let response = send_recv(
@@ -93,16 +106,24 @@ fn read_definition(device: &HidDevice) -> Result<Value> {
         compressed.extend_from_slice(&response[..min(remaining, MESSAGE_LENGTH)]);
     }
     let mut decoded = Vec::new();
-    XzReader::new(compressed.as_slice(), true)
+    let mut reader = XzReader::new(compressed.as_slice(), true);
+    reader
+        .by_ref()
+        .take((MAX_DECODED_DEFINITION_BYTES + 1) as u64)
         .read_to_end(&mut decoded)
         .context("Failed to decompress the device's Vial definition")?;
+    if decoded.len() > MAX_DECODED_DEFINITION_BYTES {
+        bail!(
+            "Device Vial definition exceeds the {MAX_DECODED_DEFINITION_BYTES}-byte decoded limit"
+        );
+    }
     serde_json::from_slice(&decoded).context("Failed to parse the device's Vial definition")
 }
 
 fn read_keycodes(device: &HidDevice, layers: u8, rows: u8, cols: u8) -> Result<Vec<u16>> {
-    let size = layers as u16 * rows as u16 * cols as u16 * 2;
-    let mut bytes = Vec::with_capacity(size as usize);
-    let mut offset = 0;
+    let size = keymap_byte_len(layers, rows, cols)?;
+    let mut bytes = Vec::with_capacity(size);
+    let mut offset = 0_usize;
     while offset < size {
         let chunk = min(size - offset, BUFFER_FETCH_CHUNK);
         let response = send_recv(
@@ -117,13 +138,25 @@ fn read_keycodes(device: &HidDevice, layers: u8, rows: u8, cols: u8) -> Result<V
         if response[0] == VIA_UNHANDLED {
             bail!("Device rejected Vial keymap read at byte offset {offset}");
         }
-        bytes.extend_from_slice(&response[4..4 + chunk as usize]);
+        bytes.extend_from_slice(&response[4..4 + chunk]);
         offset += chunk;
     }
     Ok(bytes
         .chunks_exact(2)
         .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
         .collect())
+}
+
+fn keymap_byte_len(layers: u8, rows: u8, cols: u8) -> Result<usize> {
+    let byte_len = usize::from(layers)
+        .checked_mul(usize::from(rows))
+        .and_then(|size| size.checked_mul(usize::from(cols)))
+        .and_then(|size| size.checked_mul(2))
+        .context("Device Vial keymap dimensions overflow")?;
+    if byte_len > usize::from(u16::MAX) {
+        bail!("Device Vial keymap is {byte_len} bytes, exceeding the 16-bit buffer range");
+    }
+    Ok(byte_len)
 }
 
 fn read_encoders(device: &HidDevice, layer: u8, count: usize) -> Result<Vec<[u16; 2]>> {
@@ -138,6 +171,9 @@ fn read_encoders(device: &HidDevice, layer: u8, count: usize) -> Result<Vec<[u16
                     index as u8,
                 ],
             )?;
+            if response[0] == VIA_UNHANDLED {
+                bail!("Device rejected Vial encoder read for layer {layer}, encoder {index}");
+            }
             Ok([
                 u16::from_be_bytes([response[0], response[1]]),
                 u16::from_be_bytes([response[2], response[3]]),
@@ -147,23 +183,32 @@ fn read_encoders(device: &HidDevice, layer: u8, count: usize) -> Result<Vec<[u16
 }
 
 fn send_recv(device: &HidDevice, request: &[u8]) -> Result<[u8; MESSAGE_LENGTH]> {
+    if request.len() > MESSAGE_LENGTH {
+        bail!("Vial request exceeds the {MESSAGE_LENGTH}-byte HID report size");
+    }
     let mut report = [0; MESSAGE_LENGTH + 1];
     report[1..request.len() + 1].copy_from_slice(request);
     device
         .write(&report)
         .context("Failed to send a Vial request")?;
     let mut response = [0; MESSAGE_LENGTH];
-    device
+    let response_len = device
         .read_timeout(&mut response, 500)
         .context("Timed out waiting for a Vial response")?;
+    if response_len != MESSAGE_LENGTH {
+        bail!("Incomplete Vial response: expected {MESSAGE_LENGTH} bytes, received {response_len}");
+    }
     Ok(response)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use serde_json::json;
+
     #[test]
     fn decodes_vial_keymap_bytes_as_big_endian_keycodes() {
-        let keycodes = vec![0x00, 0x04, 0x52, 0x21];
+        let keycodes = [0x00, 0x04, 0x52, 0x21];
         assert_eq!(
             keycodes
                 .chunks_exact(2)
@@ -171,5 +216,16 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![0x0004, 0x5221]
         );
+    }
+
+    #[test]
+    fn rejects_matrix_dimensions_outside_the_vial_byte_range() {
+        let matrix = json!({ "rows": 256 });
+        assert!(matrix_dimension(&matrix, "rows").is_err());
+    }
+
+    #[test]
+    fn rejects_keymaps_that_exceed_the_vial_buffer_range() {
+        assert!(keymap_byte_len(u8::MAX, u8::MAX, u8::MAX).is_err());
     }
 }

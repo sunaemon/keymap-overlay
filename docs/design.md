@@ -10,7 +10,8 @@ directly and needs no Python:
 
 ```text
 VIAL EEPROM (live device, over Raw HID)
-  ↓ keymap-overlay-generator (Rust; vitaly as a library, one HID session)
+  ↓ keymap-overlay-generator (Rust; first-party Vial protocol client,
+    one HID session)
   + keyboard.json + config.json
 installed models directory/<keyboard>.json — every layer, one file
 ```
@@ -35,9 +36,9 @@ installed models directory/<keyboard>.json
 
 Either way, only the combined `<keyboard>.json` — every layer keyed by
 number, in one file — is installed; any per-layer file on the `VIAL=false`
-path is a build-time intermediate. The normal path installs the native
-generator and minimal keyboard definitions beside the application, then
-refreshes connected keyboards at startup (see Startup Refresh below).
+path is a build-time intermediate. The normal path installs minimal keyboard
+definitions beside the application, then refreshes connected keyboards in the
+overlay process at startup (see Startup Refresh below).
 `make install-assets VIAL=false` remains an explicit offline development path.
 The installed model directory is
 `~/.cache/keymap-overlay` on macOS and Linux and
@@ -76,11 +77,16 @@ used keyboard owns the overlay. It hides once no momentary layers remain held.
 
 Before the listener starts (never on the keypress hot path above), the
 runtime refreshes every connected keyboard under `--keyboard-config-dir` into
-`--asset-dir`. It shells out to `keymap-overlay-generator`—installed alongside
-the frontend, not linked in, for the same reason the generator is its own Cargo
-workspace—once per configured keyboard. Output is validated in a temporary
-file before replacing the cache. A disconnected keyboard or failed generation
-keeps the previous model and logs a warning rather than failing startup.
+`--asset-dir`. The Vial client runs in the same process as the overlay: macOS
+and Windows ship no second generator executable, while Linux keeps only its
+daemon and renderer processes. Output is validated in a temporary file before
+replacing the cache. A disconnected keyboard or failed generation keeps the
+previous model and logs a warning rather than failing startup.
+
+Vial does not send an external-change notification when its web application
+writes EEPROM. A Vial edit therefore appears at the next startup refresh; the
+user restarts the overlay after making a live edit. The runtime never polls or
+writes the keymap itself.
 
 Source installs pass the checkout's `KEYBOARDS_DIR`. Release archives carry
 the generator and only each bundled keyboard's `keyboard.json` and
@@ -246,15 +252,14 @@ present, verifies GitHub artifact attestations. The archive includes the native
 overlay, model generator, and minimal bundled keyboard definitions; generated
 models are not release artifacts.
 
-Release archives carry the MIT license and separate generated third-party
-notices for the overlay and generator, which also serves anyone packaging them
-where a distribution requires notices as files. The overlay binary embeds its
-own two notices and prints them with `keymap-overlay --license` and
-`--third-party-licenses`, so a copy carried away from its install directory
-still states its terms. The generator notice is installed with its keyboard
-configuration. The Windows package also installs the overlay's two files
-beside the executable, because WPF owns that process and reaches the shared
-runtime through a C ABI that carries no strings, leaving it nothing to print.
+Release archives carry the MIT license and generated third-party notices for
+the overlay, which also serves anyone packaging it where a distribution
+requires notices as files. The overlay binary embeds both notices and prints
+them with `keymap-overlay --license` and `--third-party-licenses`, so a copy
+carried away from its install directory still states its terms. The Windows
+package also installs those files beside the executable, because WPF owns that
+process and reaches the shared runtime through a C ABI that carries no strings,
+leaving it nothing to print.
 
 The installers stop the running service before replacing its files, preserve
 the previous binaries, keyboard definitions, notices, and service definition
@@ -267,10 +272,10 @@ source-build workflow:
 
 `make install-overlay` performs the following steps:
 
-1. Builds and installs `keymap-overlay-generator` beside the frontend, passes
-   the checkout's keyboard configuration directory to the login command, and
-   refreshes connected keyboards before the frontend loads its model cache.
-2. Builds the platform executable and installs it as
+1. Builds the platform executable, passes the checkout's keyboard configuration
+   directory to the login command, and refreshes connected keyboards before the
+   frontend loads its model cache.
+2. Installs it as
    `~/.local/bin/keymap-overlay` on macOS and Linux — with the Qt renderer
    beside it as `~/.local/bin/keymap-overlay-qt` — and as
    `%LOCALAPPDATA%/Programs/keymap-overlay/keymap-overlay.exe` on Windows.
@@ -322,49 +327,57 @@ and generated JSON models. It keeps the logs for troubleshooting.
 ```text
 firmware/examples/<keyboard>/keymap
   ↓ make flash KEYBOARD_ID=<keyboard>
-QMK firmware with RAW_ENABLE = yes
+QMK firmware with a fresh EEPROM epoch
   ↓
-keyboard device
+first boot: epoch differs → QMK initializes all EEPROM
+  ↓
+Vial initializes its dynamic keymap from the flashed keymap.c defaults
+  ↓
+keyboard device; later Vial web-app edits persist in EEPROM
 ```
 
 The shared `firmware/layer_notify.h` helper is copied into the QMK keymap as
-part of the firmware build. It constructs the `KMO` reports described above.
+part of the firmware build. It constructs the `KMO` reports described above
+and supplies the EEPROM-epoch comparison. Each keyboard calls it from
+`keyboard_post_init_user`; on a new epoch it calls QMK's `eeconfig_init()`,
+which clears all QMK and Vial EEPROM. Its `eeconfig_init_user` hook then saves
+the new epoch so ordinary rebooting does not reset a Vial-edited keymap.
 
 QMK source processing and firmware deployment do not run from the overlay's
 Windows shell. QMK's toolchain there is QMK MSYS, separate from the MSYS2
-UCRT64 shell that builds the overlay, so `compile`, `flash`, and
-`prepare-flash-keymap` point at WSL, macOS, or Linux. Raw HID is not subject to
-that boundary: startup refresh reads the device and `write-keymap` writes an
-already-prepared `qmk-keymap.json` natively on Windows. The combined
-`flash-keymap` target remains available on macOS and Linux. This also does not
-prevent manual flashing of an already-built `.uf2`: Windows can mount the
-bootloader's `RPI-RP2` volume and copy the file onto it in Explorer.
+UCRT64 shell that builds the overlay, so `compile` and `flash` point at WSL,
+macOS, or Linux. Raw HID is not subject to that boundary: startup refresh reads
+the device natively on every platform. This does not prevent manual flashing
+of an already-built `.uf2`: Windows can mount the bootloader's `RPI-RP2` volume
+and copy the file onto it in Explorer.
 
 ## Design Decisions
 
 ### VIAL over VIA
 
-The project uses VIAL because `vitaly` can read and write VIAL keymap data for
-the EEPROM-based workflow, and because the connected keyboard is the default
-source of truth for both halves of the display model. `keymap-overlay-generator`
-(`overlay/keymap-overlay-generator`) depends on `vitaly` as a Rust library,
-not just its CLI: `vitaly::protocol::load_layers_keys` reads the dynamic
-keymap out of EEPROM and `vitaly::protocol::load_vial_meta` reads the
-keyboard's own embedded Vial definition — including the identity of its
-custom keycodes — directly from the device, in the same HID session.
-`keymap.c` is not consulted for either, so a live edit made in the Vial app is
-reflected without recompiling. `VIAL=false` renders straight from `keymap.c`
-instead, with no device connected and no Rust involved — useful for keyboards
-whose keymap is never edited outside source; that path stays the Python
-pipeline described above.
+The project uses Vial because the connected keyboard is the source of truth for
+the active display model. The first-party Vial client in
+`keymap-overlay-generator` reads the dynamic keymap, encoder bindings, and the
+keyboard's embedded Vial definition—including its custom-keycode identities—in
+one Raw HID session. It does not write EEPROM.
 
-`keymap.c` remains the source that firmware is compiled and flashed from either
-way, and `generate_vial.py` embeds each custom keycode's name and display label
-from a single whitespace-free comment token into the `vial.json` compiled into that firmware
-(starting at Vial's fixed `QK_KB_0` keycode range). Once a keyboard has been
-flashed, VIAL-mode rendering reads its keymap and custom-keycode metadata from
-the device rather than from the contents of `keymap.c`; the source file must
-still remain present as a Make dependency.
+`keymap.c` is the firmware configuration, not a second live keymap store.
+`make flash` compiles it with a fresh EEPROM epoch. On the flashed firmware's
+first boot, QMK clears EEPROM, and Vial initializes its dynamic keymap and
+macros from those compiled defaults. After that, users edit the keymap in the
+Vial web app; those EEPROM edits persist across restarts until the next
+firmware flash.
+
+The overlay reads that Vial state at startup, so a live edit is shown after an
+explicit overlay restart. It does not poll the device or attempt to subscribe
+to changes the Vial protocol cannot announce. `VIAL=false` remains an offline
+development path that renders `keymap.c` without a connected keyboard.
+
+`generate_vial.py` embeds each custom keycode's name and display label from a
+single whitespace-free comment token into the `vial.json` compiled into the
+firmware (starting at Vial's fixed `QK_KB_0` keycode range). The overlay reads
+that embedded metadata from the device after flashing, rather than consulting
+the working copy of `keymap.c`.
 
 ### Shared Display Model
 

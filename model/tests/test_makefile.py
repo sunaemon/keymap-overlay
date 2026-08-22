@@ -101,6 +101,9 @@ def test_windows_exposes_native_hid_targets() -> None:
     assert "_install_assets" in install.stdout
     assert "must run in WSL" not in install.stdout
     assert "KEYMAP_EEPROM_EPOCH=$(EEPROM_RESET_EPOCH)" in makefile
+    assert 'epoch="$$(date +%s)"; \\' in makefile
+    assert '$(MAKE) compile EEPROM_RESET_EPOCH="$$epoch" && \\' in makefile
+    assert '$(MAKE) _flash_$(OS_FAMILY) EEPROM_RESET_EPOCH="$$epoch"' in makefile
     assert source_render.returncode != 0
     assert "needs QMK source processing" in source_render.stderr
 

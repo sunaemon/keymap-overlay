@@ -147,7 +147,7 @@ stage_release() {
   verify_attestations_if_available "$archive" "$checksums" "$staged_installer"
   tar -xzf "$archive" -C "$temporary_directory"
 
-  for file in keymap-overlay keymap-overlay-generator LICENSE THIRD-PARTY-LICENSES.html GENERATOR-THIRD-PARTY-LICENSES.html; do
+  for file in keymap-overlay LICENSE THIRD-PARTY-LICENSES.html; do
     if [ ! -f "${temporary_directory}/${file}" ]; then
       echo "ERROR: ${asset_name} does not contain ${file}." >&2
       exit 1
@@ -294,8 +294,7 @@ stop_service() {
 # both, so nothing is installed for them here.
 install_staged_files() {
   install -m 755 "${temporary_directory}/keymap-overlay" "$BINARY_PATH" &&
-    install -m 755 "${temporary_directory}/keymap-overlay-generator" "$GENERATOR_PATH" &&
-    install -m 644 "${temporary_directory}/GENERATOR-THIRD-PARTY-LICENSES.html" "$GENERATOR_LICENSE_PATH" &&
+    rm -f "$GENERATOR_PATH" "$GENERATOR_LICENSE_PATH" &&
     rm -rf "$KEYBOARD_CONFIG_DIRECTORY" &&
     cp -pR "${temporary_directory}/keyboards" "$KEYBOARD_CONFIG_DIRECTORY" &&
     install -m 755 "$staged_installer" "$INSTALLER_PATH" &&
@@ -550,8 +549,6 @@ print_linux_files() {
 print_installed_files() {
   echo 'Installed:'
   echo "  binary: ${BINARY_PATH}"
-  echo "  generator: ${GENERATOR_PATH}"
-  echo "  generator licenses: ${GENERATOR_LICENSE_PATH}"
   echo "  keyboard configs: ${KEYBOARD_CONFIG_DIRECTORY}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"

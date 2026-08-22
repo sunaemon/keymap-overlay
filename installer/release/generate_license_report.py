@@ -19,9 +19,6 @@ app = typer.Typer()
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 DEFAULT_OUTPUT = Path("THIRD-PARTY-LICENSES.html")
-GENERATOR_OUTPUT = Path("GENERATOR-THIRD-PARTY-LICENSES.html")
-GENERATOR_MANIFEST = Path("overlay/keymap-overlay-generator/Cargo.toml")
-GENERATOR_TEMPLATE = Path("docs/generator-third-party-licenses.hbs")
 DEFAULT_CONFIG = Path("docs/about.toml")
 DEFAULT_TEMPLATE = Path("docs/third-party-licenses.hbs")
 
@@ -49,23 +46,11 @@ def main(
     initialize_logging()
     try:
         report = generate_license_report(template, config=config)
-        generator_report = generate_license_report(
-            GENERATOR_TEMPLATE,
-            config=config,
-            manifest=GENERATOR_MANIFEST,
-        )
         if check:
             check_license_report(output, report)
-            check_license_report(GENERATOR_OUTPUT, generator_report)
         else:
             output.write_text(report, encoding="utf-8", newline="\n")
-            GENERATOR_OUTPUT.write_text(
-                generator_report,
-                encoding="utf-8",
-                newline="\n",
-            )
             logger.info("Generated %s", output)
-            logger.info("Generated %s", GENERATOR_OUTPUT)
     except (LicenseReportDriftError, OSError, subprocess.SubprocessError):
         logger.exception("Failed to %s %s", "check" if check else "generate", output)
         raise typer.Exit(code=1) from None
