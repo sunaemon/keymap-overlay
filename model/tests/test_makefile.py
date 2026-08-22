@@ -90,7 +90,7 @@ def test_windows_exposes_native_hid_targets() -> None:
         cwd=root,
     )
     source_render = subprocess.run(
-        [MAKE, "_install_assets_windows", "VIAL=false", "KEYBOARD_ID=1"],
+        [MAKE, "_install_assets_windows", "VIAL=false"],
         check=False,
         capture_output=True,
         text=True,
