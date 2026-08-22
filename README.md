@@ -463,6 +463,18 @@ make install-overlay
 `make install-overlay` exercises the source-built installation path. Use
 `make run-overlay` for a foreground UI session.
 
+To exercise the complete native overlay without a physical keyboard, name a
+generated keyboard and momentary layer:
+
+```bash
+make run-overlay SIMULATE=1:2
+```
+
+This shows keyboard 1 layer 2 for two seconds, hides it for one second, and
+repeats until interrupted. Simulation replaces Raw HID input for that process,
+so it also works on a machine with no supported keyboard attached. The models
+must already have been generated and installed with `make install-assets`.
+
 ### Windows with MSYS2 UCRT64
 
 Develop the native Windows overlay in MSYS2 UCRT64, not WSL. In PowerShell:

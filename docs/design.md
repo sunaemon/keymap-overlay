@@ -78,6 +78,13 @@ usage-filtered notifications from `IOHIDManager`, and Windows forwards
 `WM_DEVICECHANGE` from the mapped WPF window. This makes a reconnected keyboard
 available even while another keyboard remains active.
 
+For hardware-free manual testing, `--simulate KEYBOARD_ID:LAYER` replaces the
+HID listener with a synthetic source at the `LayerEventSink` boundary. It holds
+the named layer for two seconds, releases it for one second, and repeats. This
+exercises the real reducer, model composition, UI wakeup, and native renderer;
+only HID enumeration, report parsing, and the physical firmware path are
+bypassed.
+
 ## Native Overlay
 
 `overlay/keymap-core` owns the Raw HID protocol and the pure active-layer state

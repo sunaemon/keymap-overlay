@@ -12,7 +12,7 @@ mod island_bindings;
 
 use super::OverlayComponent;
 use island_bindings::{DesktopWindowXamlSource, RectInt32, WindowId};
-use keymap_overlay_runtime::RawHidListenerHandle;
+use keymap_overlay_runtime::LayerEventSourceHandle;
 use std::cell::{Cell, RefCell};
 use std::mem::size_of;
 use std::sync::OnceLock;
@@ -58,7 +58,7 @@ const WINDOW_CLASS: &[u16] = &[
     0,
 ];
 
-static LISTENER: OnceLock<RawHidListenerHandle> = OnceLock::new();
+static LISTENER: OnceLock<LayerEventSourceHandle> = OnceLock::new();
 
 thread_local! {
     static ISLAND_HOST: RefCell<Option<IslandHost>> = const { RefCell::new(None) };
@@ -76,9 +76,9 @@ pub(super) fn run(component: OverlayComponent) -> windows_core::Result<()> {
     })
 }
 
-pub(super) fn install_listener(listener: RawHidListenerHandle) {
+pub(super) fn install_listener(listener: LayerEventSourceHandle) {
     if LISTENER.set(listener).is_err() {
-        log::error!("The WinUI raw HID listener was already initialized");
+        log::error!("The WinUI layer event source was already initialized");
     }
 }
 

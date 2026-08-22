@@ -11,9 +11,9 @@ use dispatch::Queue;
 use iohidmanager::async_api::ManagerDeviceMatchingStream;
 use iohidmanager::{HidManager, HidUsage};
 use keymap_overlay_runtime::{
-    DisplayEncoder, LayerEvent, LayerEventSink, ModelCache, OverlayModel, PendingTransition,
-    RAW_USAGE_ID, RAW_USAGE_PAGE, RawHidListenerHandle, Transition, compose_model,
-    load_model_cache, spawn_raw_hid_listener,
+    DisplayEncoder, LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, OverlayModel,
+    PendingTransition, RAW_USAGE_ID, RAW_USAGE_PAGE, SimulatedLayer, Transition, compose_model,
+    load_model_cache, spawn_layer_event_source,
 };
 use log::{info, warn};
 use objc2::rc::{Allocated, Retained};
@@ -103,7 +103,7 @@ thread_local! {
     static OVERLAY_APP: RefCell<Option<OverlayApp>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
+pub(crate) fn run(assets_dir: PathBuf, simulated: Option<SimulatedLayer>) -> Result<()> {
     let mtm = MainThreadMarker::new().context("AppKit must run on the main thread")?;
     let application = NSApplication::sharedApplication(mtm);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
@@ -120,8 +120,10 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
 
     let models = load_model_cache(&assets_dir)?;
     let (sender, receiver) = mpsc::channel();
-    let listener = spawn_raw_hid_listener(ChannelSink(sender));
-    spawn_device_watcher(listener);
+    let source = spawn_layer_event_source(ChannelSink(sender), simulated);
+    if source.uses_raw_hid() {
+        spawn_device_watcher(source);
+    }
 
     let overlay = OverlayApp {
         receiver,
@@ -144,7 +146,7 @@ pub(crate) fn run(assets_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn spawn_device_watcher(listener: RawHidListenerHandle) {
+fn spawn_device_watcher(listener: LayerEventSourceHandle) {
     thread::spawn(move || {
         if let Err(error) = watch_for_arrivals(&listener) {
             // Not fatal: reader failures still request enumeration. Only a
@@ -155,7 +157,7 @@ fn spawn_device_watcher(listener: RawHidListenerHandle) {
 }
 
 /// Blocks on IOHIDManager callbacks, so an idle overlay costs nothing.
-fn watch_for_arrivals(listener: &RawHidListenerHandle) -> Result<()> {
+fn watch_for_arrivals(listener: &LayerEventSourceHandle) -> Result<()> {
     let manager = HidManager::new().context("Failed to create an IOHIDManager")?;
     manager
         .set_device_matching(Some(HidUsage::Custom(
@@ -503,7 +505,11 @@ impl OverlayApp {
             let Some(mtm) = MainThreadMarker::new() else {
                 return;
             };
-            let appearance = self.window.effectiveAppearance();
+            // This view owns the appearance-change callback and remains in the
+            // hierarchy while a layer is detached. Its effective appearance is
+            // therefore authoritative for colors resolved while the overlay is
+            // in its one-pixel idle state.
+            let appearance = self.appearance_root.effectiveAppearance();
             self.layers
                 .insert(key.clone(), build_native_layer(&model, &appearance, mtm));
         }

@@ -49,9 +49,11 @@ internal sealed class OverlayWindow : Window
         SourceInitialized += ConfigureNativeWindow;
     }
 
-    internal void StartListener()
+    internal void StartListener(byte? keyboardId, byte? layer)
     {
-        var status = NativeMethods.Start(wakeCallback);
+        var status = keyboardId is byte simulatedKeyboardId && layer is byte simulatedLayer
+            ? NativeMethods.StartSimulated(wakeCallback, simulatedKeyboardId, simulatedLayer)
+            : NativeMethods.Start(wakeCallback);
         if (status != 0)
         {
             throw new InvalidOperationException($"Rust HID listener failed to start ({status}).");
