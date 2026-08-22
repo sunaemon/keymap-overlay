@@ -59,6 +59,64 @@ KEYCODE_LABELS = {
     "EIZO_DP": "EIZO DP",
     "EIZO_PBYP": "EIZO PbyP",
     "QK_BOOT": "QK BOOT",
+    "KC_UP": "↑",
+    "KC_DOWN": "↓",
+    "KC_LEFT": "←",
+    "KC_RIGHT": "→",
+    "KC_HOME": "↖",
+    "KC_END": "↘",
+    "KC_PGUP": "⇞",
+    "KC_PGDN": "⇟",
+    "KC_ESC": "⎋",
+    "KC_TAB": "⇥",
+    "KC_BSPC": "⌫",
+    "KC_DEL": "⌦",
+    "KC_ENT": "↩",
+    "KC_APP": "☰",
+    "KC_MINS": "-",
+    "KC_EQL": "=",
+    "KC_BSLS": "\\",
+    "KC_GRV": "`",
+    "KC_LBRC": "[",
+    "KC_RBRC": "]",
+    "KC_SCLN": ";",
+    "KC_QUOT": "'",
+    "KC_COMM": ",",
+    "KC_DOT": ".",
+    "KC_SLSH": "/",
+}
+
+PLATFORM_KEYCODE_LABELS: dict[OverlayPlatform, dict[str, str]] = {
+    "macos": {
+        "KC_LGUI": "⌘",
+        "KC_RGUI": "⌘",
+        "KC_LALT": "⌥",
+        "KC_RALT": "⌥",
+        "KC_LCTL": "⌃",
+        "KC_RCTL": "⌃",
+        "KC_LSFT": "⇧",
+        "KC_RSFT": "⇧",
+    },
+    "linux": {
+        "KC_LGUI": "Super",
+        "KC_RGUI": "Super",
+        "KC_LALT": "Alt",
+        "KC_RALT": "Alt",
+        "KC_LCTL": "Ctrl",
+        "KC_RCTL": "Ctrl",
+        "KC_LSFT": "Shift",
+        "KC_RSFT": "Shift",
+    },
+    "windows": {
+        "KC_LGUI": "⊞",
+        "KC_RGUI": "⊞",
+        "KC_LALT": "Alt",
+        "KC_RALT": "Alt",
+        "KC_LCTL": "Ctrl",
+        "KC_RCTL": "Ctrl",
+        "KC_LSFT": "Shift",
+        "KC_RSFT": "Shift",
+    },
 }
 
 
@@ -173,7 +231,10 @@ def build_overlay_model(
     keyboard = parse_json(KeyboardJson, keyboard_json)
     config = parse_json(KeyboardConfig, keyboard_config)
     custom_keycodes = parse_json(KeycodesJson, custom_keycodes_json)
-    display_labels = _parse_display_labels(keymap_c, platform) if keymap_c else {}
+    display_labels = {
+        **PLATFORM_KEYCODE_LABELS.get(platform, {}),
+        **(_parse_display_labels(keymap_c) if keymap_c else {}),
+    }
     layout = keyboard.layout_keys(layout_name)
     _validate_layer(keymap, layout, layer_index)
 
@@ -501,10 +562,8 @@ def _format_keycode(keycode: str, display_labels: dict[str, str]) -> str:
     return keycode.replace("_", " ")
 
 
-def _parse_display_labels(
-    keymap_c: Path,
-    platform: OverlayPlatform = "macos",
-) -> dict[str, str]:
+def _parse_display_labels(keymap_c: Path) -> dict[str, str]:
+    """Read single-character comment labels off enum custom_keycodes entries."""
     content = keymap_c.read_text(encoding="utf-8")
     labels: dict[str, str] = {}
 
@@ -522,44 +581,6 @@ def _parse_display_labels(
             if match and len(match.group(2)) == 1:
                 labels[match.group(1)] = match.group(2)
 
-    labels.update(
-        _parse_display_label_blocks(content, "keymap-overlay-labels", keymap_c)
-    )
-    labels.update(
-        _parse_display_label_blocks(
-            content,
-            f"keymap-overlay-labels-{platform}",
-            keymap_c,
-        )
-    )
-    return labels
-
-
-def _parse_display_label_blocks(
-    content: str,
-    block_name: str,
-    keymap_c: Path,
-) -> dict[str, str]:
-    blocks = re.findall(
-        rf"/\*\s*{re.escape(block_name)}(?![-\w])\s*(.*?)\*/",
-        content,
-        re.DOTALL,
-    )
-    labels: dict[str, str] = {}
-    for block in blocks:
-        for raw_line in block.splitlines():
-            line = re.sub(r"^\s*\*\s?", "", raw_line).strip()
-            if not line:
-                continue
-            match = re.fullmatch(r"(\S+)\s*=\s*(.+?)\s*", line)
-            if match is None:
-                raise ValueError(
-                    f"Malformed keymap-overlay label in {keymap_c}: {line}"
-                )
-            keycode, label = match.groups()
-            if keycode in labels:
-                raise ValueError(f"Duplicate {block_name} label for {keycode}")
-            labels[keycode] = label
     return labels
 
 

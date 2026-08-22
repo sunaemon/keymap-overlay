@@ -319,12 +319,14 @@ compose the held layers in memory using QMK precedence, and render the result
 with AppKit, GNOME Shell, Qt Quick, or WPF. Keys use quiet, nearly opaque fills
 and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
-key alone receives its pale tint. Display-only Unicode labels come from single-character
-comments on `custom_keycodes` entries or an explicit `keymap-overlay-labels`
-comment block in `keymap.c`. Platform blocks suffixed with `-macos`, `-linux`,
-or `-windows` override common labels; `OVERLAY_PLATFORM` selects the target and
-defaults to the current host. Encoder placement is the only project-specific geometry:
-QMK knows the encoder count and pins but not where knobs sit, so `config.json`
+key alone receives its pale tint. Display-only Unicode labels for custom
+keycodes come from single-character comments on `custom_keycodes` entries in
+`keymap.c`. Generic and platform-specific aliases — arrow glyphs, ⌘/Super/⊞ for
+the GUI key, and so on — are overlay-owned presentation policy, not keyboard
+data: they live in `generate_overlay_asset.py`'s built-in label tables, keyed
+by `OVERLAY_PLATFORM`, which defaults to the current host. Encoder placement
+is the only project-specific geometry: QMK knows the encoder count and pins
+but not where knobs sit, so `config.json`
 maps each encoder to its push-switch matrix position or to explicit `x`/`y`
 layout coordinates. Matrix placement replaces the normal key drawing with one
 circular knob, places counter-clockwise and clockwise actions above it, and

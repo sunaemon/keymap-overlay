@@ -54,9 +54,9 @@ def test_builds_keys_and_an_encoder_into_the_shared_model(tmp_path: Path) -> Non
     keymap_c = tmp_path / "keymap.c"
     keymap_c.write_text(
         """
-        /* keymap-overlay-labels
-         * KC_ALPHA = α
-         */
+        enum custom_keycodes {
+          KC_ALPHA = SAFE_RANGE, // α
+        };
         const uint16_t PROGMEM encoder_map[2][1][2] = {
           [0] = {ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
           [1] = {ENCODER_CCW_CW(KC_TRNS, KC_TRNS)},
@@ -156,24 +156,6 @@ def test_encoder_parser_rejects_empty_actions(tmp_path: Path, arguments: str) ->
         parse_encoder_map(keymap_c)
 
 
-def test_parses_unicode_display_labels_from_keymap_comment(tmp_path: Path) -> None:
-    keymap_c = tmp_path / "keymap.c"
-    keymap_c.write_text(
-        """
-        /* keymap-overlay-labels
-         * KC_ALPHA = α
-         * KC_LGUI = ⌘
-         */
-        """,
-        encoding="utf-8",
-    )
-
-    assert _parse_display_labels(keymap_c) == {
-        "KC_ALPHA": "α",
-        "KC_LGUI": "⌘",
-    }
-
-
 def test_uses_single_character_custom_keycode_comments_as_labels(
     tmp_path: Path,
 ) -> None:
@@ -195,44 +177,67 @@ def test_uses_single_character_custom_keycode_comments_as_labels(
     }
 
 
-def test_platform_labels_override_common_labels(tmp_path: Path) -> None:
+def test_platform_labels_come_from_built_in_tables(tmp_path: Path) -> None:
+    """Common and platform-specific label tables are overlay-owned, not keymap.c."""
+    keymap = _write(
+        tmp_path / "keymap.json",
+        {"layout": "LAYOUT", "layers": [["KC_LGUI", "KC_MUTE"]]},
+    )
+    keyboard = _write(tmp_path / "keyboard.json", _keyboard())
+    config = _write(
+        tmp_path / "config.json",
+        {"qmk_keyboard": "test", "encoders": [{"matrix": [0, 1]}]},
+    )
+    custom = _write(tmp_path / "custom.json", {})
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text("", encoding="utf-8")
+
+    args = (keymap, keyboard, config, custom, "LAYOUT", 0, 64)
+
+    macos = build_overlay_model(*args, keymap_c=keymap_c, platform="macos")
+    assert macos.keys[0].label == ["⌘"]
+
+    linux = build_overlay_model(*args, keymap_c=keymap_c, platform="linux")
+    assert linux.keys[0].label == ["Super"]
+
+    windows = build_overlay_model(*args, keymap_c=keymap_c, platform="windows")
+    assert windows.keys[0].label == ["⊞"]
+
+
+def test_custom_keycode_comment_overrides_platform_label(tmp_path: Path) -> None:
+    keymap = _write(
+        tmp_path / "keymap.json",
+        {"layout": "LAYOUT", "layers": [["KC_LGUI", "KC_MUTE"]]},
+    )
+    keyboard = _write(tmp_path / "keyboard.json", _keyboard())
+    config = _write(
+        tmp_path / "config.json",
+        {"qmk_keyboard": "test", "encoders": [{"matrix": [0, 1]}]},
+    )
+    custom = _write(tmp_path / "custom.json", {})
     keymap_c = tmp_path / "keymap.c"
     keymap_c.write_text(
         """
-        /* keymap-overlay-labels
-        KC_APP = ☰
-        KC_LGUI = GUI
-        */
-        /* keymap-overlay-labels-macos
-        KC_LGUI = ⌘
-        */
-        /* keymap-overlay-labels-linux
-        KC_LGUI = Super
-        */
-        /* keymap-overlay-labels-windows
-        KC_LGUI = ⊞
-        */
+        enum custom_keycodes {
+          KC_LGUI = SAFE_RANGE, // ★
+        };
         """,
         encoding="utf-8",
     )
 
-    assert _parse_display_labels(keymap_c, "macos") == {
-        "KC_APP": "☰",
-        "KC_LGUI": "⌘",
-    }
-    assert _parse_display_labels(keymap_c, "linux")["KC_LGUI"] == "Super"
-    assert _parse_display_labels(keymap_c, "windows")["KC_LGUI"] == "⊞"
-
-
-def test_rejects_malformed_display_label(tmp_path: Path) -> None:
-    keymap_c = tmp_path / "keymap.c"
-    keymap_c.write_text(
-        "/* keymap-overlay-labels\nKC_ALPHA α\n*/",
-        encoding="utf-8",
+    model = build_overlay_model(
+        keymap,
+        keyboard,
+        config,
+        custom,
+        "LAYOUT",
+        0,
+        64,
+        keymap_c=keymap_c,
+        platform="macos",
     )
 
-    with pytest.raises(ValueError, match="Malformed keymap-overlay label"):
-        _parse_display_labels(keymap_c)
+    assert model.keys[0].label == ["★"]
 
 
 def test_resolves_display_layer_without_changing_raw_keymap() -> None:
