@@ -55,21 +55,28 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.should_release == 'true'
-    name: ${{ matrix.platform }}-${{ matrix.architecture }}
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: Linux
+          - name: linux-x86_64
+            platform: Linux
             runner: ubuntu-latest
             architecture: x86_64
-          - platform: macOS
+          - name: linux-arm64
+            platform: Linux
+            runner: ubuntu-24.04-arm
+            architecture: arm64
+          - name: mac-arm64
+            platform: macOS
             runner: macos-latest
             architecture: arm64
-          - platform: Windows
+          - name: windows-x86_64
+            platform: Windows
             runner: windows-latest
             architecture: x86_64
-          - platform: Windows-arm64
+          - name: windows-arm64
             package_platform: Windows
             runner: windows-11-vs2026-arm
             architecture: arm64
@@ -94,6 +101,17 @@ jobs:
         uses: jdx/mise-action@v4
         with:
           cache: false
+
+      - name: Verify Linux release architecture
+        if: runner.os == 'Linux'
+        run: |
+          case "${{ matrix.architecture }}:$(uname -m)" in
+            x86_64:x86_64|arm64:aarch64) ;;
+            *)
+              echo "ERROR: expected ${{ matrix.architecture }}, got $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Verify macOS release architecture
         if: runner.os == 'macOS'

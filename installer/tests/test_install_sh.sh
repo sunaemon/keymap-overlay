@@ -70,6 +70,7 @@ case "$url" in
     cp "$TEST_ARCHIVE" "$output"
     ;;
 esac
+printf '%s\n' "$url" >>"$TEST_CURL_LOG"
 EOF
 
 cat >"$FAKE_BIN/sha256sum" <<'EOF'
@@ -155,6 +156,7 @@ run_installer() {
     TEST_INSTALLER="$PROJECT_DIRECTORY/installer/install.sh" \
     TEST_CHECKSUM="$CHECKSUM" \
     TEST_COMMAND_LOG="$home/commands.log" \
+    TEST_CURL_LOG="$home/curl.log" \
     TEST_REAL_INSTALL="$REAL_INSTALL" \
     TEST_FAIL_SERVICE="${TEST_FAIL_SERVICE:-0}" \
     TEST_MAIN_ENABLED="${TEST_MAIN_ENABLED:-1}" \
@@ -218,6 +220,16 @@ test_linux_install_and_uninstall() {
   test ! -e "$extension"
   test -f "$cache/1.json"
   test -d "$home/.local/var/log/keymap-overlay"
+}
+
+test_linux_arm64_install() {
+  home="$TEST_DIRECTORY/linux arm64 home"
+  mkdir -p "$home/.cache/keymap-overlay"
+  : >"$home/commands.log"
+
+  run_installer "$home" Linux aarch64 keymap-overlay-linux-arm64.tar.gz
+
+  assert_file_contains "$home/curl.log" 'keymap-overlay-linux-arm64.tar.gz'
 }
 
 test_macos_stops_service_before_replacing_binary() {
@@ -351,6 +363,7 @@ test_missing_layer_assets_are_generated_at_startup() {
 }
 
 test_linux_install_and_uninstall
+test_linux_arm64_install
 test_macos_stops_service_before_replacing_binary
 test_gnome_disables_qt_renderer_unless_forced
 test_failed_service_install_rolls_back
