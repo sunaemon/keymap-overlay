@@ -85,8 +85,6 @@ def package_release(
             root / "THIRD-PARTY-LICENSES.html",
             package / "THIRD-PARTY-LICENSES.html",
         )
-        copy_keyboard_configs(root, package)
-
         if platform == "Linux":
             asset = output_dir / f"keymap-overlay-linux-{architecture}.tar.gz"
             copy_file(
@@ -121,27 +119,6 @@ def package_release(
 
     logger.info("Created %s", asset)
     return asset
-
-
-def copy_keyboard_configs(root: Path, package: Path) -> None:
-    """Package the minimal per-keyboard inputs needed by startup refresh."""
-    source_root = root / "firmware" / "examples"
-    destination_root = package / "keyboards"
-    copied = 0
-    for config_path in sorted(source_root.glob("[0-9]*/config.json")):
-        keyboard_dir = config_path.parent
-        keyboard_json = keyboard_dir / "keyboard.json"
-        if not keyboard_json.is_file():
-            raise ReleasePackagingError(f"Missing keyboard definition: {keyboard_json}")
-        destination = destination_root / keyboard_dir.name
-        destination.mkdir(parents=True)
-        copy_file(config_path, destination / "config.json")
-        copy_file(keyboard_json, destination / "keyboard.json")
-        copied += 1
-    if copied == 0:
-        raise ReleasePackagingError(
-            f"No keyboard configurations found in {source_root}"
-        )
 
 
 def add_dotnet_licenses(package: Path, dotnet_root: Path, run: CommandRunner) -> None:

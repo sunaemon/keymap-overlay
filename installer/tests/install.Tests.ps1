@@ -56,9 +56,6 @@ Describe 'install.ps1' {
         $archive = Join-Path $TestDrive "fixture-$Architecture.zip"
         New-Item -ItemType Directory -Path $fixture | Out-Null
         Set-Content -LiteralPath (Join-Path $fixture 'keymap-overlay.exe') -Value 'binary'
-        New-Item -ItemType Directory -Path (Join-Path $fixture 'keyboards\1') | Out-Null
-        Set-Content -LiteralPath (Join-Path $fixture 'keyboards\1\config.json') -Value '{}'
-        Set-Content -LiteralPath (Join-Path $fixture 'keyboards\1\keyboard.json') -Value '{}'
         Set-Content -LiteralPath (Join-Path $fixture 'LICENSE') -Value 'license'
         Set-Content -LiteralPath (Join-Path $fixture 'THIRD-PARTY-LICENSES.html') -Value 'notices'
         Compress-Archive -Path (Join-Path $fixture '*') -DestinationPath $archive
@@ -93,7 +90,6 @@ Describe 'install.ps1' {
         (Join-Path $staging 'keymap-overlay.exe') | Should -Exist
         (Join-Path $staging 'keymap-overlay-generator.exe') | Should -Not -Exist
         (Join-Path $staging 'GENERATOR-THIRD-PARTY-LICENSES.html') | Should -Not -Exist
-        (Join-Path $staging 'keyboards\1\config.json') | Should -Exist
         (Join-Path $staging 'LICENSE') | Should -Exist
         (Join-Path $staging 'THIRD-PARTY-LICENSES.html') | Should -Exist
         (Join-Path $staging 'release-install.ps1') | Should -Exist
@@ -123,22 +119,23 @@ Describe 'install.ps1' {
         $licensePath | Should -Not -Exist
         $thirdPartyLicensesPath | Should -Not -Exist
         $installerPath | Should -Not -Exist
-        (Join-Path $assetDirectory '1.json') | Should -Exist
+        (Join-Path $assetDirectory '1.json') | Should -Not -Exist
         $logDirectory | Should -Exist
     }
 
-    It 'starts without selecting a keyboard configuration' {
+    It 'starts without selecting persistent model input' {
         Mock Set-ItemProperty
         Mock Start-Process
 
         Install-Autostart
 
         Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
-            $Value -eq "`"$binaryPath`" --asset-dir `"$assetDirectory`"" -and
-            $Value -notlike '*--keyboard-config-dir*'
+            $Value -eq "`"$binaryPath`"" -and
+            $Value -notlike '*--asset-dir*' -and $Value -notlike '*--keyboard-config-dir*'
         }
         Should -Invoke Start-Process -Times 1 -ParameterFilter {
             $FilePath -eq $binaryPath -and
+            ($ArgumentList -join ' ') -notlike '*--asset-dir*' -and
             ($ArgumentList -join ' ') -notlike '*--keyboard-config-dir*'
         }
     }
@@ -181,9 +178,6 @@ Describe 'install.ps1' {
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Value 'new binary'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay-generator.exe') -Value 'new generator'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'GENERATOR-THIRD-PARTY-LICENSES.html') -Value 'new generator notices'
-            New-Item -ItemType Directory -Path (Join-Path $TemporaryDirectory 'keyboards\1') | Out-Null
-            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keyboards\1\config.json') -Value '{}'
-            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keyboards\1\keyboard.json') -Value '{}'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Value 'new license'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Value 'new notices'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Value 'new installer'
@@ -225,9 +219,6 @@ Describe 'install.ps1' {
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Value 'new binary'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay-generator.exe') -Value 'new generator'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'GENERATOR-THIRD-PARTY-LICENSES.html') -Value 'new generator notices'
-            New-Item -ItemType Directory -Path (Join-Path $TemporaryDirectory 'keyboards\1') | Out-Null
-            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keyboards\1\config.json') -Value '{}'
-            Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'keyboards\1\keyboard.json') -Value '{}'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Value 'new license'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Value 'new notices'
             Set-Content -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Value 'new installer'

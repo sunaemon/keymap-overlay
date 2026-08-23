@@ -1,4 +1,3 @@
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
@@ -6,7 +5,6 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using IOPath = System.IO.Path;
 
 namespace KeymapOverlay;
 
@@ -36,9 +34,9 @@ internal sealed class OverlayWindow : Window
     private readonly string? e2eStateFile = Environment.GetEnvironmentVariable("KEYMAP_OVERLAY_E2E_STATE_FILE");
     private nint handle;
 
-    internal OverlayWindow(string assetsDirectory)
+    internal OverlayWindow()
     {
-        models = LoadModels(assetsDirectory);
+        models = LoadModels();
         wakeCallback = WakeUi;
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -65,45 +63,30 @@ internal sealed class OverlayWindow : Window
         }
     }
 
-    private static Dictionary<(byte, byte), OverlayModel> LoadModels(string directory)
+    private static Dictionary<(byte, byte), OverlayModel> LoadModels()
     {
         var result = new Dictionary<(byte, byte), OverlayModel>();
-        string[] paths;
-        try
-        {
-            paths = Directory.EnumerateFiles(directory, "*.json").ToArray();
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        var length = checked((int)NativeMethods.ModelsJsonLength());
+        var pointer = NativeMethods.ModelsJson();
+        if (length == 0 || pointer == nint.Zero)
         {
             return result;
         }
-
-        foreach (var path in paths)
+        var bytes = new byte[length];
+        Marshal.Copy(pointer, bytes, 0, length);
+        var keyboards = JsonSerializer.Deserialize<List<KeyboardModels>>(bytes) ?? [];
+        foreach (var keyboardModels in keyboards)
         {
-            var stem = IOPath.GetFileNameWithoutExtension(path);
-            if (!byte.TryParse(stem, out var keyboard))
+            var keyboard = keyboardModels.KeyboardId;
+            var layers = keyboardModels.Layers;
+            if (layers is null || !layers.TryGetValue(0, out var baseModel) ||
+                !IsValidModel(baseModel, 0) || layers.Any(pair => !IsValidModel(pair.Value, pair.Key)))
             {
                 continue;
             }
-            try
+            foreach (var (layer, model) in layers)
             {
-                var keyboardModels = JsonSerializer.Deserialize<KeyboardModels>(File.ReadAllText(path));
-                var layers = keyboardModels?.Layers;
-                if (keyboardModels is null || keyboardModels.KeyboardId != keyboard || layers is null ||
-                    !layers.TryGetValue(0, out var baseModel) || !IsValidModel(baseModel, 0) ||
-                    layers.Any(pair => !IsValidModel(pair.Value, pair.Key)))
-                {
-                    continue;
-                }
-                foreach (var (layer, model) in layers)
-                {
-                    result[(keyboard, layer)] = model!;
-                }
-            }
-            catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException)
-            {
-                // A bad model is unavailable just like a missing one; other
-                // installed keyboards remain usable.
+                result[(keyboard, layer)] = model!;
             }
         }
         return result;

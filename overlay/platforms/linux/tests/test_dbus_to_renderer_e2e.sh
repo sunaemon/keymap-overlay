@@ -2,7 +2,6 @@
 set -eu
 
 PROJECT_DIRECTORY=$(CDPATH='' cd -- "$(dirname "$0")/../../../.." && pwd)
-ASSET_DIRECTORY="$PROJECT_DIRECTORY/overlay/tests/fixtures"
 GOLDEN_IMAGE="$PROJECT_DIRECTORY/overlay/platforms/linux/tests/fixtures/qt-overlay.png"
 DAEMON=${KEYMAP_OVERLAY_E2E_DAEMON:-"$PROJECT_DIRECTORY/target/release/keymap-overlay"}
 RENDERER=${KEYMAP_OVERLAY_E2E_RENDERER:-"$PROJECT_DIRECTORY/target/release/keymap-overlay-qt"}
@@ -61,7 +60,7 @@ wait_for_state() {
   fail "timed out waiting for $description; last state: $state"
 }
 
-"$DAEMON" --asset-dir "$ASSET_DIRECTORY" --simulate 1:2 \
+"$DAEMON" --simulate 1:2 \
   >"$TEST_DIRECTORY/daemon.log" 2>&1 &
 DAEMON_PID=$!
 

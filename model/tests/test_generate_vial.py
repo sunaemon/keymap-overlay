@@ -42,6 +42,25 @@ def test_generate_vial_embeds_custom_keycodes_from_keymap_c(tmp_path: Path) -> N
     ]
 
 
+def test_generate_vial_embeds_self_describing_overlay_metadata(tmp_path: Path) -> None:
+    config = tmp_path / "config.json"
+    config.write_text('{"qmk_keyboard":"test/keyboard"}', encoding="utf-8")
+
+    vial = generate_vial(
+        DATA_DIR / "keyboard.json",
+        "LAYOUT",
+        keyboard_config=config,
+        keyboard_id=7,
+        pixels_per_unit=48,
+    )
+
+    assert vial.keymapOverlay is not None
+    assert vial.keymapOverlay.keyboardId == 7
+    assert vial.keymapOverlay.layoutName == "LAYOUT"
+    assert vial.keymapOverlay.pixelsPerUnit == 48
+    assert vial.keymapOverlay.keyboard.keyboard_name == "Test Keyboard"
+
+
 def test_generate_vial_accepts_a_keymap_without_custom_keycodes(
     tmp_path: Path,
 ) -> None:

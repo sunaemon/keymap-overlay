@@ -11,12 +11,11 @@ use keymap_overlay_linux_protocol::{
 };
 use keymap_overlay_runtime::{
     LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, PendingTransition,
-    SimulatedLayer, Transition, compose_model, load_model_cache, spawn_layer_event_source,
+    SimulatedLayer, Transition, compose_model, spawn_layer_event_source,
 };
 use log::{info, warn};
 use rustix::event::{PollFd, PollFlags, poll};
 use std::os::fd::AsFd;
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -113,8 +112,7 @@ impl RendererState {
     }
 }
 
-pub(crate) fn run(assets_dir: PathBuf, simulated: Option<SimulatedLayer>) -> Result<()> {
-    let models = load_model_cache(&assets_dir)?;
+pub(crate) fn run(models: ModelCache, simulated: Option<SimulatedLayer>) -> Result<()> {
     // Seed generations with wall time so a renderer can distinguish a daemon
     // restart from an old queued signal without any persistent state.
     let mut state = RendererState::for_process()?;

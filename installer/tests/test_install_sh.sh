@@ -20,11 +20,8 @@ mkdir -p "$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon"
 printf '{}\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/metadata.json"
 printf '// extension fixture\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/extension.js"
 printf '/* stylesheet fixture */\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-overlay@sunaemon/stylesheet.css"
-mkdir -p "$FIXTURE_DIRECTORY/keyboards/1"
-printf '{}\n' >"$FIXTURE_DIRECTORY/keyboards/1/config.json"
-printf '{}\n' >"$FIXTURE_DIRECTORY/keyboards/1/keyboard.json"
 chmod +x "$FIXTURE_DIRECTORY/keymap-overlay" "$FIXTURE_DIRECTORY/keymap-overlay-qt"
-tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay keymap-overlay-qt keyboards gnome-shell LICENSE THIRD-PARTY-LICENSES.html
+tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay keymap-overlay-qt gnome-shell LICENSE THIRD-PARTY-LICENSES.html
 
 for command in awk cat cp dirname find grep gzip id mkdir mktemp mv rm tar; do
   ln -s "$(command -v "$command")" "$FAKE_BIN/$command"
@@ -194,9 +191,9 @@ test_linux_install_and_uninstall() {
   unit="$home/.config/systemd/user/keymap-overlay.service"
   qt_unit="$home/.config/systemd/user/keymap-overlay-qt.service"
   extension="$home/.local/share/gnome-shell/extensions/keymap-overlay@sunaemon"
-  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\" --asset-dir \"$cache\""
-  if grep -F -- '--keyboard-config-dir' "$unit" >/dev/null; then
-    echo 'The systemd unit should not select a keyboard configuration.' >&2
+  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\""
+  if grep -E -- '--(asset-dir|keyboard-config-dir)' "$unit" >/dev/null; then
+    echo 'The systemd unit should not select persistent model input.' >&2
     exit 1
   fi
   # Anchored on the directives: the unit's own comments mention both names.
@@ -224,7 +221,7 @@ test_linux_install_and_uninstall() {
   test ! -e "$unit"
   test ! -e "$qt_unit"
   test ! -e "$extension"
-  test -f "$cache/1.json"
+  test ! -e "$cache"
   test -d "$home/.local/var/log/keymap-overlay"
 }
 
@@ -250,10 +247,8 @@ test_macos_stops_service_before_replacing_binary() {
   test -d "$home/.local/var/log/keymap-overlay"
   plist="$home/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist"
   # The ampersand in the home directory must survive XML escaping.
-  assert_file_contains "$plist" '<string>--asset-dir</string>'
-  assert_file_contains "$plist" 'macos &amp; home/.cache/keymap-overlay'
-  if grep -F -- '--keyboard-config-dir' "$plist" >/dev/null; then
-    echo 'The launchd plist should not select a keyboard configuration.' >&2
+  if grep -E -- '--(asset-dir|keyboard-config-dir)' "$plist" >/dev/null; then
+    echo 'The launchd plist should not select persistent model input.' >&2
     exit 1
   fi
   assert_file_contains "$plist" '<string>--log-out</string>'

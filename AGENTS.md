@@ -54,8 +54,8 @@ from `keymap.c`) and for firmware compile/flash JSON, which is unconditionally
 - `generate_custom_keycodes.py`: Assigns each `custom_keycodes` enum entry its
   numeric value from `keymap.c`, or reads them directly off a device-fetched
   Vial definition — the latter mode is only reachable by invoking this script
-  directly now; `install-assets`/`draw-layers` under `VIAL=true` use the
-  native generator above instead.
+  directly now; `draw-layers` under `VIAL=true` uses the native generator
+  above instead.
 - `generate_overlay_asset.py`: Builds the shared display model and emits JSON
   for all three native renderers, including encoder rotation and push actions,
   under `VIAL=false`. It resolves custom keycode names and preserves
@@ -72,8 +72,8 @@ from `keymap.c`) and for firmware compile/flash JSON, which is unconditionally
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
 - `generate_qmk_keymap_from_vitaly.py`: Converts a VIAL dump back to QMK
-  keymap JSON, only reachable by invoking it directly now — `install-assets`
-  and `draw-layers` skip `$(QMK_KEYMAP_JSON)` entirely under `VIAL=true`, so
+  keymap JSON, only reachable by invoking it directly now — `draw-layers`
+  skips `$(QMK_KEYMAP_JSON)` entirely under `VIAL=true`, so
   this no longer costs a second HID session on that path.
 - `fetch_vial_definition.py`: Reads and decompresses the connected device's
   own embedded Vial definition over Raw HID. Only reachable by invoking it
@@ -181,12 +181,10 @@ make install-udev-rules # Linux only: grant Raw HID access to the login user
 make install-overlay    # Build and install the login service
 ```
 
-`install-overlay` no longer depends on `install-assets` on any platform: the
-running overlay refreshes every connected keyboard model itself at startup
-(Startup Refresh in `docs/design.md`). A disconnected keyboard retains its
-existing cached model. Release archives ship minimal bundled keyboard
-definitions, so release installation does not require
-`install-assets`; that target remains an explicit development/offline tool.
+The running overlay reads every connected keyboard model into memory at
+startup (Startup Refresh in `docs/design.md`). A disconnected keyboard has no
+model until the process is restarted with it connected. Release archives ship
+neither keyboard definitions nor model caches.
 
 `make setup` and everything that installs or starts the overlay dispatch on
 `OS_FAMILY`, derived from `uname -s` at the top of the Makefile — `windows`

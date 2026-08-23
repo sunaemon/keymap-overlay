@@ -263,6 +263,16 @@ class VialCustomKeycode(BaseModelAllow):
     shortName: str = ""
 
 
+class KeymapOverlayMetadata(BaseModel):
+    """Metadata that lets the runtime render this keyboard without host config."""
+
+    keyboardId: int
+    layoutName: str
+    pixelsPerUnit: int
+    keyboard: KeyboardJson
+    config: KeyboardConfig
+
+
 class VialJson(BaseModelAllow):
     name: str
     vendorId: str
@@ -270,6 +280,7 @@ class VialJson(BaseModelAllow):
     matrix: VialMatrix
     layouts: VialLayouts
     customKeycodes: list[VialCustomKeycode] | None = None
+    keymapOverlay: KeymapOverlayMetadata | None = None
 
 
 class VitalyJson(BaseModelAllow):

@@ -74,8 +74,8 @@ def test_windows_source_install_wires_startup_refresh() -> None:
 
     assert "keymap-overlay-generator.exe" not in install.stdout
     assert "no layer JSON models found" not in install.stdout
-    assert 'configs="$(cygpath -w ' in service.stdout
-    assert service.stdout.count("--keyboard-config-dir") == 2
+    assert "--asset-dir" not in service.stdout
+    assert "--keyboard-config-dir" not in service.stdout
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Native Windows HID targets")
@@ -144,49 +144,6 @@ def test_live_asset_target_runs_the_native_generator() -> None:
     assert "cargo run --quiet --package keymap-overlay-generator" in result.stdout
     assert '--keyboard-id "1"' in result.stdout
     assert '--platform "macos"' in result.stdout
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")
-def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
-    """Install one consolidated file and remove stale artifacts in both locations."""
-    build = tmp_path / "build"
-    installed = tmp_path / "installed"
-    build.mkdir()
-    installed.mkdir()
-    # KEYBOARD_ID must name a real firmware/examples/<id> directory (an
-    # unconditional Makefile guard reads its config.json), so this reuses
-    # bundled keyboard 1 rather than an arbitrary id.
-    current = [build / "1_L0.json", build / "1_L1.json"]
-    current[0].write_text('{"layer": 0}', encoding="utf-8")
-    current[1].write_text('{"layer": 1}', encoding="utf-8")
-    # Leftovers from a shrunk layer count and the pre-consolidation format,
-    # which the install step must not resurrect.
-    stale_build = build / "1_L2.json"
-    stale_installed = installed / "1_L2.json"
-    stale_png = installed / "1_L0.png"
-    for path in [stale_build, stale_installed, stale_png]:
-        path.write_text("{}", encoding="utf-8")
-
-    subprocess.run(
-        [
-            MAKE,
-            "_internal_install",
-            "VIAL=false",
-            "KEYBOARD_ID=1",
-            "LAYERS=2",
-            f"ASSET_BUILD_DIR={build}",
-            f"ASSETS={' '.join(map(str, current))}",
-            "RENDER_ASSET_DEPS=",
-            f"KEYMAP_OVERLAY_DIR={installed}",
-            "ASSET_EXTENSION=json",
-            "STALE_ASSET_EXTENSION=png",
-        ],
-        check=True,
-        cwd=Path(__file__).parents[2],
-    )
-
-    assert sorted(path.name for path in installed.iterdir()) == ["1.json"]
-    assert not stale_build.exists()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")

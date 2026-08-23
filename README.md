@@ -39,14 +39,14 @@ or Windows.
 Installation has two parts:
 
 1. Build QMK firmware that reports momentary layer changes over Raw HID.
-2. Install the released native overlay and its login service. The overlay reads
-   the connected keyboard and refreshes its layer models at startup.
+2. Install the released native overlay and its login service. At startup the
+   overlay reads each connected keyboard's Vial definition and keymap directly
+   into memory.
 
 Firmware comes from this source checkout. The native overlay comes from GitHub
 Releases, so a normal installation does not compile Rust locally. Release
-archives contain the executable, minimal definitions for the bundled keyboards,
-MIT license, and third-party notices; generated
-layer models remain a local cache.
+archives contain the executable, MIT license, and third-party notices. Keyboard
+definitions and generated layer models are not installed on the host.
 
 See [docs/design.md](docs/design.md) for the Raw HID protocol, data flow, layer
 composition rules, and native window design.
@@ -77,7 +77,7 @@ tested matrix. Cinnamon does not load the GNOME extension.
 | `2` | `doio/kb16/rev2`             | hold `MO(3)` (bottom left), then press `1`  |
 
 Each directory under `firmware/examples/` is named with its `KEYBOARD_ID`. The ID is
-compiled into firmware and used as the layer-model filename prefix; it must be
+compiled into firmware and used to match Raw HID events to in-memory models; it must be
 an integer from 0 through 255. Other keyboards require a small configuration;
 see [Custom Keyboard Configuration](docs/custom-keyboards.md).
 
@@ -150,8 +150,7 @@ connected for the first start. When authenticated GitHub CLI is available, it
 also verifies the artifact attestation.
 
 On macOS and Linux the executable is installed to `~/.local/bin/keymap-overlay`,
-with the Qt renderer beside it, while the generated layer models stay in
-`~/.cache/keymap-overlay`. The login service names the binary by absolute path,
+with the Qt renderer beside it. The login service names the binary by absolute path,
 so it works whether or not `~/.local/bin` is on your `PATH`; drop the directory
 prefix below once it is. Its license terms are built in:
 
@@ -317,17 +316,16 @@ powershell.exe -ExecutionPolicy Bypass -File install.ps1
 ```
 
 Review the script before running the final command. It verifies the release,
-installs the executable and bundled keyboard definitions under
-`%LOCALAPPDATA%\Programs\keymap-overlay`, registers the current user's
-`KeymapOverlay` Run value, and starts the overlay. Keep the keyboard connected
-for the first start; models are cached under `%LOCALAPPDATA%\keymap-overlay`.
+installs the executable under `%LOCALAPPDATA%\Programs\keymap-overlay`, registers
+the current user's `KeymapOverlay` Run value, and starts the overlay. Keep the
+keyboard connected while the overlay runs.
 
 ## Everyday Operations
 
 ### Update a keymap
 
-Edit `keymap.c`, flash it, then restart the overlay so it refreshes the layer
-models from the connected keyboard:
+Edit `keymap.c`, flash it, then restart the overlay so it rereads the connected
+keyboard into memory:
 
 ```bash
 git pull
@@ -356,10 +354,8 @@ On Windows PowerShell:
 
 ```powershell
 Get-Process keymap-overlay -ErrorAction SilentlyContinue | Stop-Process
-$models = "$env:LOCALAPPDATA\keymap-overlay"
 $exe = "$env:LOCALAPPDATA\Programs\keymap-overlay\keymap-overlay.exe"
-$keyboards = "$env:LOCALAPPDATA\Programs\keymap-overlay\keyboards"
-Start-Process $exe -ArgumentList "--asset-dir", "`"$models`"", "--keyboard-config-dir", "`"$keyboards`""
+Start-Process $exe
 ```
 
 ### Upgrade the released overlay
@@ -413,8 +409,8 @@ sh ~/.config/keymap-overlay/install.sh --uninstall
 powershell.exe -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\keymap-overlay\install.ps1" -Uninstall
 ```
 
-Uninstalling removes the executables, bundled keyboard definitions, license
-notices, and login entry. Layer models and rotated logs are retained.
+Uninstalling removes the executables, license notices, login entry, and any
+legacy model cache. Rotated logs are retained.
 
 ## VIAL Keymaps
 
@@ -422,11 +418,11 @@ The installed overlay reads the keymap currently stored in the connected
 keyboard's VIAL EEPROM at startup—including edits made live in the Vial app,
 not just what `keymap.c` last compiled to. Restart it after making live edits.
 For development, `make draw-layers` performs the same connected-device read.
-To install a model rendered straight from `keymap.c`, with no keyboard
+To inspect a model rendered straight from `keymap.c`, with no keyboard
 connected, use the explicit offline path:
 
 ```bash
-make install-assets VIAL=false
+make draw-layers VIAL=false
 ```
 
 To make `keymap.c` the keyboard's live keymap, use `make flash`; the firmware's
@@ -480,9 +476,8 @@ make run-overlay SIMULATE=1:2
 ```
 
 This shows keyboard 1 layer 2 for two seconds, hides it for one second, and
-repeats until interrupted. Simulation replaces Raw HID input for that process,
-so it also works on a machine with no supported keyboard attached. A model must
-already exist in the cache; a normal connected-keyboard startup creates it.
+repeats until interrupted. Simulation replaces Raw HID input and supplies an
+in-memory test model, so it works without a supported keyboard attached.
 
 ### Windows with MSYS2 UCRT64
 
@@ -563,10 +558,9 @@ The pairs must be `x86_64-pc-windows-msvc` with `win-x64`, or
 above includes both x64 and ARM64 C++ tools so either native build has the MSVC
 linker and Windows SDK it needs.
 
-`make install-overlay` refreshes layer models from every connected Vial
-keyboard at startup, in the overlay process. If a keyboard is unavailable, its
-existing cached model is retained and refresh is retried the next time the
-overlay starts. `VIAL=false` rendering still needs QMK in WSL.
+`make install-overlay` reads every connected self-describing Vial keyboard into
+memory at startup. Disconnected keyboards have no model until the overlay is
+restarted with them connected. `VIAL=false` rendering still needs QMK in WSL.
 
 After changing the Windows bridge, also run:
 

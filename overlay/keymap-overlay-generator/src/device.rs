@@ -1,7 +1,7 @@
 use crate::custom_keycodes::{CustomKeycode, custom_keycode_labels, parse_custom_keycodes};
 use crate::labels::Platform;
 use crate::model::{LayerSource, build_layer_model};
-use crate::types::{KeyboardConfig, KeyboardJson, KeyboardModels};
+use crate::types::{KeyboardConfig, KeyboardJson, KeyboardModels, KeymapOverlayMetadata};
 use crate::vial;
 use anyhow::{Context, Result, bail};
 use hidapi::{HidApi, HidDevice};
@@ -50,6 +50,54 @@ pub fn read_keyboard_models(
     pixels_per_unit: i64,
 ) -> Result<KeyboardModels> {
     let device_model = vial::read_device_model(dev, keyboard.encoder_count())?;
+    build_keyboard_models(
+        device_model,
+        keyboard,
+        config,
+        layout_name,
+        keyboard_id,
+        platform,
+        pixels_per_unit,
+    )
+}
+
+/// Builds models using only metadata and dynamic state embedded in one device.
+pub fn read_self_describing_keyboard_models(
+    dev: &HidDevice,
+    platform: Platform,
+) -> Result<Option<KeyboardModels>> {
+    let definition = vial::read_device_definition(dev)?;
+    let Some(metadata) = definition.get("keymapOverlay").cloned() else {
+        return Ok(None);
+    };
+    let metadata: KeymapOverlayMetadata = serde_json::from_value(metadata)
+        .context("Invalid keymapOverlay metadata in the device's Vial definition")?;
+    let device_model = vial::read_device_model_with_definition(
+        dev,
+        definition,
+        metadata.keyboard.encoder_count(),
+    )?;
+    build_keyboard_models(
+        device_model,
+        &metadata.keyboard,
+        &metadata.config,
+        &metadata.layout_name,
+        metadata.keyboard_id,
+        platform,
+        metadata.pixels_per_unit,
+    )
+    .map(Some)
+}
+
+fn build_keyboard_models(
+    device_model: vial::DeviceModel,
+    keyboard: &KeyboardJson,
+    config: &KeyboardConfig,
+    layout_name: &str,
+    keyboard_id: u8,
+    platform: Platform,
+    pixels_per_unit: i64,
+) -> Result<KeyboardModels> {
     let rows = device_model.matrix_rows;
     let cols = device_model.matrix_cols;
     let custom_keycodes = parse_custom_keycodes(&device_model.vial_definition)?;

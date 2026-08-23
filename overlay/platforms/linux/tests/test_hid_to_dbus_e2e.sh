@@ -2,7 +2,6 @@
 set -eu
 
 PROJECT_DIRECTORY=$(CDPATH='' cd -- "$(dirname "$0")/../../../.." && pwd)
-ASSET_DIRECTORY="$PROJECT_DIRECTORY/overlay/tests/fixtures"
 DAEMON=${KEYMAP_OVERLAY_E2E_DAEMON:-"$PROJECT_DIRECTORY/target/release/keymap-overlay"}
 VIRTUAL_HID=${KEYMAP_OVERLAY_E2E_VIRTUAL_HID:-"$PROJECT_DIRECTORY/target/virtual-raw-hid"}
 TEST_DIRECTORY=$(mktemp -d)
@@ -101,7 +100,7 @@ while ! virtual_hid_node_exists; do
   sleep 0.05
 done
 
-"$DAEMON" --asset-dir "$ASSET_DIRECTORY" \
+KEYMAP_OVERLAY_E2E_MODEL=1:2 "$DAEMON" \
   >"$TEST_DIRECTORY/daemon.log" 2>&1 &
 DAEMON_PID=$!
 

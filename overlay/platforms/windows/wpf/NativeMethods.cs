@@ -18,6 +18,12 @@ internal static class NativeMethods
     [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_prepare")]
     internal static extern int Prepare();
 
+    [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_models_json_length")]
+    internal static extern nuint ModelsJsonLength();
+
+    [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_models_json")]
+    internal static extern nint ModelsJson();
+
     [DllImport("keymap_overlay_windows_bridge", EntryPoint = "keymap_overlay_start")]
     internal static extern int Start(WakeCallback wake);
 

@@ -1,4 +1,3 @@
-using System.IO;
 using System.Windows;
 
 namespace KeymapOverlay;
@@ -12,20 +11,11 @@ public partial class App : Application
         try
         {
             var options = ParseArguments(e.Args);
-            var assetsDirectory = options.AssetsDirectory
-                // Local rather than roaming: the models are generated and describe
-                // one machine.
-                ?? Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.LocalApplicationData,
-                        Environment.SpecialFolderOption.Create),
-                    "keymap-overlay");
-
-            if (options.KeyboardConfigDirectory is not null && NativeMethods.Prepare() != 0)
+            if (NativeMethods.Prepare() != 0)
             {
-                throw new InvalidOperationException("Rust model refresh failed to start.");
+                throw new InvalidOperationException("Vial model loading failed.");
             }
-            var window = new OverlayWindow(assetsDirectory);
+            var window = new OverlayWindow();
             MainWindow = window;
             window.Show();
             window.StartListener(options.KeyboardId, options.Layer);
@@ -41,15 +31,9 @@ public partial class App : Application
         }
     }
 
-    /// <summary>Parses the model directories and optional simulated layer.</summary>
-    private static (
-        string? AssetsDirectory,
-        string? KeyboardConfigDirectory,
-        byte? KeyboardId,
-        byte? Layer) ParseArguments(string[] arguments)
+    /// <summary>Parses the optional simulated layer.</summary>
+    private static (byte? KeyboardId, byte? Layer) ParseArguments(string[] arguments)
     {
-        string? directory = null;
-        string? keyboardConfigDirectory = null;
         byte? keyboardId = null;
         byte? layer = null;
         for (var index = 0; index < arguments.Length; index++)
@@ -61,30 +45,10 @@ public partial class App : Application
                 throw new ArgumentException($"{option} requires a value.");
             }
 
-            if (option == "--asset-dir")
-            {
-                if (directory is not null)
-                {
-                    throw new ArgumentException("--asset-dir may only be specified once.");
-                }
-                directory = arguments[index];
-                continue;
-            }
-
-            if (option == "--keyboard-config-dir")
-            {
-                if (keyboardConfigDirectory is not null)
-                {
-                    throw new ArgumentException("--keyboard-config-dir may only be specified once.");
-                }
-                keyboardConfigDirectory = arguments[index];
-                continue;
-            }
-
             if (option != "--simulate")
             {
                 throw new ArgumentException(
-                    $"Unknown argument '{option}'. Expected --asset-dir PATH, --keyboard-config-dir PATH, or --simulate KEYBOARD_ID:LAYER.");
+                    $"Unknown argument '{option}'. Expected --simulate KEYBOARD_ID:LAYER.");
             }
             if (keyboardId is not null)
             {
@@ -99,6 +63,6 @@ public partial class App : Application
             keyboardId = parsedKeyboardId;
             layer = parsedLayer;
         }
-        return (directory, keyboardConfigDirectory, keyboardId, layer);
+        return (keyboardId, layer);
     }
 }

@@ -60,6 +60,7 @@ function Uninstall-Release {
     Stop-Overlay
     Remove-ItemProperty -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $binaryPath, $generatorPath, $generatorLicensesPath, $licensePath, $thirdPartyLicensesPath, $installerPath -Force -ErrorAction SilentlyContinue
+    Remove-LegacyModels
     Write-Output 'Removed:'
     Write-Output "  binary: $binaryPath"
     Write-Output "  generator: $generatorPath"
@@ -223,16 +224,22 @@ function Install-StagedFiles {
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
     Remove-Item -LiteralPath $generatorPath, $generatorLicensesPath -Force -ErrorAction SilentlyContinue
+    Remove-LegacyModels
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Destination $licensePath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Destination $thirdPartyLicensesPath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Destination $installerPath -Force
 }
 
+function Remove-LegacyModels {
+    Get-ChildItem -LiteralPath $assetDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.BaseName -match '^\d+$' } |
+        Remove-Item -Force
+}
+
 function Install-Autostart {
     $quotedBinary = '"{0}"' -f $binaryPath
-    $quotedAssets = '"{0}"' -f $assetDirectory
-    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary --asset-dir $quotedAssets"
-    Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
+    Set-ItemProperty -Path $runKey -Name $runValue -Value $quotedBinary
+    Start-Process -FilePath $binaryPath
 }
 
 function Restore-Installation {
@@ -258,8 +265,7 @@ function Restore-Installation {
 
 function Restart-PreviousInstallation {
     if (Test-Path -LiteralPath $binaryPath -PathType Leaf) {
-        $quotedAssets = '"{0}"' -f $assetDirectory
-        Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
+        Start-Process -FilePath $binaryPath
     }
 }
 
@@ -272,7 +278,6 @@ function Write-InstalledFiles {
     Write-Output "  third-party licenses: $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
-    Write-Output "Layer model cache: $assetDirectory"
     Write-Output "Logs: $logDirectory"
     Write-Output "Verified release: $ReleaseTag"
 }

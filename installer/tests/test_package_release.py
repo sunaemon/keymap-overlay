@@ -27,8 +27,6 @@ def test_linux_archive_contains_both_renderers_and_gnome_extension(
         "gnome-shell/extension.js",
         "keymap-overlay",
         "keymap-overlay-qt",
-        "keyboards/1/config.json",
-        "keyboards/1/keyboard.json",
     }
 
 
@@ -54,8 +52,6 @@ def test_macos_archive_contains_the_native_overlay(tmp_path: Path) -> None:
         "THIRD-PARTY-LICENSES.html",
         "example/LICENSE",
         "keymap-overlay",
-        "keyboards/1/config.json",
-        "keyboards/1/keyboard.json",
     }
 
 
@@ -83,8 +79,6 @@ def test_windows_archive_contains_wpf_and_dotnet_licenses(tmp_path: Path) -> Non
         "dotnet-wpf-10.0.0-THIRD-PARTY-NOTICES.txt",
         "example/LICENSE",
         "keymap-overlay.exe",
-        "keyboards/1/config.json",
-        "keyboards/1/keyboard.json",
     }
 
 

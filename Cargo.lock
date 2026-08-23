@@ -835,7 +835,10 @@ dependencies = [
 name = "keymap-overlay-windows-bridge"
 version = "0.0.7"
 dependencies = [
+ "anyhow",
  "keymap-overlay-runtime",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
