@@ -12,7 +12,6 @@ STATE_DIRECTORY="${HOME}/.config/keymap-overlay"
 BIN_DIRECTORY="${HOME}/.local/bin"
 BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay"
 GENERATOR_PATH="${BIN_DIRECTORY}/keymap-overlay-generator"
-KEYBOARD_CONFIG_DIRECTORY="${STATE_DIRECTORY}/keyboards"
 GENERATOR_LICENSE_PATH="${STATE_DIRECTORY}/GENERATOR-THIRD-PARTY-LICENSES.html"
 QT_BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay-qt"
 INSTALLER_PATH="${STATE_DIRECTORY}/install.sh"
@@ -67,13 +66,10 @@ uninstall_release() {
   stop_and_remove_service
   "$platform_file_uninstaller"
   rm -f "$BINARY_PATH" "$GENERATOR_PATH" "$GENERATOR_LICENSE_PATH" "$INSTALLER_PATH"
-  rm -rf "$KEYBOARD_CONFIG_DIRECTORY"
-
   echo 'Removed:'
   echo "  binary: ${BINARY_PATH}"
   echo "  generator: ${GENERATOR_PATH}"
   echo "  generator licenses: ${GENERATOR_LICENSE_PATH}"
-  echo "  keyboard configs: ${KEYBOARD_CONFIG_DIRECTORY}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
@@ -168,27 +164,7 @@ stage_release() {
       exit 1
     fi
   done
-  validate_staged_keyboard_configs
   "$platform_staged_validator"
-}
-
-validate_staged_keyboard_configs() {
-  found=false
-  for config in "${temporary_directory}"/keyboards/[0-9]*/config.json; do
-    if [ ! -f "$config" ]; then
-      continue
-    fi
-    keyboard_directory=${config%/config.json}
-    if [ ! -f "${keyboard_directory}/keyboard.json" ]; then
-      echo "ERROR: ${asset_name} has no keyboard.json beside ${config}." >&2
-      exit 1
-    fi
-    found=true
-  done
-  if [ "$found" = false ]; then
-    echo "ERROR: ${asset_name} does not contain keyboard configurations." >&2
-    exit 1
-  fi
 }
 
 validate_no_extra_staged_files() {
@@ -251,7 +227,6 @@ backup_installation() {
   backup_file "$GENERATOR_LICENSE_PATH" generator-license
   backup_file "$INSTALLER_PATH" installer
   backup_file "$service_path" service
-  backup_directory "$KEYBOARD_CONFIG_DIRECTORY" keyboards
   "$platform_file_backupper"
 }
 
@@ -310,8 +285,6 @@ stop_service() {
 install_staged_files() {
   install -m 755 "${temporary_directory}/keymap-overlay" "$BINARY_PATH" &&
     rm -f "$GENERATOR_PATH" "$GENERATOR_LICENSE_PATH" &&
-    rm -rf "$KEYBOARD_CONFIG_DIRECTORY" &&
-    cp -pR "${temporary_directory}/keyboards" "$KEYBOARD_CONFIG_DIRECTORY" &&
     install -m 755 "$staged_installer" "$INSTALLER_PATH" &&
     "$platform_file_installer"
 }
@@ -341,7 +314,6 @@ restore_installation() {
   restore_file "$GENERATOR_LICENSE_PATH" generator-license
   restore_file "$INSTALLER_PATH" installer
   restore_file "$service_path" service
-  restore_directory "$KEYBOARD_CONFIG_DIRECTORY" keyboards
   "$platform_file_restorer"
 }
 
@@ -397,7 +369,6 @@ install_macos_service() {
   label='com.sunaemon.keymap-overlay'
   binary_xml="$(xml_escape "$BINARY_PATH")"
   assets_xml="$(xml_escape "$CACHE_DIRECTORY")"
-  keyboards_xml="$(xml_escape "$KEYBOARD_CONFIG_DIRECTORY")"
   log_xml="$(xml_escape "${LOG_DIRECTORY}/overlay.log")"
   mkdir -p "$(dirname "$service_path")" || return
   cat >"${service_path}.tmp" <<EOF
@@ -412,8 +383,6 @@ install_macos_service() {
     <string>${binary_xml}</string>
     <string>--asset-dir</string>
     <string>${assets_xml}</string>
-    <string>--keyboard-config-dir</string>
-    <string>${keyboards_xml}</string>
     <string>--log-out</string>
     <string>${log_xml}</string>
   </array>
@@ -455,7 +424,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart="${BINARY_PATH}" --asset-dir "${CACHE_DIRECTORY}" --keyboard-config-dir "${KEYBOARD_CONFIG_DIRECTORY}"
+ExecStart="${BINARY_PATH}" --asset-dir "${CACHE_DIRECTORY}"
 # The log is left on stderr for journald, which timestamps, rotates and retains
 # it: journalctl --user -u keymap-overlay
 SyslogIdentifier=keymap-overlay
@@ -564,7 +533,6 @@ print_linux_files() {
 print_installed_files() {
   echo 'Installed:'
   echo "  binary: ${BINARY_PATH}"
-  echo "  keyboard configs: ${KEYBOARD_CONFIG_DIRECTORY}"
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
