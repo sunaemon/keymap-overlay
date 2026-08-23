@@ -1,6 +1,6 @@
 [package]
 name = "keymap-overlay-generator"
-version = "0.0.5"
+version.workspace = true
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/sunaemon/keymap-overlay"
