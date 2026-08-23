@@ -21,9 +21,9 @@ There are four parts:
 
 1. **Display model tooling** (`model/`) that builds the shared display model
    under `VIAL=false` and pushes keymaps to VIAL devices for flashing.
-2. **Native asset generator** (`overlay/keymap-overlay-generator`) that builds
-   the same display model under `VIAL=true` (the default), reading a
-   connected device directly — no Python involved on this path.
+2. **Native display-model library** (`overlay/keymap-overlay-generator`) that
+   the runtime links under `VIAL=true` (the default), reading a connected
+   device directly — no Python involved on this path.
 3. **Native overlay** (`overlay/`) that implements the Raw HID protocol,
    native macOS window, Linux D-Bus daemon and
    Qt client, and Windows bridge.
@@ -33,22 +33,15 @@ There are four parts:
 
 ### 1. Native Display Model Generation (`overlay/keymap-overlay-generator`)
 
-The default (`VIAL=true`) `install-assets`/`draw-layers` path. A standalone
-Cargo workspace, not a root workspace member — see its `Cargo.toml` for why
-(hidapi feature isolation from the platform overlay crates). Depends on
-`vitaly` as a Rust library (not its CLI): `vitaly::protocol::load_vial_meta`
-and `load_layers_keys` read the device's embedded Vial definition and dynamic
-keymap directly, in one HID session, replacing what `fetch_vial_definition.py`
-and `vitaly save` + `generate_qmk_keymap_from_vitaly.py` did over two separate
-device connections. `vitaly::keycodes::is_custom` resolves a raw keycode to
-its custom-keycode index directly, avoiding the string round-trip through
-vitaly's generic `QK_KB_<n>` naming that `model/src/util.py`'s
-`parse_qk_kb_keycode` works around on the Python path. `model.rs` is a
-line-for-line port of `generate_overlay_asset.py`'s geometry/label logic
-(`labels.rs` mirrors its `KEYCODE_LABELS`/`PLATFORM_KEYCODE_LABELS` tables by
-hand — keep both in sync); `types.rs` mirrors `model/src/types.py`'s
-`keyboard.json`/`config.json` structs. Verified byte-for-byte against the
-Python pipeline's output on real hardware when it was introduced.
+The runtime's default (`VIAL=true`) startup-refresh path. A root Cargo
+workspace member whose library is linked into `keymap-overlay-runtime`; no
+separate generator executable is installed or shipped. Its first-party Vial
+client reads a connected device's embedded Vial definition and dynamic keymap
+in one Raw HID session. `device.rs` resolves custom keycodes directly, while
+`model.rs` mirrors `generate_overlay_asset.py`'s geometry and label logic
+(`labels.rs` mirrors its `KEYCODE_LABELS`/`PLATFORM_KEYCODE_LABELS` tables —
+keep both in sync); `types.rs` mirrors `model/src/types.py`'s
+`keyboard.json`/`config.json` structs.
 
 ### 2. Keymap Data Generation (`model/`)
 
@@ -177,8 +170,7 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
     `fetch_vial_definition.py`'s device queries.
 - **Rust/C++/C#/GJS**: the overlay (AppKit on macOS, WPF on Windows, GNOME
   Shell or Qt Quick plus KDE LayerShellQt on Linux, and `hidapi`), and the
-  native `VIAL=true` display-model generator (`overlay/keymap-overlay-generator`,
-  depending on the `vitaly` crate).
+  native `VIAL=true` display-model library (`overlay/keymap-overlay-generator`).
 - **Makefile**: orchestrates build, installation, and flashing.
 - **mise**: pins every tool version, including formatters and linters.
 - **lefthook**: manages the git hooks declared in `lefthook.yml`.
@@ -197,8 +189,8 @@ make install-overlay    # Build and install the login service
 `install-overlay` no longer depends on `install-assets` on any platform: the
 running overlay refreshes every connected keyboard model itself at startup
 (Startup Refresh in `docs/design.md`). A disconnected keyboard retains its
-existing cached model. Release archives ship the generator and minimal bundled
-keyboard definitions too, so release installation does not require
+existing cached model. Release archives ship minimal bundled keyboard
+definitions, so release installation does not require
 `install-assets`; that target remains an explicit development/offline tool.
 
 `make setup` and everything that installs or starts the overlay dispatch on
@@ -434,9 +426,9 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
 - `overlay/keymap-core/`: Platform-neutral Rust protocol and transition logic.
 - `overlay/keymap-overlay-runtime/`: Library-only shared listener, model
   composition, transitions, command-line handling, and logging.
-- `overlay/keymap-overlay-generator/`: Standalone Cargo workspace (not a root
-  member) that builds the display model natively under `VIAL=true`, reading a
-  connected device via the `vitaly` crate.
+- `overlay/keymap-overlay-generator/`: Rust library that builds the display
+  model natively under `VIAL=true`, reading a connected device through its
+  first-party Vial protocol client.
 - `overlay/platforms/`: Platform-owned protocols, bridges, and native frontends.
 - `firmware/`: First-party QMK integration, local keyboard configurations, and
   vendored firmware dependencies.

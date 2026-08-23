@@ -120,7 +120,7 @@ jobs:
           test "$(mise exec -- rustc -vV | sed -n 's/^host: //p')" = aarch64-apple-darwin
 
       - name: Build release overlay
-        run: make build-overlay _build_generator
+        run: make build-overlay
 
       - name: Package binary and notices
         id: package

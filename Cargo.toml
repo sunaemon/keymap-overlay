@@ -1,8 +1,8 @@
 [workspace]
 members = [
   "overlay/keymap-core",
-  "overlay/keymap-overlay-runtime",
   "overlay/keymap-overlay-generator",
+  "overlay/keymap-overlay-runtime",
   "overlay/platforms/macos/appkit",
   "overlay/platforms/linux/daemon",
   "overlay/platforms/linux/protocol",
