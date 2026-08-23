@@ -84,16 +84,16 @@ internal sealed class OverlayWindow : Window
             try
             {
                 var keyboardModels = JsonSerializer.Deserialize<KeyboardModels>(File.ReadAllText(path));
-                if (keyboardModels is null || keyboardModels.KeyboardId != keyboard || keyboardModels.Layers is null)
+                var layers = keyboardModels?.Layers;
+                if (keyboardModels is null || keyboardModels.KeyboardId != keyboard || layers is null ||
+                    !layers.TryGetValue(0, out var baseModel) || !IsValidModel(baseModel, 0) ||
+                    layers.Any(pair => !IsValidModel(pair.Value, pair.Key)))
                 {
                     continue;
                 }
-                foreach (var (layer, model) in keyboardModels.Layers)
+                foreach (var (layer, model) in layers)
                 {
-                    if (model is not null && (model.Version == 1 || model.Version == 2) && model.Layer == layer)
-                    {
-                        result[(keyboard, layer)] = model;
-                    }
+                    result[(keyboard, layer)] = model!;
                 }
             }
             catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException)
@@ -104,6 +104,19 @@ internal sealed class OverlayWindow : Window
         }
         return result;
     }
+
+    private static bool IsValidModel(OverlayModel? model, byte layer) =>
+        model is not null &&
+        (model.Version == 1 || model.Version == 2) &&
+        model.Layer == layer &&
+        model.Width > 0 && double.IsFinite(model.Width) &&
+        model.Height > 0 && double.IsFinite(model.Height) &&
+        model.Keys is not null && model.Keys.All(key => key is not null && key.Label is not null) &&
+        model.Encoders is not null && model.Encoders.All(encoder =>
+            encoder is not null &&
+            encoder.CounterClockwise is not null &&
+            encoder.Clockwise is not null &&
+            encoder.Press is not null);
 
     private void ConfigureNativeWindow(object? sender, EventArgs args)
     {

@@ -55,8 +55,7 @@ from `keymap.c`) and for firmware compile/flash JSON, which is unconditionally
   numeric value from `keymap.c`, or reads them directly off a device-fetched
   Vial definition — the latter mode is only reachable by invoking this script
   directly now; `install-assets`/`draw-layers` under `VIAL=true` use the
-  native generator above instead, and `flash-keymap` always forces
-  `VIAL=false`.
+  native generator above instead.
 - `generate_overlay_asset.py`: Builds the shared display model and emits JSON
   for all three native renderers, including encoder rotation and push actions,
   under `VIAL=false`. It resolves custom keycode names and preserves
@@ -80,14 +79,10 @@ from `keymap.c`) and for firmware compile/flash JSON, which is unconditionally
   own embedded Vial definition over Raw HID. Only reachable by invoking it
   directly now; useful as a standalone diagnostic for inspecting a device's
   raw Vial meta.
-- `vitaly`: Rust crate (github.com/bskaplou/vitaly) that reads and writes VIAL
-  keymaps over HID; used as an external CLI here, and as a library dependency
-  by `keymap-overlay-generator` above.
 
 Transparency resolution is for **display only**. `KC_TRNS` must survive intact
-on the path that writes to the device, otherwise layers stop inheriting from
-layer 0 in EEPROM. `flash-keymap` and the renderer therefore consume the same
-raw QMK JSON; only the overlay resolves transparency, in memory.
+in the compiled firmware, otherwise layers stop inheriting from layer 0 in
+EEPROM. Only the overlay resolves transparency, in memory.
 
 ### 3. Visualization
 
@@ -219,10 +214,8 @@ It reads `BOOTLOADER` out of `keyboard.json` the same lazy way as `DEVICE_PID`,
 so targets that never flash do not pay for the lookup.
 
 The overlay build shell on Windows is MSYS2 UCRT64, not QMK MSYS, so
-`make compile`, `make flash`, and the QMK-backed
-`make prepare-flash-keymap` deliberately stop there. Native Raw HID operations
-do not: startup refresh reads the device and `make write-keymap` writes an
-already-prepared JSON keymap. This does not
+`make compile`, `make flash`, and other QMK-backed targets deliberately stop
+there. Native Raw HID startup refresh still reads the device. This does not
 prevent manual flashing of an already-built `.uf2`: put the keyboard in its
 bootloader and copy the file onto the mounted `RPI-RP2` volume in Explorer.
 
@@ -345,27 +338,12 @@ a cold build.
 Remove a worktree with `git worktree remove .claude/worktrees/<name>` rather
 than deleting the directory, so its administrative files go too.
 
-### Keymap Flashing (VIAL/Vitaly)
+### Vial EEPROM Ownership
 
-```bash
-make flash-keymap                 # Parse keymap.c and write the keymap to EEPROM
-make flash-keymap DRY_RUN=true    # Resolve and print what would be written, untouched device
-make prepare-flash-keymap         # QMK-only half; generate qmk-keymap.json
-make write-keymap                 # Native HID half; write the prepared JSON
-```
-
-Builds `keymap.c` through `qmk c2json`, then the native
-`keymap-overlay-flash-keymap` binary (`overlay/keymap-overlay-generator`,
-`vitaly` as a library) writes the keymap and encoder bindings straight to the
-device in one HID session — no read-current-state-and-merge round trip, since
-nothing else (macros, RGB, combos) is ever touched. Iterates all keyboards
-unless `KEYBOARD_ID` is set. It always reads `keymap.c`, regardless of
-`VIAL`'s default, and rejects an explicit `VIAL=true`, which would read the
-device and write it straight back. `DRY_RUN=true` resolves and prints the
-layout and encoder layout it would write, without opening a write session —
-use it before ever running this against real hardware for the first time.
-On Windows, run `prepare-flash-keymap` in WSL and `write-keymap` in MSYS2
-UCRT64; `QMK_KEYMAP_JSON` can point at a file copied from another checkout.
+`make flash` compiles with a fresh EEPROM epoch. On first boot after flashing,
+the firmware resets QMK and Vial EEPROM and initializes the dynamic keymap from
+the compiled `keymap.c`. Ordinary restarts retain subsequent Vial edits. The
+runtime only reads Vial state; it never writes the keyboard.
 
 ## Coding Standards
 

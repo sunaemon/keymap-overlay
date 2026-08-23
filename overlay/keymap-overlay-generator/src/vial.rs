@@ -38,12 +38,22 @@ pub struct DeviceModel {
 
 /// Reads one device's Vial metadata, dynamic keymap and encoder bindings.
 pub fn read_device_model(device: &HidDevice, encoder_count: usize) -> Result<DeviceModel> {
-    let _via_version = send_recv(device, &[CMD_VIA_GET_PROTOCOL_VERSION])?[2];
-    let keyboard_id = send_recv(device, &[CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_KEYBOARD_ID])?;
-    if keyboard_id[0] == VIA_UNHANDLED {
+    let via_request = [CMD_VIA_GET_PROTOCOL_VERSION];
+    let via_version = send_recv(device, &via_request)?;
+    if is_unhandled_response(&via_version, &via_request) {
+        bail!("Connected device does not implement the VIA protocol");
+    }
+    let keyboard_id_request = [CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_KEYBOARD_ID];
+    let keyboard_id = send_recv(device, &keyboard_id_request)?;
+    if is_unhandled_response(&keyboard_id, &keyboard_id_request) {
         bail!("Connected device does not implement the Vial protocol");
     }
-    let layer_count = send_recv(device, &[CMD_VIA_GET_LAYER_COUNT])?[1];
+    let layer_count_request = [CMD_VIA_GET_LAYER_COUNT];
+    let layer_count_response = send_recv(device, &layer_count_request)?;
+    if is_unhandled_response(&layer_count_response, &layer_count_request) {
+        bail!("Device does not expose a Vial layer count");
+    }
+    let layer_count = layer_count_response[1];
     if layer_count == 0 {
         bail!("Device reports zero Vial layers");
     }
@@ -79,11 +89,14 @@ fn matrix_dimension(matrix: &Value, name: &str) -> Result<u8> {
 }
 
 fn read_definition(device: &HidDevice) -> Result<Value> {
-    let size = send_recv(device, &[CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_SIZE])?;
-    if size[0] == VIA_UNHANDLED {
-        bail!("Device does not expose a Vial definition");
+    // This Vial command returns a raw little-endian size with no status byte.
+    // A valid size can therefore begin with 0xFF; the keyboard-id handshake
+    // above is what establishes that the device supports Vial.
+    let size_response = send_recv(device, &[CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_SIZE])?;
+    let size = definition_size(&size_response);
+    if size == 0 {
+        bail!("Device reports an empty Vial definition");
     }
-    let size = u32::from_le_bytes([size[0], size[1], size[2], size[3]]) as usize;
     if size > MAX_COMPRESSED_DEFINITION_BYTES {
         bail!(
             "Device Vial definition is {size} bytes, exceeding the {MAX_COMPRESSED_DEFINITION_BYTES}-byte compressed limit"
@@ -126,16 +139,14 @@ fn read_keycodes(device: &HidDevice, layers: u8, rows: u8, cols: u8) -> Result<V
     let mut offset = 0_usize;
     while offset < size {
         let chunk = min(size - offset, BUFFER_FETCH_CHUNK);
-        let response = send_recv(
-            device,
-            &[
-                CMD_VIA_KEYMAP_GET_BUFFER,
-                (offset >> 8) as u8,
-                offset as u8,
-                chunk as u8,
-            ],
-        )?;
-        if response[0] == VIA_UNHANDLED {
+        let request = [
+            CMD_VIA_KEYMAP_GET_BUFFER,
+            (offset >> 8) as u8,
+            offset as u8,
+            chunk as u8,
+        ];
+        let response = send_recv(device, &request)?;
+        if is_unhandled_response(&response, &request) {
             bail!("Device rejected Vial keymap read at byte offset {offset}");
         }
         bytes.extend_from_slice(&response[4..4 + chunk]);
@@ -162,24 +173,42 @@ fn keymap_byte_len(layers: u8, rows: u8, cols: u8) -> Result<usize> {
 fn read_encoders(device: &HidDevice, layer: u8, count: usize) -> Result<Vec<[u16; 2]>> {
     (0..count)
         .map(|index| {
-            let response = send_recv(
-                device,
-                &[
-                    CMD_VIA_VIAL_PREFIX,
-                    CMD_VIAL_GET_ENCODER,
-                    layer,
-                    index as u8,
-                ],
-            )?;
-            if response[0] == VIA_UNHANDLED {
+            let request = [
+                CMD_VIA_VIAL_PREFIX,
+                CMD_VIAL_GET_ENCODER,
+                layer,
+                index as u8,
+            ];
+            let response = send_recv(device, &request)?;
+            if is_unhandled_response(&response, &request)
+                || response_matches_request(&response, &request)
+            {
                 bail!("Device rejected Vial encoder read for layer {layer}, encoder {index}");
             }
-            Ok([
-                u16::from_be_bytes([response[0], response[1]]),
-                u16::from_be_bytes([response[2], response[3]]),
-            ])
+            Ok(decode_encoder_response(&response))
         })
         .collect()
+}
+
+fn definition_size(response: &[u8; MESSAGE_LENGTH]) -> usize {
+    u32::from_le_bytes([response[0], response[1], response[2], response[3]]) as usize
+}
+
+fn decode_encoder_response(response: &[u8; MESSAGE_LENGTH]) -> [u16; 2] {
+    [
+        u16::from_be_bytes([response[0], response[1]]),
+        u16::from_be_bytes([response[2], response[3]]),
+    ]
+}
+
+fn is_unhandled_response(response: &[u8; MESSAGE_LENGTH], request: &[u8]) -> bool {
+    response[0] == VIA_UNHANDLED
+        && response[1..request.len()] == request[1..]
+        && response[request.len()..].iter().all(|byte| *byte == 0)
+}
+
+fn response_matches_request(response: &[u8; MESSAGE_LENGTH], request: &[u8]) -> bool {
+    response[..request.len()] == *request && response[request.len()..].iter().all(|byte| *byte == 0)
 }
 
 fn send_recv(device: &HidDevice, request: &[u8]) -> Result<[u8; MESSAGE_LENGTH]> {
@@ -227,5 +256,40 @@ mod tests {
     #[test]
     fn rejects_keymaps_that_exceed_the_vial_buffer_range() {
         assert!(keymap_byte_len(u8::MAX, u8::MAX, u8::MAX).is_err());
+    }
+
+    #[test]
+    fn definition_size_can_legitimately_start_with_the_unhandled_byte() {
+        let mut response = [0; MESSAGE_LENGTH];
+        response[..4].copy_from_slice(&[0xFF, 0x01, 0x00, 0x00]);
+        assert_eq!(definition_size(&response), 511);
+    }
+
+    #[test]
+    fn encoder_keycodes_can_legitimately_start_with_the_unhandled_byte() {
+        let mut response = [0; MESSAGE_LENGTH];
+        response[..4].copy_from_slice(&[0xFF, 0x01, 0xFF, 0x02]);
+        assert_eq!(decode_encoder_response(&response), [0xFF01, 0xFF02]);
+    }
+
+    #[test]
+    fn distinguishes_an_unhandled_response_from_a_valid_ff_payload() {
+        let request = [CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_ENCODER, 2, 1];
+        let mut unhandled = [0; MESSAGE_LENGTH];
+        unhandled[..request.len()].copy_from_slice(&request);
+        unhandled[0] = VIA_UNHANDLED;
+        assert!(is_unhandled_response(&unhandled, &request));
+
+        let mut payload = [0; MESSAGE_LENGTH];
+        payload[..4].copy_from_slice(&[0xFF, 0x01, 0xFF, 0x02]);
+        assert!(!is_unhandled_response(&payload, &request));
+    }
+
+    #[test]
+    fn detects_an_encoder_request_the_firmware_left_unchanged() {
+        let request = [CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_ENCODER, 2, 1];
+        let mut response = [0; MESSAGE_LENGTH];
+        response[..request.len()].copy_from_slice(&request);
+        assert!(response_matches_request(&response, &request));
     }
 }

@@ -123,6 +123,30 @@ def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")
+def test_live_asset_target_runs_the_native_generator() -> None:
+    """Keep the default Vial draw path usable as an explicit development task."""
+    result = subprocess.run(
+        [
+            MAKE,
+            "-Bn",
+            "build/1/assets/macos/1.json",
+            "KEYBOARD_ID=1",
+            "VIAL=true",
+            "OVERLAY_PLATFORM=macos",
+            "CARGO=cargo",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parents[2],
+    )
+
+    assert "cargo run --quiet --package keymap-overlay-generator" in result.stdout
+    assert '--keyboard-id "1"' in result.stdout
+    assert '--platform "macos"' in result.stdout
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")
 def test_install_assets_prunes_removed_layers(tmp_path: Path) -> None:
     """Install one consolidated file and remove stale artifacts in both locations."""
     build = tmp_path / "build"
