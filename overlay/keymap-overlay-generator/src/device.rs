@@ -244,9 +244,68 @@ fn standard_keycode_name(raw: u16) -> String {
         0x00E5 => "KC_RSFT".to_string(),
         0x00E6 => "KC_RALT".to_string(),
         0x00E7 => "KC_RGUI".to_string(),
+        0x0100..=0x1FFF => modified_keycode_name(raw),
+        0x2000..=0x3FFF => format!(
+            "MT({},{})",
+            modifier_name(((raw >> 8) & 0x1F) as u8),
+            standard_keycode_name(raw & 0x00FF)
+        ),
+        0x4000..=0x4FFF => format!(
+            "LT({},{})",
+            (raw >> 8) & 0x000F,
+            standard_keycode_name(raw & 0x00FF)
+        ),
+        0x5000..=0x51FF => format!(
+            "LM({},{})",
+            (raw >> 5) & 0x000F,
+            modifier_name((raw & 0x001F) as u8)
+        ),
+        0x5200..=0x521F => format!("TO({})", raw & 0x001F),
         0x5220..=0x523F => format!("MO({})", raw & 0x001F),
+        0x5240..=0x525F => format!("DF({})", raw & 0x001F),
+        0x5260..=0x527F => format!("TG({})", raw & 0x001F),
+        0x5280..=0x529F => format!("OSL({})", raw & 0x001F),
+        0x52A0..=0x52BF => format!("OSM({})", modifier_name((raw & 0x001F) as u8)),
+        0x52C0..=0x52DF => format!("TT({})", raw & 0x001F),
+        0x52E0..=0x52FF => format!("PDF({})", raw & 0x001F),
+        0x5700..=0x57FF => format!("TD({})", raw & 0x00FF),
         0x7C00 => "QK_BOOT".to_string(),
         _ => format!("0x{raw:04X}"),
+    }
+}
+
+fn modified_keycode_name(raw: u16) -> String {
+    let keycode = standard_keycode_name(raw & 0x00FF);
+    match ((raw >> 8) & 0x1F) as u8 {
+        0x01 => format!("LCTL({keycode})"),
+        0x02 => format!("LSFT({keycode})"),
+        0x04 => format!("LALT({keycode})"),
+        0x08 => format!("LGUI({keycode})"),
+        0x11 => format!("RCTL({keycode})"),
+        0x12 => format!("RSFT({keycode})"),
+        0x14 => format!("RALT({keycode})"),
+        0x18 => format!("RGUI({keycode})"),
+        modifiers => format!("QK_MODS({},{keycode})", modifier_name(modifiers)),
+    }
+}
+
+fn modifier_name(modifiers: u8) -> String {
+    let right = modifiers & 0x10 != 0;
+    let mut names = Vec::new();
+    for (bit, left_name, right_name) in [
+        (0x01, "MOD_LCTL", "MOD_RCTL"),
+        (0x02, "MOD_LSFT", "MOD_RSFT"),
+        (0x04, "MOD_LALT", "MOD_RALT"),
+        (0x08, "MOD_LGUI", "MOD_RGUI"),
+    ] {
+        if modifiers & bit != 0 {
+            names.push(if right { right_name } else { left_name });
+        }
+    }
+    if names.is_empty() {
+        "KC_NO".to_string()
+    } else {
+        names.join("|")
     }
 }
 
@@ -296,6 +355,26 @@ mod tests {
     fn standard_modifier_names_match_the_platform_label_table() {
         assert_eq!(resolve_keycode(0x00E3, &[]), "KC_LGUI");
         assert_eq!(resolve_keycode(0x00E7, &[]), "KC_RGUI");
+    }
+
+    #[test]
+    fn encoded_qmk_keycode_families_keep_their_semantics() {
+        assert_eq!(resolve_keycode(0x5202, &[]), "TO(2)");
+        assert_eq!(resolve_keycode(0x5243, &[]), "DF(3)");
+        assert_eq!(resolve_keycode(0x5264, &[]), "TG(4)");
+        assert_eq!(resolve_keycode(0x5285, &[]), "OSL(5)");
+        assert_eq!(resolve_keycode(0x52C6, &[]), "TT(6)");
+        assert_eq!(resolve_keycode(0x52E7, &[]), "PDF(7)");
+        assert_eq!(resolve_keycode(0x5709, &[]), "TD(9)");
+    }
+
+    #[test]
+    fn tap_and_modifier_keycodes_include_their_arguments() {
+        assert_eq!(resolve_keycode(0x4104, &[]), "LT(1,KC_A)");
+        assert_eq!(resolve_keycode(0x2204, &[]), "MT(MOD_LSFT,KC_A)");
+        assert_eq!(resolve_keycode(0x0204, &[]), "LSFT(KC_A)");
+        assert_eq!(resolve_keycode(0x5062, &[]), "LM(3,MOD_LSFT)");
+        assert_eq!(resolve_keycode(0x52A2, &[]), "OSM(MOD_LSFT)");
     }
 
     #[test]

@@ -333,23 +333,13 @@ models from the connected keyboard:
 git pull
 make setup-firmware
 make flash KEYBOARD_ID=<keyboard-id>
-make flash-keymap KEYBOARD_ID=<keyboard-id>
 ```
 
-On Windows, build and flash the firmware in WSL. To update EEPROM from
-`keymap.c`, split source preparation from the native HID write:
-
-```bash
-# WSL (from the same checkout, or copy the generated JSON afterward)
-make prepare-flash-keymap KEYBOARD_ID=<keyboard-id>
-
-# MSYS2 UCRT64
-make write-keymap KEYBOARD_ID=<keyboard-id>
-```
-
-`write-keymap` reads `build/<keyboard-id>/qmk-keymap.json`; set
-`QMK_KEYMAP_JSON=<path>` if WSL generated it in another checkout. Restart the
-runtime after installing new models:
+`make flash` gives the firmware a fresh EEPROM epoch. On first boot the new
+firmware resets Vial's EEPROM-backed configuration and initializes the dynamic
+keymap from `keymap.c`; live Vial edits are therefore replaced by the source
+keymap. On Windows, build and flash in WSL (or copy the built `.uf2` from WSL
+to the bootloader volume in Explorer). Restart the runtime afterward:
 
 ```bash
 # macOS
@@ -439,18 +429,10 @@ connected, use the explicit offline path:
 make install-assets VIAL=false
 ```
 
-Parse `keymap.c` and write it to EEPROM without rebuilding firmware:
-
-```bash
-make flash-keymap
-```
-
-That convenience target performs both steps on macOS and Linux. On Windows,
-run `prepare-flash-keymap` in WSL and `write-keymap` in MSYS2 UCRT64 as shown
-above; only the preparation step needs QMK.
-
-`flash-keymap` preserves `KC_TRNS`, so transparent keys continue to inherit
-lower layers.
+To make `keymap.c` the keyboard's live keymap, use `make flash`; the firmware's
+fresh EEPROM epoch resets Vial state and initializes it from the compiled
+source. `KC_TRNS` remains intact in firmware, so transparent keys continue to
+inherit lower layers.
 
 ## Custom Keyboard Configuration
 

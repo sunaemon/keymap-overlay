@@ -435,7 +435,7 @@ _setup_toolchain_windows:
 	fi
 	@echo "NOTE: firmware and QMK source processing do not run in this shell."
 	@echo "      Use WSL, macOS or Linux for 'make compile', 'make flash', and"
-	@echo "      'make prepare-flash-keymap'; native Raw HID targets run here."
+	@echo "      other QMK-backed targets; native Raw HID targets run here."
 
 .PHONY: doctor
 doctor:
@@ -1087,10 +1087,14 @@ $(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) |
 	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
 
 ifeq ($(VIAL),true)
-# Vial models are refreshed by the running overlay, in-process. This avoids a
-# second executable and makes startup the sole live-device read path.
-$(CONSOLIDATED_ASSET):
-	$(error Live Vial models refresh in the running overlay; use make install-overlay instead)
+# The installed overlay refreshes through this same library in-process. This
+# development-only binary exposes it to the explicit draw/install asset tasks;
+# it is not copied into release archives or installed beside the overlay.
+NATIVE_GENERATOR_DEPS := Cargo.toml Cargo.lock overlay/keymap-overlay-generator/Cargo.toml
+NATIVE_GENERATOR_DEPS += $(wildcard overlay/keymap-overlay-generator/src/*.rs)
+
+$(CONSOLIDATED_ASSET): $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(NATIVE_GENERATOR_DEPS) | $(ASSET_BUILD_DIR)
+	$(call WRITE_OUTPUT,$@,$(CARGO) run --quiet --package keymap-overlay-generator --bin keymap-overlay-generator -- --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --layout-name "$(LAYOUT_NAME)" --keyboard-id "$(KEYBOARD_ID)" --platform "$(OVERLAY_PLATFORM)" --pixels-per-unit "$(PIXELS_PER_UNIT)")
 else
 # Passed the exact current $(ASSETS) paths, not a directory to glob, so a
 # leftover from a shrunk layer count can never sneak into the installed file.

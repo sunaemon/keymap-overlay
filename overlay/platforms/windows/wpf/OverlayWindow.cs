@@ -19,6 +19,10 @@ internal sealed class OverlayWindow : Window
     private const int DeviceNodesChanged = 0x0007;
     private const int WindowMessageDeviceChange = 0x0219;
     private const double OverlayBorderThickness = 1;
+    private const double HeaderHorizontalInset = 20;
+    private const double EncoderLabelWidthRatio = 0.7;
+    private const double EncoderLabelGap = 3;
+    private const double EncoderLabelVerticalOffset = 30;
     private static readonly Brush KeyFill = Brush("#E0F1F4F8");
     private static readonly Brush HeldFill = Brush("#FFFFDDDD");
     private static readonly Brush KeyBorder = Brush("#6020242C");
@@ -84,16 +88,16 @@ internal sealed class OverlayWindow : Window
             try
             {
                 var keyboardModels = JsonSerializer.Deserialize<KeyboardModels>(File.ReadAllText(path));
-                if (keyboardModels is null || keyboardModels.KeyboardId != keyboard || keyboardModels.Layers is null)
+                var layers = keyboardModels?.Layers;
+                if (keyboardModels is null || keyboardModels.KeyboardId != keyboard || layers is null ||
+                    !layers.TryGetValue(0, out var baseModel) || !IsValidModel(baseModel, 0) ||
+                    layers.Any(pair => !IsValidModel(pair.Value, pair.Key)))
                 {
                     continue;
                 }
-                foreach (var (layer, model) in keyboardModels.Layers)
+                foreach (var (layer, model) in layers)
                 {
-                    if (model is not null && (model.Version == 1 || model.Version == 2) && model.Layer == layer)
-                    {
-                        result[(keyboard, layer)] = model;
-                    }
+                    result[(keyboard, layer)] = model!;
                 }
             }
             catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException)
@@ -104,6 +108,65 @@ internal sealed class OverlayWindow : Window
         }
         return result;
     }
+
+    private static bool IsValidModel(OverlayModel? model, byte layer) =>
+        model is not null &&
+        (model.Version == 1 || model.Version == 2) &&
+        model.Layer == layer &&
+        IsPositiveFinite(model.Width) &&
+        IsPositiveFinite(model.Height) &&
+        IsNonNegativeFinite(HeaderWidth(model)) &&
+        IsPositiveFinite(model.Width + 2 * OverlayBorderThickness) &&
+        IsPositiveFinite(model.Height + 2 * OverlayBorderThickness) &&
+        IsPositiveFinite(model.HeaderFontSize) &&
+        IsPositiveFinite(model.KeyFontSize) &&
+        IsPositiveFinite(model.EncoderFontSize) &&
+        model.Keys is not null && model.Keys.All(IsValidKey) &&
+        model.Encoders is not null && model.Encoders.All(IsValidEncoder);
+
+    private static bool IsValidKey(DisplayKey? key) =>
+        key is not null &&
+        double.IsFinite(key.X) &&
+        double.IsFinite(key.Y) &&
+        IsNonNegativeFinite(key.Width) &&
+        IsNonNegativeFinite(key.Height) &&
+        double.IsFinite(key.X + key.Width) &&
+        double.IsFinite(key.Y + key.Height) &&
+        key.Label is not null;
+
+    private static bool IsValidEncoder(DisplayEncoder? encoder)
+    {
+        if (encoder is null ||
+            !double.IsFinite(encoder.X) ||
+            !double.IsFinite(encoder.Y) ||
+            !IsPositiveFinite(encoder.Size) ||
+            encoder.CounterClockwise is null ||
+            encoder.Clockwise is null ||
+            encoder.Press is null)
+        {
+            return false;
+        }
+
+        var centerX = EncoderCenterX(encoder);
+        var labelWidth = EncoderLabelWidth(encoder);
+        return double.IsFinite(encoder.X + encoder.Size) &&
+            double.IsFinite(encoder.Y + encoder.Size) &&
+            double.IsFinite(centerX) &&
+            IsPositiveFinite(labelWidth) &&
+            double.IsFinite(centerX - labelWidth - EncoderLabelGap / 2) &&
+            double.IsFinite(centerX + EncoderLabelGap / 2) &&
+            double.IsFinite(encoder.Y - EncoderLabelVerticalOffset);
+    }
+
+    private static bool IsPositiveFinite(double value) => value > 0 && double.IsFinite(value);
+
+    private static bool IsNonNegativeFinite(double value) => value >= 0 && double.IsFinite(value);
+
+    private static double HeaderWidth(OverlayModel model) => model.Width - 2 * HeaderHorizontalInset;
+
+    private static double EncoderCenterX(DisplayEncoder encoder) => encoder.X + encoder.Size / 2;
+
+    private static double EncoderLabelWidth(DisplayEncoder encoder) => encoder.Size * EncoderLabelWidthRatio;
 
     private void ConfigureNativeWindow(object? sender, EventArgs args)
     {
@@ -357,7 +420,7 @@ internal sealed class OverlayWindow : Window
     private static Border BuildCanvas(OverlayModel model)
     {
         var canvas = new Canvas { Width = model.Width, Height = model.Height, Background = Brushes.Transparent };
-        AddText(canvas, $"L{model.Layer}", 20, 14, model.Width - 40, 30, model.HeaderFontSize, TextAlignment.Left);
+        AddText(canvas, $"L{model.Layer}", HeaderHorizontalInset, 14, HeaderWidth(model), 30, model.HeaderFontSize, TextAlignment.Left);
         foreach (var key in model.Keys)
         {
             var surface = new Border
@@ -403,12 +466,11 @@ internal sealed class OverlayWindow : Window
         Canvas.SetLeft(knob, encoder.X);
         Canvas.SetTop(knob, encoder.Y);
         canvas.Children.Add(knob);
-        var centerX = encoder.X + encoder.Size / 2;
-        var labelWidth = encoder.Size * 0.7;
-        const double labelGap = 3;
-        var labelTop = encoder.Y - 30;
-        AddText(canvas, string.Join(' ', encoder.CounterClockwise), centerX - labelWidth - labelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
-        AddText(canvas, string.Join(' ', encoder.Clockwise), centerX + labelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
+        var centerX = EncoderCenterX(encoder);
+        var labelWidth = EncoderLabelWidth(encoder);
+        var labelTop = encoder.Y - EncoderLabelVerticalOffset;
+        AddText(canvas, string.Join(' ', encoder.CounterClockwise), centerX - labelWidth - EncoderLabelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
+        AddText(canvas, string.Join(' ', encoder.Clockwise), centerX + EncoderLabelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
         AddText(canvas, string.IsNullOrEmpty(encoder.Press) ? "" : $"P {encoder.Press}", encoder.X, encoder.Y, encoder.Size, encoder.Size, fontSize, TextAlignment.Center);
     }
 
