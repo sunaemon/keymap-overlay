@@ -5,8 +5,7 @@ momentary layer in a native overlay, on macOS, Linux and Windows.
 
 ## Display Model Generation
 
-Under the default `VIAL=true`, generation reads the connected device
-directly and needs no Python:
+Generation reads the connected device directly and needs no Python:
 
 ```text
 VIAL EEPROM (live device, over Raw HID)
@@ -16,28 +15,10 @@ VIAL EEPROM (live device, over Raw HID)
 in-memory model map — every connected keyboard and layer
 ```
 
-`VIAL=false` (render straight from `keymap.c`, no device connected) keeps the
-original Python pipeline, one process per layer, then consolidated:
-
-```text
-keymap.c
-  ↓ QMK c2json
-build/<keyboard>/qmk-keymap.json
-  + keyboard.json + config.json + encoder map
-  ↓ generate_overlay_asset.py, one process per layer
-  ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
-  ├─ Linux: build/<keyboard>/assets/linux/<keyboard>_L<n>.json
-  └─ Windows: build/<keyboard>/assets/windows/<keyboard>_L<n>.json
-  ↓ consolidate_layer_models.py
-build/<keyboard>/assets/<platform>/<keyboard>.json
-```
-
 The normal runtime path writes no display model to disk. `generate_vial.py`
 embeds `KEYBOARD_ID`, layout geometry, encoder placement, and sizing metadata
 when firmware is built. At startup the native process combines that definition
 with live Vial EEPROM state and retains the result only in memory.
-`make draw-layers VIAL=false` remains an explicit offline development tool;
-its build output is not consumed by an installed runtime.
 
 ## Runtime Data Flow
 
@@ -355,8 +336,7 @@ firmware flash.
 
 The overlay reads that Vial state at startup, so a live edit is shown after an
 explicit overlay restart. It does not poll the device or attempt to subscribe
-to changes the Vial protocol cannot announce. `VIAL=false` remains an offline
-development path that renders `keymap.c` without a connected keyboard.
+to changes the Vial protocol cannot announce.
 
 `generate_vial.py` embeds each custom keycode's name and display label from a
 single whitespace-free comment token into the `vial.json` compiled into the
@@ -366,8 +346,7 @@ the working copy of `keymap.c`.
 
 ### Shared Display Model
 
-The in-process Vial model reader under `VIAL=true`, or Python under
-`VIAL=false`, converts QMK's keymap and keyboard JSON into one small,
+The in-process Vial model reader converts QMK's keymap and keyboard JSON into one small,
 versioned display model per layer. The model contains only canvas geometry,
 labels, transparency metadata, held-state metadata, and encoder actions; it
 contains no toolkit-specific objects and does not pass through keymap-drawer,
@@ -380,10 +359,8 @@ key alone receives its pale tint. Display-only labels for custom keycodes come
 from single whitespace-free comment tokens such as `α`, `USB-C`, or `PbyP` on
 `custom_keycodes` entries in `keymap.c`. Generic and platform-specific aliases — arrow glyphs, ⌘/Super/⊞ for
 the GUI key, and so on — are overlay-owned presentation policy, not keyboard
-data: they live in built-in label tables keyed by `OVERLAY_PLATFORM` (which
-defaults to the current host) — `generate_overlay_asset.py`'s under
-`VIAL=false`, `keymap-overlay-generator`'s `labels.rs` under `VIAL=true`, kept
-in sync by hand. Encoder placement
+data: they live in `keymap-overlay-generator`'s built-in label tables keyed by
+the current host platform. Encoder placement
 is the only project-specific geometry: QMK knows the encoder count and pins
 but not where knobs sit, so `config.json`
 maps each encoder to its push-switch matrix position or to explicit `x`/`y`

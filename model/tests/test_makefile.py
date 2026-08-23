@@ -78,36 +78,6 @@ def test_windows_source_install_wires_startup_refresh() -> None:
     assert "--keyboard-config-dir" not in service.stdout
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Native Windows HID targets")
-def test_windows_exposes_native_hid_targets() -> None:
-    """Allow device reads while keeping firmware flashes outside MSYS2."""
-    root = Path(__file__).parents[2]
-    install = subprocess.run(
-        [MAKE, "-n", "_install_assets_windows", "VIAL=true", "MAKE=echo"],
-        check=True,
-        capture_output=True,
-        text=True,
-        cwd=root,
-    )
-    source_render = subprocess.run(
-        [MAKE, "_install_assets_windows", "VIAL=false"],
-        check=False,
-        capture_output=True,
-        text=True,
-        cwd=root,
-    )
-    makefile = (root / "Makefile").read_text(encoding="utf-8")
-
-    assert "_install_assets" in install.stdout
-    assert "must run in WSL" not in install.stdout
-    assert "KEYMAP_EEPROM_EPOCH=$(EEPROM_RESET_EPOCH)" in makefile
-    assert 'epoch="$$(date +%s)"; \\' in makefile
-    assert '$(MAKE) compile EEPROM_RESET_EPOCH="$$epoch" && \\' in makefile
-    assert '$(MAKE) _flash_$(OS_FAMILY) EEPROM_RESET_EPOCH="$$epoch"' in makefile
-    assert source_render.returncode != 0
-    assert "needs QMK source processing" in source_render.stderr
-
-
 @pytest.mark.skipif(sys.platform == "win32", reason="Firmware builds are unsupported")
 def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
     """Tell QMK not to undo the selective firmware setup during a build."""
@@ -131,7 +101,6 @@ def test_live_asset_target_runs_the_native_generator() -> None:
             "-Bn",
             "build/1/assets/macos/1.json",
             "KEYBOARD_ID=1",
-            "VIAL=true",
             "OVERLAY_PLATFORM=macos",
             "CARGO=cargo",
         ],

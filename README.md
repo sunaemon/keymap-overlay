@@ -418,12 +418,6 @@ The installed overlay reads the keymap currently stored in the connected
 keyboard's VIAL EEPROM at startup—including edits made live in the Vial app,
 not just what `keymap.c` last compiled to. Restart it after making live edits.
 For development, `make draw-layers` performs the same connected-device read.
-To inspect a model rendered straight from `keymap.c`, with no keyboard
-connected, use the explicit offline path:
-
-```bash
-make draw-layers VIAL=false
-```
 
 To make `keymap.c` the keyboard's live keymap, use `make flash`; the firmware's
 fresh EEPROM epoch resets Vial state and initializes it from the compiled
@@ -560,7 +554,7 @@ linker and Windows SDK it needs.
 
 `make install-overlay` reads every connected self-describing Vial keyboard into
 memory at startup. Disconnected keyboards have no model until the overlay is
-restarted with them connected. `VIAL=false` rendering still needs QMK in WSL.
+restarted with them connected.
 
 After changing the Windows bridge, also run:
 

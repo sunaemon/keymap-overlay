@@ -19,11 +19,11 @@ targets that would do so stop with a message pointing at WSL, macOS or Linux.
 
 There are four parts:
 
-1. **Display model tooling** (`model/`) that builds the shared display model
-   under `VIAL=false` and pushes keymaps to VIAL devices for flashing.
+1. **Firmware metadata tooling** (`model/`) that generates the self-describing
+   Vial definition compiled into each keyboard.
 2. **Native display-model library** (`overlay/keymap-overlay-generator`) that
-   the runtime links under `VIAL=true` (the default), reading a connected
-   device directly — no Python involved on this path.
+   the runtime links, reading a connected device directly — no Python involved
+   on this path.
 3. **Native overlay** (`overlay/`) that implements the Raw HID protocol,
    native macOS window, Linux D-Bus daemon and
    Qt client, and Windows bridge.
@@ -33,52 +33,26 @@ There are four parts:
 
 ### 1. Native Display Model Generation (`overlay/keymap-overlay-generator`)
 
-The runtime's default (`VIAL=true`) startup-refresh path. A root Cargo
+The runtime's startup-read path. A root Cargo
 workspace member whose library is linked into `keymap-overlay-runtime`; no
 separate generator executable is installed or shipped. Its first-party Vial
 client reads a connected device's embedded Vial definition and dynamic keymap
 in one Raw HID session. `device.rs` resolves custom keycodes directly, while
-`model.rs` mirrors `generate_overlay_asset.py`'s geometry and label logic
-(`labels.rs` mirrors its `KEYCODE_LABELS`/`PLATFORM_KEYCODE_LABELS` tables —
-keep both in sync); `types.rs` mirrors `model/src/types.py`'s
+`model.rs` owns geometry and model construction, `labels.rs` owns generic and
+platform-specific presentation labels, and `types.rs` mirrors `model/src/types.py`'s
 `keyboard.json`/`config.json` structs.
 
 ### 2. Keymap Data Generation (`model/`)
 
-Used for `VIAL=false` display-model rendering (no device connected, straight
-from `keymap.c`) and for firmware compile/flash JSON, which is unconditionally
-`keymap.c`-based regardless of the outer `VIAL` default.
+Used to build firmware metadata and for standalone keymap conversion tools.
 
-- `count_layers.py`: Counts the number of layers in a QMK keymap JSON.
-- `generate_keycodes.py`: Scans QMK firmware for keycode definitions.
-- `generate_custom_keycodes.py`: Assigns each `custom_keycodes` enum entry its
-  numeric value from `keymap.c`, or reads them directly off a device-fetched
-  Vial definition — the latter mode is only reachable by invoking this script
-  directly now; `draw-layers` under `VIAL=true` uses the native generator
-  above instead.
-- `generate_overlay_asset.py`: Builds the shared display model and emits JSON
-  for all three native renderers, including encoder rotation and push actions,
-  under `VIAL=false`. It resolves custom keycode names and preserves
-  `KC_TRNS` as display-only transparency metadata. Custom keycodes get their
-  display label from a single whitespace-free comment token in `keymap.c`;
-  generic and platform-specific key aliases are its own built-in tables, not
-  `keymap.c` content.
-- `consolidate_layer_models.py`: Combines one keyboard's rendered per-layer
-  files (the `VIAL=false` path only now) into the single installed
-  `<keyboard>.json`.
 - `generate_vial.py`: Converts QMK `keyboard.json` to a VIAL `vial.json`,
   embedding each `keymap.c` custom keycode's name and display glyph so the
   compiled firmware is self-describing.
 - `generate_vitaly_layout.py`: Merges a QMK keymap into a VIAL dump for
   flashing.
 - `generate_qmk_keymap_from_vitaly.py`: Converts a VIAL dump back to QMK
-  keymap JSON, only reachable by invoking it directly now — `draw-layers`
-  skips `$(QMK_KEYMAP_JSON)` entirely under `VIAL=true`, so
-  this no longer costs a second HID session on that path.
-- `fetch_vial_definition.py`: Reads and decompresses the connected device's
-  own embedded Vial definition over Raw HID. Only reachable by invoking it
-  directly now; useful as a standalone diagnostic for inspecting a device's
-  raw Vial meta.
+  keymap JSON as a standalone conversion tool.
 
 Transparency resolution is for **display only**. `KC_TRNS` must survive intact
 in the compiled firmware, otherwise layers stop inheriting from layer 0 in
@@ -158,14 +132,11 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 
 ## Tech Stack
 
-- **Python**: keymap data extraction and processing, on the `VIAL=false`
-  display-model path and for firmware compile/flash JSON.
-  - `uv`: package manager. `pydantic` for validation, `typer` for CLIs, the
-    `hidapi` PyPI package (a bundled native extension, no system library) for
-    `fetch_vial_definition.py`'s device queries.
+- **Python**: firmware metadata generation and standalone keymap conversions.
+  - `uv`: package manager. `pydantic` provides validation and `typer` the CLIs.
 - **Rust/C++/C#/GJS**: the overlay (AppKit on macOS, WPF on Windows, GNOME
   Shell or Qt Quick plus KDE LayerShellQt on Linux, and `hidapi`), and the
-  native `VIAL=true` display-model library (`overlay/keymap-overlay-generator`).
+  native display-model library (`overlay/keymap-overlay-generator`).
 - **Makefile**: orchestrates build, installation, and flashing.
 - **mise**: pins every tool version, including formatters and linters.
 - **lefthook**: manages the git hooks declared in `lefthook.yml`.
@@ -398,12 +369,12 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
 
 ## Directory Structure
 
-- `model/`: Python display-model library, utility scripts, tests, and type stubs.
+- `model/`: Python firmware metadata/conversion utilities, tests, and type stubs.
 - `overlay/keymap-core/`: Platform-neutral Rust protocol and transition logic.
 - `overlay/keymap-overlay-runtime/`: Library-only shared listener, model
   composition, transitions, command-line handling, and logging.
 - `overlay/keymap-overlay-generator/`: Rust library that builds the display
-  model natively under `VIAL=true`, reading a connected device through its
+  model natively, reading a connected device through its
   first-party Vial protocol client.
 - `overlay/platforms/`: Platform-owned protocols, bridges, and native frontends.
 - `firmware/`: First-party QMK integration, local keyboard configurations, and
