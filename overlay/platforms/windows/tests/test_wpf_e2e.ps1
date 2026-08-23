@@ -49,7 +49,7 @@ try {
     $env:KEYMAP_OVERLAY_E2E_STATE_FILE = $stateFile
 
     @'
-{"keyboard_id":2,"layers":{"0":{"version":2,"layer":0,"width":160,"height":120,"header_font_size":14,"key_font_size":12,"encoder_font_size":10,"keys":null,"encoders":[]}}}
+{"keyboard_id":2,"layers":{"0":{"version":2,"layer":0,"width":20,"height":120,"header_font_size":14,"key_font_size":12,"encoder_font_size":10,"keys":[],"encoders":[]},"1":{"version":2,"layer":1,"width":160,"height":120,"header_font_size":14,"key_font_size":12,"encoder_font_size":10,"keys":null,"encoders":[]}}}
 '@ | Set-Content -LiteralPath (Join-Path $assetDirectory "2.json")
     $process = Start-Process -FilePath $overlay `
         -ArgumentList "--asset-dir", $assetDirectory, `
