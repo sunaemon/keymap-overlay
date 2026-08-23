@@ -174,6 +174,8 @@ test_linux_install_and_uninstall() {
   state="$home/.config/keymap-overlay"
   bin="$home/.local/bin"
   mkdir -p "$cache"
+  mkdir -p "$state/keyboards/custom"
+  printf 'user config\n' >"$state/keyboards/custom/config.json"
   : >"$cache/1.json"
   : >"$home/commands.log"
 
@@ -183,8 +185,8 @@ test_linux_install_and_uninstall() {
   test ! -e "$bin/keymap-overlay-generator"
   test -x "$bin/keymap-overlay-qt"
   test -x "$state/install.sh"
-  test -f "$state/keyboards/1/config.json"
-  test -f "$state/keyboards/1/keyboard.json"
+  test ! -e "$state/keyboards/1"
+  assert_file_contains "$state/keyboards/custom/config.json" 'user config'
   test ! -e "$state/GENERATOR-THIRD-PARTY-LICENSES.html"
   # The binary embeds the notices, so nothing is installed for them.
   test ! -e "$state/LICENSE"
@@ -192,7 +194,11 @@ test_linux_install_and_uninstall() {
   unit="$home/.config/systemd/user/keymap-overlay.service"
   qt_unit="$home/.config/systemd/user/keymap-overlay-qt.service"
   extension="$home/.local/share/gnome-shell/extensions/keymap-overlay@sunaemon"
-  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\" --asset-dir \"$cache\" --keyboard-config-dir \"$state/keyboards\""
+  assert_file_contains "$unit" "ExecStart=\"$bin/keymap-overlay\" --asset-dir \"$cache\""
+  if grep -F -- '--keyboard-config-dir' "$unit" >/dev/null; then
+    echo 'The systemd unit should not select a keyboard configuration.' >&2
+    exit 1
+  fi
   # Anchored on the directives: the unit's own comments mention both names.
   assert_file_contains "$unit" "SyslogIdentifier=keymap-overlay"
   if grep -q '^ExecStart=.*--log-out' "$unit"; then
@@ -213,7 +219,7 @@ test_linux_install_and_uninstall() {
   test ! -e "$bin/keymap-overlay-generator"
   test ! -e "$bin/keymap-overlay-qt"
   test ! -e "$state/install.sh"
-  test ! -e "$state/keyboards"
+  assert_file_contains "$state/keyboards/custom/config.json" 'user config'
   test ! -e "$state/GENERATOR-THIRD-PARTY-LICENSES.html"
   test ! -e "$unit"
   test ! -e "$qt_unit"
@@ -246,8 +252,10 @@ test_macos_stops_service_before_replacing_binary() {
   # The ampersand in the home directory must survive XML escaping.
   assert_file_contains "$plist" '<string>--asset-dir</string>'
   assert_file_contains "$plist" 'macos &amp; home/.cache/keymap-overlay'
-  assert_file_contains "$plist" '<string>--keyboard-config-dir</string>'
-  assert_file_contains "$plist" 'macos &amp; home/.config/keymap-overlay/keyboards'
+  if grep -F -- '--keyboard-config-dir' "$plist" >/dev/null; then
+    echo 'The launchd plist should not select a keyboard configuration.' >&2
+    exit 1
+  fi
   assert_file_contains "$plist" '<string>--log-out</string>'
   assert_file_contains "$plist" 'macos &amp; home/.local/var/log/keymap-overlay/overlay.log'
   if grep -F 'KEYMAP_OVERLAY_LOG_DIR' "$plist" >/dev/null; then
@@ -294,8 +302,8 @@ test_failed_service_install_rolls_back() {
   printf 'old generator\n' >"$bin/keymap-overlay-generator"
   printf 'old generator notices\n' >"$state/GENERATOR-THIRD-PARTY-LICENSES.html"
   printf 'old qt binary\n' >"$bin/keymap-overlay-qt"
-  mkdir -p "$state/keyboards/1"
-  printf 'old config\n' >"$state/keyboards/1/config.json"
+  mkdir -p "$state/keyboards/custom"
+  printf 'user config\n' >"$state/keyboards/custom/config.json"
   printf 'old installer\n' >"$state/install.sh"
   printf 'old service\n' >"$unit"
   : >"$home/commands.log"
@@ -309,7 +317,7 @@ test_failed_service_install_rolls_back() {
   assert_file_contains "$bin/keymap-overlay-generator" 'old generator'
   assert_file_contains "$state/GENERATOR-THIRD-PARTY-LICENSES.html" 'old generator notices'
   assert_file_contains "$bin/keymap-overlay-qt" 'old qt binary'
-  assert_file_contains "$state/keyboards/1/config.json" 'old config'
+  assert_file_contains "$state/keyboards/custom/config.json" 'user config'
   assert_file_contains "$state/install.sh" 'old installer'
   assert_file_contains "$unit" 'old service'
   enable_count=$(grep -c '^systemctl --user enable keymap-overlay.service' "$home/commands.log")
@@ -348,7 +356,7 @@ test_failed_gnome_upgrade_keeps_qt_disabled() {
   grep -F 'systemctl --user stop keymap-overlay.service' "$home/commands.log" >/dev/null
 }
 
-test_missing_layer_assets_are_generated_at_startup() {
+test_install_does_not_select_example_keyboard_config() {
   home="$TEST_DIRECTORY/no assets home"
   cache="$home/.cache/keymap-overlay"
   mkdir -p "$cache"
@@ -358,7 +366,7 @@ test_missing_layer_assets_are_generated_at_startup() {
 
   test -x "$home/.local/bin/keymap-overlay"
   test ! -e "$home/.local/bin/keymap-overlay-generator"
-  test -f "$home/.config/keymap-overlay/keyboards/1/config.json"
+  test ! -e "$home/.config/keymap-overlay/keyboards"
   test -f "$home/.config/systemd/user/keymap-overlay.service"
 }
 
@@ -368,5 +376,5 @@ test_macos_stops_service_before_replacing_binary
 test_gnome_disables_qt_renderer_unless_forced
 test_failed_service_install_rolls_back
 test_failed_gnome_upgrade_keeps_qt_disabled
-test_missing_layer_assets_are_generated_at_startup
+test_install_does_not_select_example_keyboard_config
 echo 'install.sh tests passed'
