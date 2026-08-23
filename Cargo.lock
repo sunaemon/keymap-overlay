@@ -752,11 +752,11 @@ dependencies = [
 
 [[package]]
 name = "keymap-core"
-version = "0.0.7"
+version = "0.0.8"
 
 [[package]]
 name = "keymap-overlay-generator"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "keymap-overlay-hil"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -783,7 +783,7 @@ dependencies = [
 
 [[package]]
 name = "keymap-overlay-linux-daemon"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "keymap-overlay-linux-protocol",
@@ -797,14 +797,14 @@ dependencies = [
 
 [[package]]
 name = "keymap-overlay-linux-protocol"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "zbus",
 ]
 
 [[package]]
 name = "keymap-overlay-macos"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "block2",
@@ -820,7 +820,7 @@ dependencies = [
 
 [[package]]
 name = "keymap-overlay-runtime"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -834,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "keymap-overlay-windows-bridge"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "keymap-overlay-runtime",
@@ -844,7 +844,7 @@ dependencies = [
 
 [[package]]
 name = "keymap-overlay-winui"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "anyhow",
  "keymap-overlay-runtime",
