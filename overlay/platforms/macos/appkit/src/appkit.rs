@@ -2,7 +2,7 @@
 //!
 //! AppKit owns the complete view hierarchy. An `NSGlassEffectView` supplies
 //! the adaptive background and its content is built from native boxes and text
-//! fields described by the installed JSON model. No key label is rasterized
+//! fields described by the in-memory model. No key label is rasterized
 //! into an intermediate image.
 
 use anyhow::{Context, Result};
@@ -13,7 +13,7 @@ use iohidmanager::{HidManager, HidUsage};
 use keymap_overlay_runtime::{
     DisplayEncoder, LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, OverlayModel,
     PendingTransition, RAW_USAGE_ID, RAW_USAGE_PAGE, SimulatedLayer, Transition, compose_model,
-    load_model_cache, spawn_layer_event_source,
+    spawn_layer_event_source,
 };
 use log::{info, warn};
 use objc2::rc::{Allocated, Retained};
@@ -106,7 +106,7 @@ thread_local! {
     static OVERLAY_APP: RefCell<Option<OverlayApp>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn run(assets_dir: PathBuf, simulated: Option<SimulatedLayer>) -> Result<()> {
+pub(crate) fn run(models: ModelCache, simulated: Option<SimulatedLayer>) -> Result<()> {
     let mtm = MainThreadMarker::new().context("AppKit must run on the main thread")?;
     let application = NSApplication::sharedApplication(mtm);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
@@ -121,7 +121,6 @@ pub(crate) fn run(assets_dir: PathBuf, simulated: Option<SimulatedLayer>) -> Res
     let window = NSWindow::windowWithContentViewController(&controller);
     configure_window(&window);
 
-    let models = load_model_cache(&assets_dir)?;
     let (sender, receiver) = mpsc::channel();
     let source = spawn_layer_event_source(ChannelSink(sender), simulated);
     if source.uses_raw_hid() {

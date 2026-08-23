@@ -596,7 +596,7 @@ mod tests {
         }
     }
 
-    /// Mirrors model/tests/test_generate_overlay_asset.py's
+    /// Keeps encoded QMK keycode family handling explicit and stable.
     /// test_builds_keys_and_an_encoder_into_the_shared_model, including its
     /// exact expected (168, 142) canvas size, as a parity check against the
     /// existing Python-rendered output.

@@ -6,8 +6,8 @@ mod native;
 use anyhow::{Context, Result};
 use keymap_overlay_runtime::{
     Arguments, LayerEvent, LayerEventSink, LogDestination, ModelCache, OverlayModel, Parser as _,
-    PendingTransition, SimulatedLayer, Transition, compose_model, default_asset_dir,
-    default_log_file, initialize_logging, load_model_cache, spawn_layer_event_source, write_notice,
+    PendingTransition, SimulatedLayer, Transition, compose_model, default_log_file,
+    initialize_logging, load_live_models, spawn_layer_event_source, write_notice,
 };
 use std::sync::{Arc, Mutex};
 use windows_reactor::{
@@ -101,8 +101,7 @@ pub(crate) fn run() -> Result<()> {
         None => LogDestination::File(default_log_file()?),
     };
     initialize_logging(destination)?;
-    let directory = arguments.asset_dir.map_or_else(default_asset_dir, Ok)?;
-    let models = Arc::new(load_model_cache(&directory)?);
+    let models = Arc::new(load_live_models()?);
     windows_reactor::bootstrap().context("Failed to initialize the Windows App SDK runtime")?;
     native::run(OverlayComponent { models, simulated }).context("The WinUI event loop failed")?;
     Ok(())

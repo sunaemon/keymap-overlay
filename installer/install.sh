@@ -3,12 +3,10 @@
 set -eu
 
 REPOSITORY='sunaemon/keymap-overlay'
-# The layer JSON models are a regenerable cache of what a VIAL-flashed device
-# already knows, not configuration, so they live under .cache. The installer's
-# own bookkeeping (its self-copy, used by the documented uninstall command)
-# is not regenerable the same way, so it stays under .config.
-CACHE_DIRECTORY="${HOME}/.cache/keymap-overlay"
+# The installer's self-copy is bookkeeping used by the documented uninstall
+# command, so it stays under .config.
 STATE_DIRECTORY="${HOME}/.config/keymap-overlay"
+LEGACY_CACHE_DIRECTORY="${HOME}/.cache/keymap-overlay"
 BIN_DIRECTORY="${HOME}/.local/bin"
 BINARY_PATH="${BIN_DIRECTORY}/keymap-overlay"
 GENERATOR_PATH="${BIN_DIRECTORY}/keymap-overlay-generator"
@@ -46,11 +44,14 @@ install_release() {
   temporary_directory="$(mktemp -d)"
   trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
   stage_release
-  mkdir -p "$CACHE_DIRECTORY" "$STATE_DIRECTORY" "$BIN_DIRECTORY" "$LOG_DIRECTORY"
+  mkdir -p "$STATE_DIRECTORY" "$BIN_DIRECTORY" "$LOG_DIRECTORY"
   backup_installation
   stop_service
 
   if install_staged_files && install_service; then
+    if ! rm -rf "$LEGACY_CACHE_DIRECTORY"; then
+      echo "WARNING: could not remove legacy model cache: ${LEGACY_CACHE_DIRECTORY}" >&2
+    fi
     print_installed_files
     return
   fi
@@ -66,6 +67,7 @@ uninstall_release() {
   stop_and_remove_service
   "$platform_file_uninstaller"
   rm -f "$BINARY_PATH" "$GENERATOR_PATH" "$GENERATOR_LICENSE_PATH" "$INSTALLER_PATH"
+  rm -rf "$LEGACY_CACHE_DIRECTORY"
   echo 'Removed:'
   echo "  binary: ${BINARY_PATH}"
   echo "  generator: ${GENERATOR_PATH}"
@@ -73,7 +75,6 @@ uninstall_release() {
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
-  echo "Kept layer models: ${CACHE_DIRECTORY}"
   echo "Kept logs: ${LOG_DIRECTORY}"
 }
 
@@ -368,7 +369,6 @@ xml_escape() {
 install_macos_service() {
   label='com.sunaemon.keymap-overlay'
   binary_xml="$(xml_escape "$BINARY_PATH")"
-  assets_xml="$(xml_escape "$CACHE_DIRECTORY")"
   log_xml="$(xml_escape "${LOG_DIRECTORY}/overlay.log")"
   mkdir -p "$(dirname "$service_path")" || return
   cat >"${service_path}.tmp" <<EOF
@@ -381,8 +381,6 @@ install_macos_service() {
   <key>ProgramArguments</key>
   <array>
     <string>${binary_xml}</string>
-    <string>--asset-dir</string>
-    <string>${assets_xml}</string>
     <string>--log-out</string>
     <string>${log_xml}</string>
   </array>
@@ -424,7 +422,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart="${BINARY_PATH}" --asset-dir "${CACHE_DIRECTORY}"
+ExecStart="${BINARY_PATH}"
 # The log is left on stderr for journald, which timestamps, rotates and retains
 # it: journalctl --user -u keymap-overlay
 SyslogIdentifier=keymap-overlay
@@ -536,7 +534,6 @@ print_installed_files() {
   echo "  installer: ${INSTALLER_PATH}"
   echo "  autostart: ${service_path}"
   "$platform_file_printer"
-  echo "Layer model cache: ${CACHE_DIRECTORY}"
   echo "Logs: ${LOG_DIRECTORY}"
   echo "Licenses: ${BINARY_PATH} --license, --third-party-licenses"
   echo "Verified release: ${release_tag}"

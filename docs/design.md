@@ -3,47 +3,22 @@
 This project generates display assets for QMK keymap layers and displays the active
 momentary layer in a native overlay, on macOS, Linux and Windows.
 
-## Display Asset Generation
+## Display Model Generation
 
-Under the default `VIAL=true`, generation reads the connected device
-directly and needs no Python:
+Generation reads the connected device directly and needs no Python:
 
 ```text
 VIAL EEPROM (live device, over Raw HID)
   ↓ keymap-overlay-generator (Rust; first-party Vial protocol client,
     one HID session)
-  + keyboard.json + config.json
-installed models directory/<keyboard>.json — every layer, one file
+  + self-describing keymapOverlay metadata embedded in the Vial definition
+in-memory model map — every connected keyboard and layer
 ```
 
-`VIAL=false` (render straight from `keymap.c`, no device connected) keeps the
-original Python pipeline, one process per layer, then consolidated:
-
-```text
-keymap.c
-  ↓ QMK c2json
-build/<keyboard>/qmk-keymap.json
-  + keyboard.json + config.json + encoder map
-  ↓ generate_overlay_asset.py, one process per layer
-  ├─ macOS: build/<keyboard>/assets/macos/<keyboard>_L<n>.json
-  ├─ Linux: build/<keyboard>/assets/linux/<keyboard>_L<n>.json
-  └─ Windows: build/<keyboard>/assets/windows/<keyboard>_L<n>.json
-  ↓ consolidate_layer_models.py
-build/<keyboard>/assets/<platform>/<keyboard>.json
-  ↓ make install-assets
-installed models directory/<keyboard>.json
-```
-
-Either way, only the combined `<keyboard>.json` — every layer keyed by
-number, in one file — is installed; any per-layer file on the `VIAL=false`
-path is a build-time intermediate. The normal path installs minimal keyboard
-definitions beside the application, then refreshes connected keyboards in the
-overlay process at startup (see Startup Refresh below).
-`make install-assets VIAL=false` remains an explicit offline development path.
-The installed model directory is
-`~/.cache/keymap-overlay` on macOS and Linux and
-`%LOCALAPPDATA%/keymap-overlay` on Windows, a regenerable cache of what the
-connected device already knows rather than configuration.
+The normal runtime path writes no display model to disk. `generate_vial.py`
+embeds `KEYBOARD_ID`, layout geometry, encoder placement, and sizing metadata
+when firmware is built. At startup the native process combines that definition
+with live Vial EEPROM state and retains the result only in memory.
 
 ## Runtime Data Flow
 
@@ -73,25 +48,18 @@ held layers use QMK's numeric precedence and transparent keys fall through the
 other active layers before the base layer. Between keyboards, the most recently
 used keyboard owns the overlay. It hides once no momentary layers remain held.
 
-### Startup Refresh
+### Startup Read
 
-Before the listener starts (never on the keypress hot path above), the
-runtime refreshes every connected keyboard under `--keyboard-config-dir` into
-`--asset-dir`. The Vial client runs in the same process as the overlay: macOS
-and Windows ship no second generator executable, while Linux keeps only its
-daemon and renderer processes. Output is validated in a temporary file before
-replacing the cache. A disconnected keyboard or failed generation keeps the
-previous model and logs a warning rather than failing startup.
+Before the listener starts (never on the keypress hot path above), the runtime
+reads every connected self-describing Vial keyboard into memory. The Vial
+client runs in the same process as the overlay: macOS and Windows ship no
+second generator executable, while Linux keeps only its daemon and renderer
+processes. A disconnected keyboard has no model in that process.
 
 Vial does not send an external-change notification when its web application
-writes EEPROM. A Vial edit therefore appears at the next startup refresh; the
+writes EEPROM. A Vial edit therefore appears at the next startup read; the
 user restarts the overlay after making a live edit. The runtime never polls or
 writes the keymap itself.
-
-Source installs pass the checkout's `KEYBOARDS_DIR`. Release archives carry
-only each bundled keyboard's `keyboard.json` and `config.json`; their
-installers place those definitions beside the application and pass that
-installed directory to the login command.
 
 ## Raw HID Protocol
 
@@ -116,8 +84,9 @@ Device arrival notifications request another enumeration without interrupting
 healthy readers, so a release cannot be lost while the new device becomes
 openable. Linux receives `hidraw` add notifications from udev, macOS receives
 usage-filtered notifications from `IOHIDManager`, and Windows forwards
-`WM_DEVICECHANGE` from the mapped WPF window. This makes a reconnected keyboard
-available even while another keyboard remains active.
+`WM_DEVICECHANGE` from the mapped WPF window. This restores HID event handling
+for a keyboard whose model was loaded at startup. A keyboard absent at startup
+requires an overlay restart before its model is available.
 
 For hardware-free manual testing, `--simulate KEYBOARD_ID:LAYER` replaces the
 HID listener with a synthetic source at the `LayerEventSink` boundary. It holds
@@ -140,8 +109,8 @@ separates its HID daemon from replaceable renderer clients.
 On **macOS** (`overlay/platforms/macos/appkit`) AppKit owns the
 complete view hierarchy. The
 undecorated, always-on-top, click-through window uses an `NSGlassEffectView` as
-its content. It parses the installed JSON at startup and caches composed layers
-as native `NSBox` and `NSTextField` views inside the glass view's `contentView`.
+its content. It composes the in-memory models as native `NSBox` and
+`NSTextField` views inside the glass view's `contentView`.
 There is no rasterized key or label foreground on macOS. Hiding swaps in an
 empty content view and shrinks the still-mapped window to one pixel, avoiding
 native show animations on every layer-key press.
@@ -150,8 +119,8 @@ The application replaces the former Hammerspoon and Lua integration entirely.
 No synthetic function-key events or Hammerspoon configuration are required.
 
 On **Windows**, `overlay/platforms/windows/wpf` owns the process and builds a native
-WPF visual tree from each installed JSON model. A narrow C ABI bridge loads the
-shared Rust HID listener and core state reducer. Rust invokes only a wake
+WPF visual tree from each in-memory model. A narrow C ABI bridge loads the
+models, shared Rust HID listener, and core state reducer. Rust invokes only a wake
 callback; the WPF dispatcher calls back to take the final queued transition, so
 bursts collapse before anything is drawn.
 
@@ -179,8 +148,8 @@ Release builds publish matching WPF and Rust bridge binaries for both x64 and
 ARM64 Windows; the installer selects the archive for the operating system's
 native architecture.
 
-On **Linux**, `overlay/platforms/linux/daemon` loads and
-validates the installed models, owns
+On **Linux**, `overlay/platforms/linux/daemon` owns the startup-loaded models,
+validates and composes them, owns
 the reduced active-layer state, and publishes it on the user's D-Bus session.
 `com.sunaemon.KeymapOverlay.Renderer1.GetState` returns a generation number,
 visibility, and the final model JSON; `StateChanged` carries the same tuple.
@@ -249,8 +218,8 @@ the active monitor's DPI scale when positioning the native window.
 The platform installer downloads the latest versioned release archive,
 requires a matching entry in `SHA256SUMS`, and, when the optional GitHub CLI is
 present, verifies GitHub artifact attestations. The archive includes the native
-overlay and minimal bundled keyboard definitions; generated models are not
-release artifacts.
+overlay and notices; keyboard definitions and generated models are not release
+artifacts.
 
 Release archives carry the MIT license and generated third-party notices for
 the overlay, which also serves anyone packaging it where a distribution
@@ -262,25 +231,23 @@ process and reaches the shared runtime through a C ABI that carries no strings,
 leaving it nothing to print.
 
 The installers stop the running service before replacing its files, preserve
-the previous binaries, keyboard definitions, notices, and service definition
+the previous binaries, notices, and service definition
 until the new service starts, and restore them if installation fails. Their
 uninstall modes remove those installed files and the login entry while
-retaining generated assets and logs.
+retaining logs. Upgrades remove legacy cached model JSON.
 
 Developers can instead use `make install-overlay`, which performs the following
 source-build workflow:
 
 `make install-overlay` performs the following steps:
 
-1. Builds the platform executable, passes the checkout's keyboard configuration
-   directory to the login command, and refreshes connected keyboards before the
-   frontend loads its model cache.
+1. Builds the platform executable. At each start it reads connected keyboards
+   into memory before the Raw HID listener begins.
 2. Installs it as
    `~/.local/bin/keymap-overlay` on macOS and Linux — with the Qt renderer
    beside it as `~/.local/bin/keymap-overlay-qt` — and as
    `%LOCALAPPDATA%/Programs/keymap-overlay/keymap-overlay.exe` on Windows.
-   Executables are kept apart from the generated models each system stores
-   elsewhere. Where systemd or the login profile puts `~/.local/bin` on `PATH`,
+   Where systemd or the login profile puts `~/.local/bin` on `PATH`,
    the Qt renderer can be diagnosed by running `keymap-overlay-qt`; otherwise
    `~/.local/bin/keymap-overlay-qt` names it directly. Either way the service
    definitions use absolute paths and do not depend on `PATH`.
@@ -319,8 +286,8 @@ given the destination its supervisor handles best:
 A log the overlay owns rotates at 1 MiB and retains the current file plus three
 previous files.
 
-`make uninstall-overlay` stops and removes the login service, installed binary,
-and generated JSON models. It keeps the logs for troubleshooting.
+`make uninstall-overlay` stops and removes the login service and installed
+binary, and cleans up legacy cached models. It keeps logs for troubleshooting.
 
 ## Firmware Workflow
 
@@ -370,8 +337,7 @@ firmware flash.
 
 The overlay reads that Vial state at startup, so a live edit is shown after an
 explicit overlay restart. It does not poll the device or attempt to subscribe
-to changes the Vial protocol cannot announce. `VIAL=false` remains an offline
-development path that renders `keymap.c` without a connected keyboard.
+to changes the Vial protocol cannot announce.
 
 `generate_vial.py` embeds each custom keycode's name and display label from a
 single whitespace-free comment token into the `vial.json` compiled into the
@@ -381,13 +347,12 @@ the working copy of `keymap.c`.
 
 ### Shared Display Model
 
-The in-process Vial model reader under `VIAL=true`, or Python under
-`VIAL=false`, converts QMK's keymap and keyboard JSON into one small,
-versioned display model per layer. The model contains only canvas geometry,
+The in-process Vial model reader converts QMK's keymap and keyboard JSON into
+one small, versioned display model per layer. The model contains only canvas geometry,
 labels, transparency metadata, held-state metadata, and encoder actions; it
 contains no toolkit-specific objects and does not pass through keymap-drawer,
-YAML, SVG, or another schema. All three platforms install these models as JSON,
-compose the held layers in memory using QMK precedence, and render the result
+YAML, SVG, or another schema. All three platforms retain these models only in
+memory, compose held layers using QMK precedence, and render the result
 with AppKit, GNOME Shell, Qt Quick, or WPF. Keys use quiet, nearly opaque fills
 and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
@@ -395,10 +360,8 @@ key alone receives its pale tint. Display-only labels for custom keycodes come
 from single whitespace-free comment tokens such as `α`, `USB-C`, or `PbyP` on
 `custom_keycodes` entries in `keymap.c`. Generic and platform-specific aliases — arrow glyphs, ⌘/Super/⊞ for
 the GUI key, and so on — are overlay-owned presentation policy, not keyboard
-data: they live in built-in label tables keyed by `OVERLAY_PLATFORM` (which
-defaults to the current host) — `generate_overlay_asset.py`'s under
-`VIAL=false`, `keymap-overlay-generator`'s `labels.rs` under `VIAL=true`, kept
-in sync by hand. Encoder placement
+data: they live in `keymap-overlay-generator`'s built-in label tables keyed by
+the current host platform. Encoder placement
 is the only project-specific geometry: QMK knows the encoder count and pins
 but not where knobs sit, so `config.json`
 maps each encoder to its push-switch matrix position or to explicit `x`/`y`
@@ -406,8 +369,8 @@ layout coordinates. Matrix placement replaces the normal key drawing with one
 circular knob, places counter-clockwise and clockwise actions above it, and
 keeps its push action centred inside.
 
-All runtimes parse every installed JSON model at startup. Layer events compose
-only those in-memory models. On Linux the daemon sends the composed model to
+All runtimes read connected keyboards from Vial into memory at startup. Layer
+events compose only those in-memory models. On Linux the daemon sends the composed model to
 renderer clients, so no renderer leaves the previous layer visible while disk
 I/O completes.
 
@@ -437,7 +400,7 @@ real interactive desktop.
 
 The cost is three windows to maintain, each exercised only by the CI job for
 its own system. Linux CI also runs the release daemon and Qt renderer on an
-isolated D-Bus session with an installed-model fixture and `--simulate`, then
+isolated D-Bus session with the in-memory simulation fixture, then
 asserts the visible, hidden, and visible-again states through the public D-Bus
 contract and compares the software-rendered Qt Quick output with a golden PNG.
 Another Linux CI test creates a vendor-defined device through `/dev/uhid` and

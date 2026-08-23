@@ -14,7 +14,7 @@ unsafe_code = "forbid"
 name = "keymap_overlay_generator"
 path = "src/lib.rs"
 
-# Development entry point for `make draw-layers` and `make install-assets`.
+# Development entry point for `make draw-layers`.
 # Release builds link the library into the overlay and do not ship this binary.
 [[bin]]
 name = "keymap-overlay-generator"

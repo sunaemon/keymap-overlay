@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KeyboardJson {
     pub layouts: HashMap<String, Layout>,
     pub usb: UsbConfig,
@@ -24,12 +24,12 @@ impl KeyboardJson {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Layout {
     pub layout: Vec<LayoutKey>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LayoutKey {
     pub x: f64,
     pub y: f64,
@@ -46,24 +46,26 @@ fn unit() -> f64 {
     1.0
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UsbConfig {
     pub vid: String,
     pub pid: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EncoderConfig {
     pub rotary: Vec<serde_json::Value>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KeyboardConfig {
+    #[serde(default)]
+    pub qmk_keyboard: String,
     #[serde(default)]
     pub encoders: Vec<EncoderPlacement>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EncoderPlacement {
     #[serde(default)]
     pub matrix: Option<(u8, u8)>,
@@ -71,6 +73,16 @@ pub struct EncoderPlacement {
     pub x: Option<f64>,
     #[serde(default)]
     pub y: Option<f64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeymapOverlayMetadata {
+    pub keyboard_id: u8,
+    pub layout_name: String,
+    pub pixels_per_unit: i64,
+    pub keyboard: KeyboardJson,
+    pub config: KeyboardConfig,
 }
 
 impl EncoderPlacement {
@@ -86,7 +98,7 @@ impl EncoderPlacement {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OverlayModel {
     pub version: u8,
     pub layer: u8,
@@ -99,7 +111,7 @@ pub struct OverlayModel {
     pub encoders: Vec<DisplayEncoder>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DisplayKey {
     pub x: u32,
     pub y: u32,
@@ -111,7 +123,7 @@ pub struct DisplayKey {
     pub momentary_layer: Option<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DisplayEncoder {
     pub x: u32,
     pub y: u32,
@@ -126,7 +138,7 @@ pub struct DisplayEncoder {
     pub momentary_layer: Option<u8>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KeyboardModels {
     pub keyboard_id: u8,
     pub layers: HashMap<u8, OverlayModel>,

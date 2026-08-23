@@ -23,8 +23,6 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
-mod self_heal;
-
 /// Vendor-defined usage page carrying keymap overlay reports.
 pub const RAW_USAGE_PAGE: u16 = 0xFF60;
 /// Usage within [`RAW_USAGE_PAGE`] carrying keymap overlay reports.
@@ -68,25 +66,6 @@ pub const THIRD_PARTY_LICENSES: &str = include_str!("../../../THIRD-PARTY-LICENS
     long_about = None
 )]
 pub struct Arguments {
-    /// Directory holding the installed <keyboard_id>.json models
-    #[cfg_attr(
-        target_os = "windows",
-        doc = "[default: %LOCALAPPDATA%\\keymap-overlay]"
-    )]
-    #[cfg_attr(
-        not(target_os = "windows"),
-        doc = "[default: $HOME/.cache/keymap-overlay]"
-    )]
-    #[arg(long, value_name = "PATH")]
-    pub asset_dir: Option<PathBuf>,
-
-    /// Directory of per-keyboard keyboard.json/config.json sources; if set,
-    /// every connected keyboard is refreshed in --asset-dir at startup before
-    /// the listener starts (never on the keypress hot path). A keyboard that
-    /// isn't currently connected keeps its cached model.
-    #[arg(long, value_name = "PATH")]
-    pub keyboard_config_dir: Option<PathBuf>,
-
     /// Write the log to this file, rotating it, instead of to stderr
     #[arg(long, value_name = "PATH")]
     pub log_out: Option<PathBuf>,
@@ -148,38 +127,108 @@ impl Arguments {
     }
 }
 
-/// Refreshes every connected keyboard model in the asset directory.
-pub fn refresh_models(asset_dir: &Path, keyboard_config_dir: &Path) -> Result<()> {
-    self_heal::refresh_models(asset_dir, keyboard_config_dir)
-}
-
-/// Initializes the shared runtime and gives the asset directory to a frontend.
+/// Initializes the shared runtime and gives live in-memory models to a frontend.
 pub fn run_overlay(
-    frontend: impl FnOnce(PathBuf, Option<SimulatedLayer>) -> Result<()>,
+    frontend: impl FnOnce(ModelCache, Option<SimulatedLayer>) -> Result<()>,
 ) -> Result<()> {
     let arguments = Arguments::parse();
     if let Some(notice) = arguments.notice() {
         return write_notice(notice);
     }
-    let directory = arguments
-        .asset_dir
-        .clone()
-        .map_or_else(default_asset_dir, Ok)?;
     let simulated = arguments.simulate;
-    let keyboard_config_dir = arguments.keyboard_config_dir.clone();
     initialize_logging(arguments.log_destination())?;
+    let model_fixture = simulated.or_else(|| {
+        env::var("KEYMAP_OVERLAY_E2E_MODEL")
+            .ok()
+            .and_then(|value| value.parse().ok())
+    });
+    let models = startup_models(model_fixture)?;
 
-    if let Some(keyboard_config_dir) = &keyboard_config_dir
-        && let Err(error) = refresh_models(&directory, keyboard_config_dir)
-    {
-        warn!("Startup refresh skipped: {error:#}");
-    }
-
-    if let Err(error) = frontend(directory, simulated) {
+    if let Err(error) = frontend(models, simulated) {
         error!("Keymap overlay stopped: {error:#}");
         return Err(error);
     }
     Ok(())
+}
+
+/// Returns live Vial models, or an in-memory fixture for simulation mode.
+pub fn startup_models(simulated: Option<SimulatedLayer>) -> Result<ModelCache> {
+    Ok(match simulated {
+        Some(simulated) => simulated_models(simulated),
+        None => load_live_models()?,
+    })
+}
+
+fn simulated_models(simulated: SimulatedLayer) -> ModelCache {
+    let model = |layer, label: &str| OverlayModel {
+        version: 2,
+        layer,
+        width: 160,
+        height: 120,
+        header_font_size: 14.0,
+        key_font_size: 10.0,
+        encoder_font_size: 9.0,
+        keys: vec![
+            DisplayKey {
+                x: 20,
+                y: 50,
+                width: 60,
+                height: 50,
+                label: vec![label.to_owned()],
+                held: false,
+                transparent: false,
+                momentary_layer: Some(simulated.layer),
+            },
+            DisplayKey {
+                x: 90,
+                y: 50,
+                width: 50,
+                height: 50,
+                label: vec!["ENTER".to_owned()],
+                held: false,
+                transparent: false,
+                momentary_layer: None,
+            },
+        ],
+        encoders: vec![],
+    };
+    let mut models = ModelCache::from([((simulated.keyboard_id, 0), model(0, "BASE"))]);
+    models.insert(
+        (simulated.keyboard_id, simulated.layer),
+        model(simulated.layer, "E2E"),
+    );
+    models
+}
+
+/// Reads every connected self-describing Vial keyboard into memory.
+pub fn load_live_models() -> Result<ModelCache> {
+    #[cfg(target_os = "macos")]
+    let platform = keymap_overlay_generator::labels::Platform::Macos;
+    #[cfg(target_os = "linux")]
+    let platform = keymap_overlay_generator::labels::Platform::Linux;
+    #[cfg(target_os = "windows")]
+    let platform = keymap_overlay_generator::labels::Platform::Windows;
+
+    let mut models = ModelCache::new();
+    for generated in keymap_overlay_generator::read_connected_keyboard_models(platform)? {
+        let keyboard_id = generated.keyboard_id;
+        if generated
+            .layers
+            .keys()
+            .any(|layer| models.contains_key(&(keyboard_id, *layer)))
+        {
+            anyhow::bail!("More than one connected keyboard uses KEYBOARD_ID {keyboard_id}");
+        }
+        let serialized = serde_json::to_value(generated)?;
+        let keyboard_models: KeyboardModels = serde_json::from_value(serialized)?;
+        models.extend(
+            keyboard_models
+                .layers
+                .into_iter()
+                .map(|(layer, model)| ((keyboard_id, layer), model)),
+        );
+    }
+    Ok(models)
 }
 
 /// Writes a notice to standard output, treating a closed pipe as success.
@@ -438,73 +487,6 @@ fn transition_for_change(change: ActiveLayerChange) -> Transition {
     }
 }
 
-/// Loads every installed semantic layer model before the listener can show one.
-pub fn load_model_cache(assets_dir: &Path) -> Result<ModelCache> {
-    let mut models = HashMap::new();
-    for entry in fs::read_dir(assets_dir)
-        .with_context(|| format!("Failed to read asset directory {}", assets_dir.display()))?
-    {
-        let entry = entry
-            .with_context(|| format!("Failed to read an entry in {}", assets_dir.display()))?;
-        let path = entry.path();
-        let Some(keyboard_id) = keyboard_id_from_path(&path) else {
-            continue;
-        };
-        match load_keyboard_model_file(&path, keyboard_id) {
-            Ok(keyboard_models) => models.extend(
-                keyboard_models
-                    .layers
-                    .into_iter()
-                    .map(|(layer, model)| ((keyboard_id, layer), model)),
-            ),
-            Err(error) => warn!("Ignoring invalid overlay model: {error:#}"),
-        }
-    }
-    Ok(models)
-}
-
-pub(crate) fn load_keyboard_model_file(path: &Path, keyboard_id: u8) -> Result<KeyboardModels> {
-    let keyboard_models: KeyboardModels = serde_json::from_reader(
-        File::open(path).with_context(|| format!("Failed to open {}", path.display()))?,
-    )
-    .with_context(|| format!("Failed to parse {}", path.display()))?;
-    if keyboard_models.keyboard_id != keyboard_id {
-        anyhow::bail!(
-            "Keyboard ID in {} does not match its filename",
-            path.display()
-        );
-    }
-    if !keyboard_models.layers.contains_key(&0) {
-        anyhow::bail!("Overlay model {} has no base layer 0", path.display());
-    }
-    for (layer, model) in &keyboard_models.layers {
-        if !matches!(model.version, 1 | 2) {
-            anyhow::bail!(
-                "Unsupported overlay model version {} in {}",
-                model.version,
-                path.display()
-            );
-        }
-        if model.layer != *layer {
-            anyhow::bail!(
-                "Layer in {} does not match its key in \"layers\"",
-                path.display()
-            );
-        }
-    }
-    Ok(keyboard_models)
-}
-
-fn keyboard_id_from_path(path: &Path) -> Option<u8> {
-    if !path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
-    {
-        return None;
-    }
-    path.file_stem()?.to_str()?.parse().ok()
-}
-
 pub fn compose_model(models: &ModelCache, keyboard_id: u8, layers: &[u8]) -> Option<OverlayModel> {
     let mut model = models.get(&(keyboard_id, 0))?.clone();
     for layer in layers {
@@ -659,33 +641,6 @@ fn resolve_home_directory(
 
     #[cfg(not(target_os = "windows"))]
     home.or(user_profile)
-}
-
-/// Where the installed layer models live when the command line names no path.
-///
-/// Each system is asked where its own per-user data belongs: `$XDG_CACHE_HOME`
-/// means nothing to Windows, and `%LOCALAPPDATA%` means nothing to Unix. The
-/// models are a regenerable cache of what a VIAL-flashed device already knows,
-/// not configuration, so they sit under `.cache` rather than `.config`.
-pub fn default_asset_dir() -> Result<PathBuf> {
-    resolve_default_asset_dir(env::var_os("LOCALAPPDATA"), home_directory())
-}
-
-fn resolve_default_asset_dir(
-    local_app_data: Option<OsString>,
-    home: Option<OsString>,
-) -> Result<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        windows_local_app_data(local_app_data, home).map(|root| root.join("keymap-overlay"))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = local_app_data;
-        let home = home.context("No home directory is set")?;
-        Ok(PathBuf::from(home).join(".cache/keymap-overlay"))
-    }
 }
 
 /// Opens newly discovered Raw HID devices without interrupting active readers.
@@ -1043,185 +998,6 @@ mod tests {
         assert_eq!(without_layer_one.keys[0].label, ["BASE A"]);
     }
 
-    fn write_keyboard_models(dir: &TempDir, filename: &str, keyboard_models: &KeyboardModels) {
-        fs::write(
-            dir.path().join(filename),
-            serde_json::to_string(keyboard_models).expect("serialize keyboard models"),
-        )
-        .expect("write keyboard models file");
-    }
-
-    #[test]
-    fn load_model_cache_reads_every_layer_from_one_keyboard_file() {
-        let dir = TempDir::new().expect("temp dir");
-        let mut layers = HashMap::new();
-        layers.insert(0, overlay_model(0, vec![display_key("BASE", false, None)]));
-        layers.insert(
-            1,
-            overlay_model(1, vec![display_key("LAYER 1", false, None)]),
-        );
-        write_keyboard_models(
-            &dir,
-            "1.json",
-            &KeyboardModels {
-                keyboard_id: 1,
-                layers,
-            },
-        );
-
-        let models = load_model_cache(dir.path()).expect("load model cache");
-
-        assert_eq!(models.len(), 2);
-        assert_eq!(models[&(1, 0)].keys[0].label, ["BASE"]);
-        assert_eq!(models[&(1, 1)].keys[0].label, ["LAYER 1"]);
-    }
-
-    #[test]
-    fn load_model_cache_ignores_files_that_are_not_a_keyboard_id() {
-        let dir = TempDir::new().expect("temp dir");
-        fs::write(dir.path().join("README.md"), "not a model").expect("write readme");
-        fs::write(dir.path().join("notes.json"), "{}").expect("write stray json");
-
-        let models = load_model_cache(dir.path()).expect("load model cache");
-
-        assert!(models.is_empty());
-    }
-
-    #[test]
-    fn load_model_cache_rejects_a_keyboard_id_that_does_not_match_its_filename() {
-        let dir = TempDir::new().expect("temp dir");
-        let mut layers = HashMap::new();
-        layers.insert(0, overlay_model(0, vec![]));
-        write_keyboard_models(
-            &dir,
-            "1.json",
-            &KeyboardModels {
-                keyboard_id: 2,
-                layers,
-            },
-        );
-
-        let error = load_keyboard_model_file(&dir.path().join("1.json"), 1)
-            .expect_err("mismatched keyboard id");
-
-        assert!(error.to_string().contains("does not match its filename"));
-    }
-
-    #[test]
-    fn load_model_cache_rejects_a_layer_that_does_not_match_its_map_key() {
-        let dir = TempDir::new().expect("temp dir");
-        let mut layers = HashMap::new();
-        layers.insert(0, overlay_model(1, vec![]));
-        write_keyboard_models(
-            &dir,
-            "1.json",
-            &KeyboardModels {
-                keyboard_id: 1,
-                layers,
-            },
-        );
-
-        let error = load_keyboard_model_file(&dir.path().join("1.json"), 1)
-            .expect_err("mismatched layer key");
-
-        assert!(error.to_string().contains("does not match its key"));
-    }
-
-    #[test]
-    fn load_model_cache_rejects_an_unsupported_model_version() {
-        let dir = TempDir::new().expect("temp dir");
-        let mut model = overlay_model(0, vec![]);
-        model.version = 99;
-        let mut layers = HashMap::new();
-        layers.insert(0, model);
-        write_keyboard_models(
-            &dir,
-            "1.json",
-            &KeyboardModels {
-                keyboard_id: 1,
-                layers,
-            },
-        );
-
-        let error = load_keyboard_model_file(&dir.path().join("1.json"), 1)
-            .expect_err("unsupported version");
-
-        assert!(
-            error
-                .to_string()
-                .contains("Unsupported overlay model version")
-        );
-    }
-
-    #[test]
-    fn load_model_cache_rejects_a_keyboard_without_a_base_layer() {
-        let dir = TempDir::new().expect("temp dir");
-        let layers = HashMap::from([(1, overlay_model(1, vec![]))]);
-        write_keyboard_models(
-            &dir,
-            "1.json",
-            &KeyboardModels {
-                keyboard_id: 1,
-                layers,
-            },
-        );
-
-        let error = load_keyboard_model_file(&dir.path().join("1.json"), 1)
-            .expect_err("missing base layer");
-
-        assert!(error.to_string().contains("has no base layer 0"));
-    }
-
-    #[test]
-    fn load_model_cache_ignores_an_invalid_keyboard_without_hiding_valid_ones() {
-        let dir = TempDir::new().expect("temp dir");
-        fs::write(dir.path().join("1.json"), "not JSON").expect("write invalid model");
-        let layers = HashMap::from([(0, overlay_model(0, vec![]))]);
-        write_keyboard_models(
-            &dir,
-            "2.json",
-            &KeyboardModels {
-                keyboard_id: 2,
-                layers,
-            },
-        );
-
-        let models = load_model_cache(dir.path()).expect("load valid models");
-
-        assert_eq!(models.len(), 1);
-        assert!(models.contains_key(&(2, 0)));
-    }
-
-    /// Each system is asked where its own per-user data belongs.
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn the_default_asset_directory_sits_under_home() {
-        assert_eq!(
-            resolve_default_asset_dir(None, Some(OsString::from("/home/user")))
-                .expect("HOME is enough on its own"),
-            PathBuf::from("/home/user/.cache/keymap-overlay")
-        );
-        assert!(resolve_default_asset_dir(None, None).is_err());
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn the_default_asset_directory_follows_the_windows_convention() {
-        assert_eq!(
-            resolve_default_asset_dir(Some(OsString::from(r"C:\Users\user\AppData\Local")), None)
-                .expect("LOCALAPPDATA is enough on its own"),
-            PathBuf::from(r"C:\Users\user\AppData\Local").join("keymap-overlay")
-        );
-        assert_eq!(
-            resolve_default_asset_dir(None, Some(OsString::from(r"C:\Users\user")))
-                .expect("USERPROFILE is enough on its own"),
-            PathBuf::from(r"C:\Users\user")
-                .join("AppData/Local")
-                .join("keymap-overlay")
-        );
-        assert!(resolve_default_asset_dir(None, None).is_err());
-    }
-
     fn parse(arguments: &[&str]) -> Result<Arguments, clap::Error> {
         Arguments::try_parse_from(
             std::iter::once("keymap-overlay").chain(arguments.iter().copied()),
@@ -1242,15 +1018,6 @@ mod tests {
     #[test]
     fn the_third_party_notice_has_no_one_letter_spelling() {
         assert!(parse(&["--licenses"]).is_err());
-    }
-
-    #[test]
-    fn an_asset_directory_runs_the_overlay() {
-        let arguments =
-            parse(&["--asset-dir", "/somewhere/else"]).expect("a path is a valid command line");
-
-        assert_eq!(arguments.notice(), None);
-        assert_eq!(arguments.asset_dir, Some(PathBuf::from("/somewhere/else")));
     }
 
     #[test]
@@ -1281,35 +1048,12 @@ mod tests {
         assert!(parse(&["/somewhere/else"]).is_err());
     }
 
-    /// The service definitions pass the directory explicitly, but running the
-    /// overlay by hand should not require repeating the default.
-    #[test]
-    fn the_asset_directory_may_be_omitted() {
-        let arguments = parse(&[]).expect("no arguments is a valid command line");
-
-        assert_eq!(arguments.notice(), None);
-        assert_eq!(arguments.asset_dir, None);
-    }
-
-    /// A notice does not read the models, so pairing it with a directory is a
-    /// mistake worth reporting rather than quietly ignoring.
-    #[test]
-    fn notice_flags_take_no_asset_directory() {
-        assert!(parse(&["--license", "/somewhere/else"]).is_err());
-        assert!(parse(&["/somewhere/else", "--third-party-licenses"]).is_err());
-    }
-
     /// Without this a mistyped flag becomes an asset path, and the overlay
     /// fails with "no such file or directory" instead of naming the option.
     #[test]
     fn an_unknown_option_is_rejected_rather_than_opened_as_a_path() {
         assert!(parse(&["--versoin"]).is_err());
         assert!(parse(&["--license-text"]).is_err());
-    }
-
-    #[test]
-    fn only_one_asset_directory_is_accepted() {
-        assert!(parse(&["--asset-dir", "/first", "--asset-dir", "/second"]).is_err());
     }
 
     /// Guards the `include_str!` paths: a wrong one fails the build, but an
@@ -1325,7 +1069,7 @@ mod tests {
     /// owning the log instead of the in-process rotator.
     #[test]
     fn without_log_out_the_log_stays_on_stderr() {
-        let arguments = parse(&["--asset-dir", "/x"]).expect("no log flag is valid");
+        let arguments = parse(&[]).expect("no log flag is valid");
 
         assert!(matches!(
             arguments.log_destination(),
@@ -1337,15 +1081,7 @@ mod tests {
     /// it never rotates.
     #[test]
     fn log_out_names_the_file_to_rotate() {
-        let arguments = parse(&[
-            "--asset-dir",
-            "/assets",
-            "--log-out",
-            "/var/log/overlay.log",
-        ])
-        .expect("a path and a log file are valid together");
-
-        assert_eq!(arguments.asset_dir, Some(PathBuf::from("/assets")));
+        let arguments = parse(&["--log-out", "/var/log/overlay.log"]).expect("a log file is valid");
         assert!(matches!(
             arguments.log_destination(),
             LogDestination::File(path) if path == Path::new("/var/log/overlay.log")

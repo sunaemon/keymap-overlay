@@ -38,6 +38,12 @@ pub struct DeviceModel {
 
 /// Reads one device's Vial metadata, dynamic keymap and encoder bindings.
 pub fn read_device_model(device: &HidDevice, encoder_count: usize) -> Result<DeviceModel> {
+    let definition = read_device_definition(device)?;
+    read_device_model_with_definition(device, definition, encoder_count)
+}
+
+/// Reads and validates the Vial definition embedded in one device.
+pub fn read_device_definition(device: &HidDevice) -> Result<Value> {
     let via_request = [CMD_VIA_GET_PROTOCOL_VERSION];
     let via_version = send_recv(device, &via_request)?;
     if is_unhandled_response(&via_version, &via_request) {
@@ -48,6 +54,15 @@ pub fn read_device_model(device: &HidDevice, encoder_count: usize) -> Result<Dev
     if is_unhandled_response(&keyboard_id, &keyboard_id_request) {
         bail!("Connected device does not implement the Vial protocol");
     }
+    read_definition(device)
+}
+
+/// Reads dynamic Vial state using an already-fetched embedded definition.
+pub fn read_device_model_with_definition(
+    device: &HidDevice,
+    definition: Value,
+    encoder_count: usize,
+) -> Result<DeviceModel> {
     let layer_count_request = [CMD_VIA_GET_LAYER_COUNT];
     let layer_count_response = send_recv(device, &layer_count_request)?;
     if is_unhandled_response(&layer_count_response, &layer_count_request) {
@@ -57,7 +72,6 @@ pub fn read_device_model(device: &HidDevice, encoder_count: usize) -> Result<Dev
     if layer_count == 0 {
         bail!("Device reports zero Vial layers");
     }
-    let definition = read_definition(device)?;
     let matrix = definition
         .get("matrix")
         .context("matrix missing from the device's Vial definition")?;

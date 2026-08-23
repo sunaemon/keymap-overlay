@@ -44,3 +44,23 @@ pub fn read_live_keyboard_models(
         pixels_per_unit,
     )
 }
+
+/// Builds in-memory models for every connected self-describing Vial keyboard.
+pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<types::KeyboardModels>> {
+    let api = HidApi::new().context("Failed to initialize HID API")?;
+    let mut models = Vec::new();
+    for info in api
+        .device_list()
+        .filter(|info| info.usage_page() == vial::USAGE_PAGE && info.usage() == vial::USAGE_ID)
+    {
+        let device = api
+            .open_path(info.path())
+            .with_context(|| format!("Failed to open Raw HID device {:?}", info.path()))?;
+        if let Some(model) = device::read_self_describing_keyboard_models(&device, platform)
+            .with_context(|| format!("Failed to read Vial device {:?}", info.path()))?
+        {
+            models.push(model);
+        }
+    }
+    Ok(models)
+}

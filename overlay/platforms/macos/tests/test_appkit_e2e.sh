@@ -2,7 +2,6 @@
 set -eu
 
 PROJECT_DIRECTORY=$(CDPATH='' cd -- "$(dirname "$0")/../../../.." && pwd)
-ASSET_DIRECTORY="$PROJECT_DIRECTORY/overlay/tests/fixtures"
 OVERLAY=${KEYMAP_OVERLAY_E2E_OVERLAY:-"$PROJECT_DIRECTORY/target/release/keymap-overlay"}
 TEST_DIRECTORY=$(mktemp -d)
 OVERLAY_PID=''
@@ -50,7 +49,7 @@ wait_for_state() {
 }
 
 KEYMAP_OVERLAY_E2E_STATE_FILE="$TEST_DIRECTORY/state" \
-  "$OVERLAY" --asset-dir "$ASSET_DIRECTORY" --simulate 1:2 \
+  "$OVERLAY" --simulate 1:2 \
   >"$TEST_DIRECTORY/overlay.log" 2>&1 &
 OVERLAY_PID=$!
 

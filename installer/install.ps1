@@ -49,6 +49,7 @@ function Install-Release {
             throw "Installation failed and the previous installation was restored: $installationError"
         }
 
+        Remove-LegacyModels
         Write-InstalledFiles -ReleaseTag $release
     }
     finally {
@@ -60,6 +61,7 @@ function Uninstall-Release {
     Stop-Overlay
     Remove-ItemProperty -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $binaryPath, $generatorPath, $generatorLicensesPath, $licensePath, $thirdPartyLicensesPath, $installerPath -Force -ErrorAction SilentlyContinue
+    Remove-LegacyModels
     Write-Output 'Removed:'
     Write-Output "  binary: $binaryPath"
     Write-Output "  generator: $generatorPath"
@@ -67,13 +69,12 @@ function Uninstall-Release {
     Write-Output "  licenses: $licensePath, $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
-    Write-Output "Kept layer models: $assetDirectory"
     Write-Output "Kept logs: $logDirectory"
 }
 
-# Local rather than roaming %APPDATA%, because generated models and a log both
-# describe one machine. Programs is where a per-user install puts an executable
-# on Windows, the same place VS Code and Slack use.
+# Local rather than roaming %APPDATA%, because logs describe one machine.
+# Programs is where a per-user install puts an executable on Windows, the same
+# place VS Code and Slack use.
 function Initialize-Paths {
     $script:assetDirectory = Join-Path $env:LOCALAPPDATA 'keymap-overlay'
     $script:programDirectory = Join-Path $env:LOCALAPPDATA 'Programs\keymap-overlay'
@@ -228,11 +229,16 @@ function Install-StagedFiles {
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Destination $installerPath -Force
 }
 
+function Remove-LegacyModels {
+    Get-ChildItem -LiteralPath $assetDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.BaseName -match '^\d+$' } |
+        Remove-Item -Force
+}
+
 function Install-Autostart {
     $quotedBinary = '"{0}"' -f $binaryPath
-    $quotedAssets = '"{0}"' -f $assetDirectory
-    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary --asset-dir $quotedAssets"
-    Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
+    Set-ItemProperty -Path $runKey -Name $runValue -Value $quotedBinary
+    Start-Process -FilePath $binaryPath
 }
 
 function Restore-Installation {
@@ -258,8 +264,7 @@ function Restore-Installation {
 
 function Restart-PreviousInstallation {
     if (Test-Path -LiteralPath $binaryPath -PathType Leaf) {
-        $quotedAssets = '"{0}"' -f $assetDirectory
-        Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
+        Start-Process -FilePath $binaryPath
     }
 }
 
@@ -272,7 +277,6 @@ function Write-InstalledFiles {
     Write-Output "  third-party licenses: $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
-    Write-Output "Layer model cache: $assetDirectory"
     Write-Output "Logs: $logDirectory"
     Write-Output "Verified release: $ReleaseTag"
 }

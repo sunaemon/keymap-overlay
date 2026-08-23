@@ -1,9 +1,9 @@
 # Custom Keyboard Configuration
 
 The overlay repository includes two example keyboards, but keyboard-specific
-configuration can live in a fork or beside an unmodified submodule. Keeping it
-external makes upstream updates easier to pull without mixing them with private
-keymaps.
+build configuration can live in a fork or beside an unmodified submodule.
+Flashing embeds the runtime metadata into the keyboard's Vial definition, so
+the installed overlay needs no copy of this directory.
 
 ## Directory Layout
 
@@ -24,8 +24,8 @@ cp -R keymap-overlay/firmware/examples/. keyboards/
 ```
 
 Each directory name is a numeric `KEYBOARD_ID` from 0 through 255. Its
-`config.json` names the QMK keyboard used to compile firmware and generate
-layer models.
+`config.json` names the QMK keyboard and supplies display metadata embedded at
+firmware build time.
 
 ## Encoder Geometry
 
@@ -60,18 +60,14 @@ enum custom_keycodes {
 };
 ```
 
-By default (`VIAL=true`), layer rendering reads a custom keycode's name and
-label straight off the connected device's own embedded Vial definition
-(`fetch_vial_definition.py`), which `generate_vial.py` embeds from this same
-enum at flash time — a base other than `QK_KB_0` desyncs the two, so custom
-keycodes render with the wrong label or none at all. `VIAL=false` renders
-from `keymap.c` alone, with no device connected; that path also accepts
-`SAFE_RANGE`/`QK_USER_0`.
+Layer rendering reads a custom keycode's name and label straight from the
+connected device's own embedded Vial definition, which `generate_vial.py`
+embeds from this same enum at flash time. A base other than `QK_KB_0` desyncs
+the two, so custom keycodes render with the wrong label or none at all.
 
 Generic key aliases (arrow glyphs, media keys) and platform-specific ones
-(`⌘`/`Super`/`⊞` for the GUI key) are the overlay's own built-in tables in
-`model/scripts/generate_overlay_asset.py`, not something `keymap.c`
-configures.
+(`⌘`/`Super`/`⊞` for the GUI key) are the Rust generator's built-in
+tables, not something `keymap.c` configures.
 
 Asset generation targets the current host platform by default. Set
 `OVERLAY_PLATFORM=windows` when WSL generates models for Windows.
@@ -87,17 +83,11 @@ make -C keymap-overlay \
   KEYBOARDS_DIR="$PWD/keyboards" \
   flash KEYBOARD_ID=2
 
-make -C keymap-overlay \
-  KEYBOARDS_DIR="$PWD/keyboards" \
-  install-assets KEYBOARD_ID=2
 ```
 
-Omit `KEYBOARD_ID` only when every configured keyboard is connected; the
-default VIAL-backed path reads each device in turn.
-
-The released binary installer does not change. Every runtime reads the
-generated JSON layer models from the platform cache directory
-(`~/.cache/keymap-overlay` on macOS and Linux).
+After flashing, restart the overlay. Every runtime reads the embedded metadata
+and live Vial keymap directly into memory; no host config or model cache is
+installed.
 
 Return to the [main README](../README.md#everyday-operations) for update,
 restart, upgrade, and uninstall commands.

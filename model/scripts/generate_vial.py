@@ -7,7 +7,9 @@ from typing import Annotated
 import typer
 
 from model.src.types import (
+    KeyboardConfig,
     KeyboardJson,
+    KeymapOverlayMetadata,
     KleKeyProps,
     KleLayout,
     KleRow,
@@ -42,11 +44,27 @@ def main(
         Path | None,
         typer.Option(help="keymap.c containing enum custom_keycodes"),
     ] = None,
+    keyboard_config: Annotated[
+        Path | None,
+        typer.Option(help="Project config to embed for keymap-overlay"),
+    ] = None,
+    keyboard_id: Annotated[
+        int | None,
+        typer.Option(help="KMO keyboard ID to embed for keymap-overlay"),
+    ] = None,
+    pixels_per_unit: Annotated[int, typer.Option()] = 64,
 ) -> None:
     """Convert QMK info.json (keyboard.json) to Vial JSON and emit it to stdout."""
     initialize_logging()
     try:
-        vial_data = generate_vial(keyboard_json, layout_name, keymap_c=keymap_c)
+        vial_data = generate_vial(
+            keyboard_json,
+            layout_name,
+            keymap_c=keymap_c,
+            keyboard_config=keyboard_config,
+            keyboard_id=keyboard_id,
+            pixels_per_unit=pixels_per_unit,
+        )
         print_json(vial_data, exclude_none=True)
         logger.info("Generated Vial JSON from %s", keyboard_json)
     except Exception:
@@ -59,9 +77,14 @@ def generate_vial(
     layout_name: str,
     *,
     keymap_c: Path | None = None,
+    keyboard_config: Path | None = None,
+    keyboard_id: int | None = None,
+    pixels_per_unit: int = 64,
 ) -> VialJson:
     """Convert QMK keyboard.json to a Vial-compatible JSON structure."""
     keyboard_data = parse_json(KeyboardJson, keyboard_json)
+    if (keyboard_config is None) != (keyboard_id is None):
+        raise ValueError("keyboard_config and keyboard_id must be provided together")
 
     vendor_id = keyboard_data.usb.vid
     product_id = keyboard_data.usb.pid
@@ -81,6 +104,17 @@ def generate_vial(
         layouts=VialLayouts(keymap=kle_rows),
         customKeycodes=(
             _build_custom_keycodes(keymap_c) if keymap_c is not None else None
+        ),
+        keymapOverlay=(
+            KeymapOverlayMetadata(
+                keyboardId=keyboard_id,
+                layoutName=layout_name,
+                pixelsPerUnit=pixels_per_unit,
+                keyboard=keyboard_data,
+                config=parse_json(KeyboardConfig, keyboard_config),
+            )
+            if keyboard_config is not None and keyboard_id is not None
+            else None
         ),
     )
 

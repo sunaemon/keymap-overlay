@@ -1,14 +1,13 @@
 //! Narrow C ABI between the WPF frontend and the shared Rust HID runtime.
 
 use keymap_overlay_runtime::{
-    Arguments, LayerEvent, LayerEventSink, LayerEventSourceHandle, LogDestination, Parser,
-    PendingTransition, SimulatedLayer, Transition, default_asset_dir, default_log_file,
-    initialize_logging, refresh_models, spawn_layer_event_source,
+    Arguments, LayerEvent, LayerEventSink, LayerEventSourceHandle, LogDestination, OverlayModel,
+    Parser, PendingTransition, SimulatedLayer, Transition, default_log_file, initialize_logging,
+    spawn_layer_event_source, startup_models,
 };
-use std::env;
-use std::ffi::OsString;
+use serde::Serialize;
+use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 // Tag: bits 24-31; layer count: bits 16-23; keyboard ID: bits 8-15;
@@ -19,6 +18,13 @@ const TRANSITION_SHOW: u32 = 2 << 24;
 
 static STATE: OnceLock<Arc<SharedState>> = OnceLock::new();
 static LOGGING: OnceLock<Result<(), String>> = OnceLock::new();
+static MODELS_JSON: OnceLock<Vec<u8>> = OnceLock::new();
+
+#[derive(Serialize)]
+struct KeyboardModels {
+    keyboard_id: u8,
+    layers: BTreeMap<u8, OverlayModel>,
+}
 
 #[derive(Clone)]
 struct BridgeSink {
@@ -48,6 +54,18 @@ impl LayerEventSink for BridgeSink {
 #[unsafe(no_mangle)]
 pub extern "system" fn keymap_overlay_prepare() -> i32 {
     catch_unwind(prepare).unwrap_or(-1)
+}
+
+/// Returns the byte length of the prepared in-memory model JSON.
+#[unsafe(no_mangle)]
+pub extern "system" fn keymap_overlay_models_json_length() -> usize {
+    MODELS_JSON.get().map_or(0, Vec::len)
+}
+
+/// Returns a stable pointer to the prepared in-memory model JSON.
+#[unsafe(no_mangle)]
+pub extern "system" fn keymap_overlay_models_json() -> *const u8 {
+    MODELS_JSON.get().map_or(std::ptr::null(), Vec::as_ptr)
 }
 
 /// Starts the HID listener. Returns zero, or a negative value on failure.
@@ -114,19 +132,41 @@ fn prepare() -> i32 {
         eprintln!("{error}");
         return -1;
     }
-    let (asset_dir, keyboard_config_dir) = match startup_paths_from(env::args_os()) {
-        Ok(paths) => paths,
+    let arguments = match Arguments::try_parse() {
+        Ok(arguments) => arguments,
         Err(error) => {
-            eprintln!("Failed to parse the Windows startup paths: {error}");
+            eprintln!("Failed to parse arguments: {error}");
             return -1;
         }
     };
-    if let Some(keyboard_config_dir) = keyboard_config_dir
-        && let Err(error) = refresh_models(&asset_dir, &keyboard_config_dir)
-    {
-        eprintln!("Startup refresh skipped: {error:#}");
+    let models = match startup_models(arguments.simulate).and_then(serialize_models) {
+        Ok(models) => models,
+        Err(error) => {
+            eprintln!("Failed to read connected keyboard models: {error:#}");
+            return -1;
+        }
+    };
+    MODELS_JSON.set(models).map_or(-2, |()| 0)
+}
+
+fn serialize_models(models: HashMap<(u8, u8), OverlayModel>) -> anyhow::Result<Vec<u8>> {
+    let mut keyboards: BTreeMap<u8, BTreeMap<u8, OverlayModel>> = BTreeMap::new();
+    for ((keyboard_id, layer), model) in models {
+        keyboards
+            .entry(keyboard_id)
+            .or_default()
+            .insert(layer, model);
     }
-    0
+    serde_json::to_vec(
+        &keyboards
+            .into_iter()
+            .map(|(keyboard_id, layers)| KeyboardModels {
+                keyboard_id,
+                layers,
+            })
+            .collect::<Vec<_>>(),
+    )
+    .map_err(Into::into)
 }
 
 fn initialize_bridge_logging() -> Result<(), String> {
@@ -138,19 +178,6 @@ fn initialize_bridge_logging() -> Result<(), String> {
                 .map_err(|error| format!("Failed to initialize logging: {error:#}"))
         })
         .clone()
-}
-
-fn startup_paths_from<I, T>(arguments: I) -> Result<(PathBuf, Option<PathBuf>), String>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    let arguments = Arguments::try_parse_from(arguments).map_err(|error| error.to_string())?;
-    let asset_dir = arguments
-        .asset_dir
-        .map_or_else(default_asset_dir, Ok)
-        .map_err(|error| format!("Failed to resolve the asset directory: {error:#}"))?;
-    Ok((asset_dir, arguments.keyboard_config_dir))
 }
 
 /// Returns the final queued transition packed into one FFI-safe integer.
@@ -213,19 +240,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn startup_paths_follow_the_wpf_command_line() {
-        let (asset_dir, keyboard_config_dir) = startup_paths_from([
-            "keymap-overlay",
-            "--asset-dir",
-            r"C:\assets",
-            "--keyboard-config-dir",
-            r"C:\keyboards",
-            "--simulate",
-            "1:2",
-        ])
-        .expect("valid WPF arguments");
-
-        assert_eq!(asset_dir, PathBuf::from(r"C:\assets"));
-        assert_eq!(keyboard_config_dir, Some(PathBuf::from(r"C:\keyboards")));
+    fn serializes_grouped_keyboard_models() {
+        assert_eq!(serialize_models(HashMap::new()).unwrap(), b"[]");
     }
 }

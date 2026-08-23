@@ -24,8 +24,7 @@ else
 $(error keymap-overlay supports macOS, Linux and Windows, not '$(UNAME_S)')
 endif
 
-# Asset generation normally targets the current host. WSL must override this
-# to `windows` because it generates files for the native Windows overlay.
+# Development model generation targets the current host.
 OVERLAY_PLATFORM ?= $(OS_FAMILY)
 ifeq (,$(filter $(OVERLAY_PLATFORM),macos linux windows))
 $(error OVERLAY_PLATFORM must be macos, linux or windows, got '$(OVERLAY_PLATFORM)')
@@ -46,11 +45,8 @@ WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WS
 
 # ================= VIA CONFIGURATION =================
 
-# By default, `make install-assets` and `make draw-layers` load the keymap
-# from the connected keyboard's VIAL EEPROM dump: it reflects live edits made
-# in the Vial GUI, not just what keymap.c last compiled to. Set VIAL=false to
-# render straight from keymap.c instead, with no device connected.
-VIAL ?= true
+# `make draw-layers` reads the connected keyboard's Vial EEPROM, reflecting
+# live edits made in the Vial GUI rather than only compiled keymap.c source.
 EEPROM_RESET_EPOCH ?= 0
 
 # ================= TOOLS CONFIGURATION =================
@@ -190,8 +186,6 @@ endif
 QMK_FLAGS += -e KEYBOARD_ID=$(KEYBOARD_ID)
 QMK_FLAGS += -e KEYMAP_EEPROM_EPOCH=$(EEPROM_RESET_EPOCH)
 
-KEYMAP_PREFIX := $(KEYBOARD_ID)_
-
 # QMK keyboard definition (matrix/layouts/metadata).
 # Type: model/src/types.py:KeyboardJson
 KEYBOARD_JSON := $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json
@@ -212,48 +206,14 @@ ABS_BUILD_DIR := $(abspath $(BUILD_DIR))
 
 QMK_FLAGS += -e BUILD_DIR=$(ABS_BUILD_DIR)/qmk_build
 
-# Contains the full, unmodified keymap definition (layers, keycodes) in QMK format.
-# Type: model/src/types.py:QmkKeymapJson
-# Generated from QMK source with `qmk c2json`.
-QMK_KEYMAP_JSON := $(BUILD_DIR)/qmk-keymap.json
-
-# Mapping of QMK hex keycodes to their string names (e.g., 0x0004 -> KC_A).
-# Type: model/src/types.py:KeycodesJson
-# Generated from: 'generate_keycodes.py' scanning QMK firmware.
-# Used by: the overlay asset generator for name resolution.
-KEYCODES_JSON := $(BUILD_DIR)/keycodes.json
-
-# Mapping of user-defined enum keycodes (e.g., 0x7E40 -> SAFE_RANGE) from
-# keymap.c. Used by the offline overlay asset generator.
-CUSTOM_KEYCODES_JSON := $(BUILD_DIR)/custom-keycodes.json
-
 # VIAL-compatible keyboard definition (matrix, layout, VID/PID, customKeycodes).
 # Type: model/src/types.py:VialJson
 # Generated from: 'generate_vial.py' using keyboard.json and keymap.c.
 # Used by: 'qmk compile' (embedded in firmware) for VIAL support.
 VIAL_JSON := $(BUILD_DIR)/vial.json
 
-# The connected device's own embedded Vial definition, decompressed. Custom
-# keycode identity for VIAL=true rendering comes from here, not keymap.c, so
-# deleting keymap.c after flashing does not break 'make install-assets VIAL=true'.
-# Type: model/src/types.py:VialJson
-# Generated from: 'fetch_vial_definition.py' (downloaded from device).
-# Used by: $(CUSTOM_KEYCODES_JSON) and the overlay asset generator, under VIAL=true.
-VIAL_DEFINITION_JSON := $(BUILD_DIR)/vial_definition.json
-
-# Same lazy-and-cached treatment as DEVICE_PID. These are only meaningful once
-# $(QMK_KEYMAP_JSON) exists, which is why install-assets/draw-layers build it in a
-# first pass and then re-enter make to expand $(ASSETS).
-LAYERS = $(eval LAYERS := $(shell if [ -s $(QMK_KEYMAP_JSON) ]; then $(UV) run python -m model.scripts.count_layers "$(QMK_KEYMAP_JSON)" || echo 0; else echo 0; fi))$(LAYERS)
 ASSET_EXTENSION := json
-STALE_ASSET_EXTENSION := png
 ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)
-ASSETS = $(eval ASSETS := $(shell if [ $(LAYERS) -gt 0 ]; then seq -f "$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%g.$(ASSET_EXTENSION)" 0 $$(( $(LAYERS) - 1 )); fi))$(ASSETS)
-
-# The per-layer files above stay a build-time intermediate; installing and
-# reading them is one keyboard, one file, since a keyboard's layers are always
-# generated and read together. Under VIAL=true they are not built at all: the
-# native generator reads the device directly in one session (see FILE RULES).
 CONSOLIDATED_ASSET := $(ASSET_BUILD_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)
 
 endif
@@ -269,24 +229,17 @@ WINDOWS_USER_HOME := $(shell cygpath -u "$$USERPROFILE" 2>/dev/null)
 ifeq ($(strip $(WINDOWS_USER_HOME)),)
 $(error Could not resolve USERPROFILE with cygpath; run make from an MSYS2 UCRT64 shell)
 endif
-# Local rather than roaming %APPDATA%, because generated models and a log both
-# describe one machine. Falls back the way the overlay itself does, so make and
-# the binary always name the same directory.
+# Local rather than roaming %APPDATA%, because the log describes one machine.
 WINDOWS_LOCAL_APP_DATA := $(shell cygpath -u "$$LOCALAPPDATA" 2>/dev/null)
 ifeq ($(strip $(WINDOWS_LOCAL_APP_DATA)),)
 WINDOWS_LOCAL_APP_DATA := $(WINDOWS_USER_HOME)/AppData/Local
 endif
-KEYMAP_OVERLAY_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/keymap-overlay/logs
 # Where a per-user install puts an executable on Windows, the same place VS Code
 # and Slack use. The Run key names it by absolute path, so it need not be on
 # PATH.
 KEYMAP_OVERLAY_BIN_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/Programs/keymap-overlay
 else
-# The installed models are a regenerable cache of what a VIAL-flashed device
-# already knows, not configuration, so they sit under .cache rather than
-# .config.
-KEYMAP_OVERLAY_DIR := $(HOME)/.cache/keymap-overlay
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
 # systemd puts this on PATH for user services and the distro profiles add it for
 # login shells, so `keymap-overlay-qt` can be run by hand to diagnose the
@@ -444,59 +397,10 @@ doctor:
 	status=$${PIPESTATUS[0]}; \
 	[ "$$status" -eq 0 ] || [ "$$status" -eq 1 ] || exit "$$status"
 
-# This is no longer part of normal source or release installation: every native
-# overlay refreshes connected keyboards at startup (`--keyboard-config-dir`).
-# It remains an explicit development tool, especially for offline VIAL=false
-# rendering. The VIAL=true path is a native Raw HID read on every platform.
-#
-# Under VIAL=false, LAYERS depends on $(QMK_KEYMAP_JSON), so install-assets
-# and draw-layers build the QMK JSON in a first make invocation, then re-enter
-# make to expand assets. Under VIAL=true the native generator (FILE RULES)
-# determines its own layer count from the device, so this first pass — and
-# the extra device read building $(QMK_KEYMAP_JSON) would cost — is skipped.
-.PHONY: install-assets
-install-assets:
-ifdef KEYBOARD_ID
-	@$(MAKE) _install_assets_$(OS_FAMILY)
-else
-	+@$(call FOR_EACH_KEYBOARD,installing,Installing,install-assets)
-endif
-
-.PHONY: _install_assets_macos
-_install_assets_macos _install_assets_linux:
-	@$(MAKE) _install_assets
-
-.PHONY: _install_assets_windows
-_install_assets_windows:
-ifeq ($(VIAL),true)
-	@$(MAKE) _install_assets
-else
-	$(error install-assets VIAL=false needs QMK source processing; run it from WSL, macOS or Linux)
-endif
-
-.PHONY: _install_assets
-_install_assets:
-ifeq ($(VIAL),true)
-	@$(MAKE) _internal_install
-else
-	@$(MAKE) $(QMK_KEYMAP_JSON)
-	@$(MAKE) _internal_install
-endif
-
-# Kept as a compatibility alias for existing scripts. New callers should use
-# install-assets.
-.PHONY: install
-install: install-assets
-
 .PHONY: draw-layers
 draw-layers:
 ifdef KEYBOARD_ID
-ifeq ($(VIAL),true)
 	@$(MAKE) _internal_draw_layers
-else
-	@$(MAKE) $(QMK_KEYMAP_JSON)
-	@$(MAKE) _internal_draw_layers
-endif
 else
 	+@$(call FOR_EACH_KEYBOARD,drawing layers for,Drawing layers for,draw-layers)
 endif
@@ -632,7 +536,7 @@ clean:
 
 .PHONY: run-overlay
 run-overlay:
-	$(KEYMAP_OVERLAY) --asset-dir "$(KEYMAP_OVERLAY_DIR)" $(if $(SIMULATE),--simulate "$(SIMULATE)")
+	$(KEYMAP_OVERLAY) $(if $(SIMULATE),--simulate "$(SIMULATE)")
 
 .PHONY: build-overlay
 build-overlay:
@@ -661,12 +565,11 @@ else
 	$(error build-winui-overlay is only available on Windows)
 endif
 
-# Not install-assets: startup refresh (FILE RULES, --keyboard-config-dir below)
-# updates every connected keyboard once the service starts, so installation
-# does not generate or copy layer models itself.
+# Connected keyboards provide their models directly from Vial at startup, so
+# installation does not generate, copy, or persist layer models.
 .PHONY: install-overlay
 install-overlay: build-overlay
-	@mkdir -p "$(KEYMAP_OVERLAY_DIR)" "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
+	@mkdir -p "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
 # Windows holds an open executable locked, so the running overlay has to go
 # before its binary can be replaced. The other two systems replace the file
 # underneath the running process and stop it as part of installing the service.
@@ -724,10 +627,6 @@ _install_service_macos:
 		'  <key>ProgramArguments</key>' \
 		'  <array>' \
 		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_BINARY))</string>' \
-		'    <string>--asset-dir</string>' \
-		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_DIR))</string>' \
-		'    <string>--keyboard-config-dir</string>' \
-		'    <string>$(call xml_escape,$(KEYBOARDS_DIR_ABS))</string>' \
 		'    <string>--log-out</string>' \
 		'    <string>$(call xml_escape,$(KEYMAP_OVERLAY_LOG_FILE))</string>' \
 		'  </array>' \
@@ -743,9 +642,7 @@ _install_service_macos:
 	@$(BOOTOUT_KEYMAP_OVERLAY)
 	launchctl bootstrap "gui/$$(id -u)" "$(KEYMAP_OVERLAY_PLIST)"
 
-# The paths are written out rather than expressed with %h so that a
-# KEYMAP_OVERLAY_DIR pointing elsewhere is honoured, and quoted so that a
-# directory containing spaces still parses.
+# Paths are quoted so that a directory containing spaces still parses.
 .PHONY: _install_service_linux
 _install_service_linux:
 	@mkdir -p "$(dir $(KEYMAP_OVERLAY_UNIT))"
@@ -764,7 +661,7 @@ _install_service_linux:
 		'' \
 		'[Service]' \
 		'Type=simple' \
-		'ExecStart="$(KEYMAP_OVERLAY_BINARY)" --asset-dir "$(KEYMAP_OVERLAY_DIR)" --keyboard-config-dir "$(KEYBOARDS_DIR_ABS)"' \
+		'ExecStart="$(KEYMAP_OVERLAY_BINARY)"' \
 		'# The log is left on stderr for journald, which timestamps, rotates' \
 		'# and retains it: journalctl --user -u keymap-overlay' \
 		'SyslogIdentifier=keymap-overlay' \
@@ -833,10 +730,8 @@ _install_service_windows:
 # powershell.exe still exits 0 and install-overlay reports success.
 	@set -e; \
 	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
-	assets="$$(cygpath -w "$(KEYMAP_OVERLAY_DIR)")"; \
-	configs="$$(cygpath -w "$(KEYBOARDS_DIR_ABS)")"; \
-	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_ASSETS="$$assets" KEYMAP_OVERLAY_CONFIGS="$$configs" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " --asset-dir " + $$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote + " --keyboard-config-dir " + $$quote + $$env:KEYMAP_OVERLAY_CONFIGS + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList "--asset-dir", ($$quote + $$env:KEYMAP_OVERLAY_ASSETS + $$quote), "--keyboard-config-dir", ($$quote + $$env:KEYMAP_OVERLAY_CONFIGS + $$quote)'
+	env KEYMAP_OVERLAY_BINARY="$$binary" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY'
 
 .PHONY: uninstall-overlay
 uninstall-overlay:
@@ -845,9 +740,17 @@ uninstall-overlay:
 	# Remove the legacy separate generator when upgrading an older install.
 	rm -f "$(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-generator$(EXE_SUFFIX)"
 	@$(MAKE) _uninstall_renderer_$(OS_FAMILY)
-	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.png
-	rm -f "$(KEYMAP_OVERLAY_DIR)"/*.json
-	@echo "✔ Overlay service and installed assets removed; logs remain at $(KEYMAP_OVERLAY_LOG_DIR)"
+	@$(MAKE) _remove_legacy_cache_$(OS_FAMILY)
+	@echo "✔ Overlay service removed; logs remain at $(KEYMAP_OVERLAY_LOG_DIR)"
+
+.PHONY: _remove_legacy_cache_macos
+_remove_legacy_cache_macos _remove_legacy_cache_linux:
+	rm -rf "$(HOME)/.cache/keymap-overlay"
+
+.PHONY: _remove_legacy_cache_windows
+_remove_legacy_cache_windows:
+	rm -f "$(WINDOWS_LOCAL_APP_DATA)/keymap-overlay"/*.png
+	rm -f "$(WINDOWS_LOCAL_APP_DATA)/keymap-overlay"/[0-9]*.json
 
 .PHONY: _uninstall_service_macos
 _uninstall_service_macos:
@@ -934,7 +837,7 @@ endif
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/config.h"
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keyboard.json"
 	install -C firmware/layer_notify.h "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/layer_notify.h"
-	$(call WRITE_OUTPUT,$(VIAL_JSON),$(UV) run python -m model.scripts.generate_vial --keyboard-json $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json --layout-name "$(LAYOUT_NAME)" --keymap-c "$(QMK_KEYMAP_C)")
+	$(call WRITE_OUTPUT,$(VIAL_JSON),$(UV) run python -m model.scripts.generate_vial --keyboard-json $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keyboard.json --keyboard-config $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/config.json --keyboard-id $(KEYBOARD_ID) --pixels-per-unit $(PIXELS_PER_UNIT) --layout-name "$(LAYOUT_NAME)" --keymap-c "$(QMK_KEYMAP_C)")
 	install -C $(VIAL_JSON) "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/vial.json"
 	install -C $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/* "$(QMK_HOME)/keyboards/$(QMK_KEYBOARD)/keymaps/$(QMK_KEYMAP)/"
 
@@ -1012,15 +915,12 @@ endif
 
 .PHONY: print-vars
 print-vars:
-	@echo "VIAL=$(VIAL)"
-	@echo ""
 	@echo "MISE=$(MISE)"
 	@echo "QMK=$(QMK)"
 	@echo "UV=$(UV)"
 	@echo ""
 	@echo "QMK_HOME=$(QMK_HOME)"
 	@echo "QMK_KEYBOARD=$(QMK_KEYBOARD)"
-	@echo "KEYMAP_PREFIX=$(KEYMAP_PREFIX)"
 	@echo "QMK_KEYMAP=$(QMK_KEYMAP)"
 	@echo "KEYBOARD_JSON=$(KEYBOARD_JSON)"
 	@echo "KEYBOARD_CONFIG=$(KEYBOARD_CONFIG)"
@@ -1031,42 +931,15 @@ print-vars:
 	@echo ""
 	@echo "BUILD_DIR=$(BUILD_DIR)"
 	@echo "ASSET_BUILD_DIR=$(ASSET_BUILD_DIR)"
-	@echo "QMK_KEYMAP_JSON=$(QMK_KEYMAP_JSON)"
-	@echo "KEYCODES_JSON=$(KEYCODES_JSON)"
-	@echo "CUSTOM_KEYCODES_JSON=$(CUSTOM_KEYCODES_JSON)"
 	@echo "VIAL_JSON=$(VIAL_JSON)"
-	@echo "VIAL_DEFINITION_JSON=$(VIAL_DEFINITION_JSON)"
-	@echo "LAYERS=$(LAYERS)"
-	@echo "ASSETS=$(ASSETS)"
 	@echo "CONSOLIDATED_ASSET=$(CONSOLIDATED_ASSET)"
 	@echo "OVERLAY_PLATFORM=$(OVERLAY_PLATFORM)"
 	@echo ""
-	@echo "KEYMAP_OVERLAY_DIR=$(KEYMAP_OVERLAY_DIR)"
 	@echo "KEYMAP_OVERLAY_BIN_DIR=$(KEYMAP_OVERLAY_BIN_DIR)"
 	@echo "KEYMAP_OVERLAY_BINARY=$(KEYMAP_OVERLAY_BINARY)"
 	@echo "KEYBOARDS_DIR=$(KEYBOARDS_DIR)"
 
 # ================= INTERNAL TARGETS =================
-
-.PHONY: _internal_install
-_internal_install: $(CONSOLIDATED_ASSET)
-# Under VIAL=true the generator already refuses to produce a zero-layer file
-# (Make would have stopped above), so $(LAYERS) — which needs
-# $(QMK_KEYMAP_JSON), deliberately not built on this path — is skipped here.
-	@if [ "$(VIAL)" != "true" ] && [ "$(LAYERS)" -eq "0" ]; then \
-		echo "ERROR: No layers found even after generation."; \
-		exit 1; \
-	fi
-	@echo "Installing keymap overlay assets..."
-	@mkdir -p "$(KEYMAP_OVERLAY_DIR)"
-	@for asset in "$(ASSET_BUILD_DIR)"/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION); do \
-		case " $(ASSETS) " in *" $$asset "*) ;; *) rm -f "$$asset" ;; esac; \
-		done
-	@cp "$(CONSOLIDATED_ASSET)" "$(KEYMAP_OVERLAY_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)"
-# Stale leftovers from the previous one-file-per-layer format, if any.
-	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(ASSET_EXTENSION)
-	@rm -f "$(KEYMAP_OVERLAY_DIR)"/$(KEYMAP_PREFIX)L*.$(STALE_ASSET_EXTENSION)
-	@echo "✔ Overlay assets installed; run 'make run-overlay' to start the native app"
 
 .PHONY: _internal_draw_layers
 _internal_draw_layers: $(CONSOLIDATED_ASSET)
@@ -1079,67 +952,11 @@ $(BUILD_DIR):
 $(ASSET_BUILD_DIR):
 	mkdir -p $(ASSET_BUILD_DIR)
 
-RENDER_ASSET_DEPS := $(QMK_KEYMAP_JSON) $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(CUSTOM_KEYCODES_JSON) model/scripts/encoder_map.py model/scripts/generate_overlay_asset.py model/src/types.py model/src/util.py
-RENDER_ASSET_DEPS += $(QMK_KEYMAP_C)
-RENDER_ENCODER_INPUT := --keymap-c "$(QMK_KEYMAP_C)"
-
-$(ASSET_BUILD_DIR)/$(KEYMAP_PREFIX)L%.$(ASSET_EXTENSION): $(RENDER_ASSET_DEPS) | $(ASSET_BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_overlay_asset --qmk-keymap-json "$(QMK_KEYMAP_JSON)" --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --custom-keycodes-json "$(CUSTOM_KEYCODES_JSON)" --layout-name "$(LAYOUT_NAME)" --layer "$*" --pixels-per-unit "$(PIXELS_PER_UNIT)" --platform "$(OVERLAY_PLATFORM)" $(RENDER_ENCODER_INPUT))
-
-ifeq ($(VIAL),true)
 # The installed overlay refreshes through this same library in-process. This
-# development-only binary exposes it to the explicit draw/install asset tasks;
+# development-only binary exposes it to the explicit draw-layers task;
 # it is not copied into release archives or installed beside the overlay.
 NATIVE_GENERATOR_DEPS := Cargo.toml Cargo.lock overlay/keymap-overlay-generator/Cargo.toml
 NATIVE_GENERATOR_DEPS += $(wildcard overlay/keymap-overlay-generator/src/*.rs)
 
 $(CONSOLIDATED_ASSET): $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(NATIVE_GENERATOR_DEPS) | $(ASSET_BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(CARGO) run --quiet --package keymap-overlay-generator --bin keymap-overlay-generator -- --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --layout-name "$(LAYOUT_NAME)" --keyboard-id "$(KEYBOARD_ID)" --platform "$(OVERLAY_PLATFORM)" --pixels-per-unit "$(PIXELS_PER_UNIT)")
-else
-# Passed the exact current $(ASSETS) paths, not a directory to glob, so a
-# leftover from a shrunk layer count can never sneak into the installed file.
-$(CONSOLIDATED_ASSET): $(ASSETS) model/scripts/consolidate_layer_models.py | $(ASSET_BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.consolidate_layer_models --keyboard-id "$(KEYBOARD_ID)" $(foreach asset,$(ASSETS),--layer-json "$(asset)"))
-endif
-
-.PHONY: _force_build
-_force_build:
-
-# c2json reads the keymap and resolves its layout against the keyboard
-# definition, so both are inputs, as is anything keymap.c includes from beside
-# it. _copy_firmware installs config.h and layer_notify.h too, but those only
-# reach the compiler, never this JSON, so listing them would rebuild the assets
-# for changes that cannot alter them. sort also dedupes keymap.c out of the
-# wildcard; the explicit entry stays so a missing keymap.c is still an error.
-QMK_KEYMAP_JSON_DEPS := $(sort $(QMK_KEYMAP_C) $(KEYBOARD_JSON) \
-	$(wildcard $(KEYBOARDS_DIR)/$(KEYBOARD_ID)/keymap/*))
-QMK_KEYMAP_JSON_ORDER_DEPS := $(BUILD_DIR)
-# The example's keyboard definition and keymap live outside QMK's vendored
-# tree. Install them before c2json validates -kb, including on a fresh clone.
-#
-# Order-only, unlike _force_build above, which is phony on purpose. A phony
-# normal prerequisite is always out of date, so it would remake the raw JSON on
-# every invocation and cascade through every asset, re-running the renderer per
-# layer per keyboard with nothing changed.
-# This only has to have run before c2json validates -kb, which is what
-# order-only means. The files it copies are tracked above, as themselves.
-QMK_KEYMAP_JSON_ORDER_DEPS += _copy_firmware
-
-$(QMK_KEYMAP_JSON): $(QMK_KEYMAP_JSON_DEPS) | $(QMK_KEYMAP_JSON_ORDER_DEPS)
-	@echo "Compiling QMK JSON from source..."
-	$(call WRITE_OUTPUT,$@,$(QMK) c2json --no-cpp -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) "$(QMK_KEYMAP_C)")
-
-$(KEYCODES_JSON): model/scripts/generate_keycodes.py | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_keycodes --qmk-dir "$(QMK_HOME)")
-
-ifeq ($(VIAL),true)
-# Re-fetched from the device on every source-asset build.
-$(VIAL_DEFINITION_JSON): _force_build model/scripts/fetch_vial_definition.py | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.fetch_vial_definition --keyboard-json "$(KEYBOARD_JSON)")
-
-$(CUSTOM_KEYCODES_JSON): $(VIAL_DEFINITION_JSON) model/scripts/generate_custom_keycodes.py | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_custom_keycodes --vial-definition-json "$(VIAL_DEFINITION_JSON)")
-else
-$(CUSTOM_KEYCODES_JSON): $(QMK_KEYMAP_C) model/scripts/generate_custom_keycodes.py $(KEYCODES_JSON) | $(BUILD_DIR)
-	$(call WRITE_OUTPUT,$@,$(UV) run python -m model.scripts.generate_custom_keycodes --keymap-c "$(QMK_KEYMAP_C)" --keycodes-json "$(KEYCODES_JSON)")
-endif

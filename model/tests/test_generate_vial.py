@@ -3,6 +3,9 @@
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from model.scripts.generate_vial import VIAL_ENCODER_LEGEND_SUFFIX, generate_vial
 from model.src.types import KleKeyProps, VialCustomKeycode
 
@@ -40,6 +43,59 @@ def test_generate_vial_embeds_custom_keycodes_from_keymap_c(tmp_path: Path) -> N
         VialCustomKeycode(name="EIZO_USB_C", shortName="USB-C"),
         VialCustomKeycode(name="KC_INTERNAL", shortName=""),
     ]
+
+
+def test_generate_vial_embeds_self_describing_overlay_metadata(tmp_path: Path) -> None:
+    config = tmp_path / "config.json"
+    config.write_text('{"qmk_keyboard":"test/keyboard"}', encoding="utf-8")
+
+    vial = generate_vial(
+        DATA_DIR / "keyboard.json",
+        "LAYOUT",
+        keyboard_config=config,
+        keyboard_id=7,
+        pixels_per_unit=48,
+    )
+
+    assert vial.keymapOverlay is not None
+    assert vial.keymapOverlay.keyboardId == 7
+    assert vial.keymapOverlay.layoutName == "LAYOUT"
+    assert vial.keymapOverlay.pixelsPerUnit == 48
+    assert vial.keymapOverlay.keyboard.keyboard_name == "Test Keyboard"
+
+
+@pytest.mark.parametrize("keyboard_id", [-1, 256])
+def test_generate_vial_rejects_keyboard_ids_outside_the_protocol_byte(
+    tmp_path: Path, keyboard_id: int
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text('{"qmk_keyboard":"test/keyboard"}', encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="keyboardId"):
+        generate_vial(
+            DATA_DIR / "keyboard.json",
+            "LAYOUT",
+            keyboard_config=config,
+            keyboard_id=keyboard_id,
+        )
+
+
+@pytest.mark.parametrize("keyboard_id", [0, 255])
+def test_generate_vial_accepts_keyboard_ids_at_protocol_boundaries(
+    tmp_path: Path, keyboard_id: int
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text('{"qmk_keyboard":"test/keyboard"}', encoding="utf-8")
+
+    vial = generate_vial(
+        DATA_DIR / "keyboard.json",
+        "LAYOUT",
+        keyboard_config=config,
+        keyboard_id=keyboard_id,
+    )
+
+    assert vial.keymapOverlay is not None
+    assert vial.keymapOverlay.keyboardId == keyboard_id
 
 
 def test_generate_vial_accepts_a_keymap_without_custom_keycodes(
