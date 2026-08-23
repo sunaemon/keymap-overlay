@@ -96,7 +96,7 @@ Describe 'install.ps1' {
         Should -Invoke Invoke-WebRequest -Times 1 -ParameterFilter { $Uri -like "*/$archiveName" }
     }
 
-    It 'keeps layer models and logs when uninstalling' {
+    It 'removes legacy models and keeps logs when uninstalling' {
         New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $assetDirectory '1.json') -Value '{}'
         Set-Content -LiteralPath $binaryPath -Value 'binary'
@@ -197,6 +197,7 @@ Describe 'install.ps1' {
         Get-Content -LiteralPath $licensePath | Should -Be 'old license'
         Get-Content -LiteralPath $thirdPartyLicensesPath | Should -Be 'old notices'
         Get-Content -LiteralPath $installerPath | Should -Be 'old installer'
+        (Join-Path $assetDirectory '1.json') | Should -Exist
         $logDirectory | Should -Exist
         Should -Invoke Restart-PreviousInstallation -Times 1
     }
@@ -241,6 +242,7 @@ Describe 'install.ps1' {
         Get-Content -LiteralPath $licensePath | Should -Be 'old license'
         Get-Content -LiteralPath $thirdPartyLicensesPath | Should -Be 'old notices'
         Get-Content -LiteralPath $installerPath | Should -Be 'old installer'
+        (Join-Path $assetDirectory '1.json') | Should -Exist
         Should -Invoke Restart-PreviousInstallation -Times 1
     }
 

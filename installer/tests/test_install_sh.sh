@@ -315,6 +315,7 @@ test_failed_service_install_rolls_back() {
   assert_file_contains "$state/keyboards/custom/config.json" 'user config'
   assert_file_contains "$state/install.sh" 'old installer'
   assert_file_contains "$unit" 'old service'
+  test -f "$cache/1.json"
   enable_count=$(grep -c '^systemctl --user enable keymap-overlay.service' "$home/commands.log")
   test "$enable_count" -eq 2
 }

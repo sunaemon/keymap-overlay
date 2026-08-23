@@ -55,7 +55,7 @@ def test_recursive_clone_skips_firmware_submodule() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows Run-key wiring")
 def test_windows_source_install_wires_startup_refresh() -> None:
-    """Install one Windows overlay and pass both model directories at startup."""
+    """Install one Windows overlay without persistent model arguments."""
     root = Path(__file__).parents[2]
     install = subprocess.run(
         [MAKE, "-n", "install-overlay", "MAKE=echo"],

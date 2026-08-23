@@ -266,7 +266,7 @@ class VialCustomKeycode(BaseModelAllow):
 class KeymapOverlayMetadata(BaseModel):
     """Metadata that lets the runtime render this keyboard without host config."""
 
-    keyboardId: int
+    keyboardId: Annotated[int, Field(ge=0, le=255)]
     layoutName: str
     pixelsPerUnit: int
     keyboard: KeyboardJson

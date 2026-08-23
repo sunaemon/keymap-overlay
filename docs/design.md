@@ -84,8 +84,9 @@ Device arrival notifications request another enumeration without interrupting
 healthy readers, so a release cannot be lost while the new device becomes
 openable. Linux receives `hidraw` add notifications from udev, macOS receives
 usage-filtered notifications from `IOHIDManager`, and Windows forwards
-`WM_DEVICECHANGE` from the mapped WPF window. This makes a reconnected keyboard
-available even while another keyboard remains active.
+`WM_DEVICECHANGE` from the mapped WPF window. This restores HID event handling
+for a keyboard whose model was loaded at startup. A keyboard absent at startup
+requires an overlay restart before its model is available.
 
 For hardware-free manual testing, `--simulate KEYBOARD_ID:LAYER` replaces the
 HID listener with a synthetic source at the `LayerEventSink` boundary. It holds
@@ -147,8 +148,8 @@ Release builds publish matching WPF and Rust bridge binaries for both x64 and
 ARM64 Windows; the installer selects the archive for the operating system's
 native architecture.
 
-On **Linux**, `overlay/platforms/linux/daemon` loads and
-validates the installed models, owns
+On **Linux**, `overlay/platforms/linux/daemon` owns the startup-loaded models,
+validates and composes them, owns
 the reduced active-layer state, and publishes it on the user's D-Bus session.
 `com.sunaemon.KeymapOverlay.Renderer1.GetState` returns a generation number,
 visibility, and the final model JSON; `StateChanged` carries the same tuple.
@@ -285,8 +286,8 @@ given the destination its supervisor handles best:
 A log the overlay owns rotates at 1 MiB and retains the current file plus three
 previous files.
 
-`make uninstall-overlay` stops and removes the login service, installed binary,
-and generated JSON models. It keeps the logs for troubleshooting.
+`make uninstall-overlay` stops and removes the login service and installed
+binary, and cleans up legacy cached models. It keeps logs for troubleshooting.
 
 ## Firmware Workflow
 
@@ -346,12 +347,12 @@ the working copy of `keymap.c`.
 
 ### Shared Display Model
 
-The in-process Vial model reader converts QMK's keymap and keyboard JSON into one small,
-versioned display model per layer. The model contains only canvas geometry,
+The in-process Vial model reader converts QMK's keymap and keyboard JSON into
+one small, versioned display model per layer. The model contains only canvas geometry,
 labels, transparency metadata, held-state metadata, and encoder actions; it
 contains no toolkit-specific objects and does not pass through keymap-drawer,
-YAML, SVG, or another schema. All three platforms install these models as JSON,
-compose the held layers in memory using QMK precedence, and render the result
+YAML, SVG, or another schema. All three platforms retain these models only in
+memory, compose held layers using QMK precedence, and render the result
 with AppKit, GNOME Shell, Qt Quick, or WPF. Keys use quiet, nearly opaque fills
 and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
@@ -399,7 +400,7 @@ real interactive desktop.
 
 The cost is three windows to maintain, each exercised only by the CI job for
 its own system. Linux CI also runs the release daemon and Qt renderer on an
-isolated D-Bus session with an installed-model fixture and `--simulate`, then
+isolated D-Bus session with the in-memory simulation fixture, then
 asserts the visible, hidden, and visible-again states through the public D-Bus
 contract and compares the software-rendered Qt Quick output with a golden PNG.
 Another Linux CI test creates a vendor-defined device through `/dev/uhid` and

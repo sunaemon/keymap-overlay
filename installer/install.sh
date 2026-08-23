@@ -49,6 +49,9 @@ install_release() {
   stop_service
 
   if install_staged_files && install_service; then
+    if ! rm -rf "$LEGACY_CACHE_DIRECTORY"; then
+      echo "WARNING: could not remove legacy model cache: ${LEGACY_CACHE_DIRECTORY}" >&2
+    fi
     print_installed_files
     return
   fi
@@ -283,7 +286,6 @@ stop_service() {
 install_staged_files() {
   install -m 755 "${temporary_directory}/keymap-overlay" "$BINARY_PATH" &&
     rm -f "$GENERATOR_PATH" "$GENERATOR_LICENSE_PATH" &&
-    rm -rf "$LEGACY_CACHE_DIRECTORY" &&
     install -m 755 "$staged_installer" "$INSTALLER_PATH" &&
     "$platform_file_installer"
 }

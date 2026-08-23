@@ -49,6 +49,7 @@ function Install-Release {
             throw "Installation failed and the previous installation was restored: $installationError"
         }
 
+        Remove-LegacyModels
         Write-InstalledFiles -ReleaseTag $release
     }
     finally {
@@ -68,13 +69,12 @@ function Uninstall-Release {
     Write-Output "  licenses: $licensePath, $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
-    Write-Output "Kept layer models: $assetDirectory"
     Write-Output "Kept logs: $logDirectory"
 }
 
-# Local rather than roaming %APPDATA%, because generated models and a log both
-# describe one machine. Programs is where a per-user install puts an executable
-# on Windows, the same place VS Code and Slack use.
+# Local rather than roaming %APPDATA%, because logs describe one machine.
+# Programs is where a per-user install puts an executable on Windows, the same
+# place VS Code and Slack use.
 function Initialize-Paths {
     $script:assetDirectory = Join-Path $env:LOCALAPPDATA 'keymap-overlay'
     $script:programDirectory = Join-Path $env:LOCALAPPDATA 'Programs\keymap-overlay'
@@ -224,7 +224,6 @@ function Install-StagedFiles {
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
     Remove-Item -LiteralPath $generatorPath, $generatorLicensesPath -Force -ErrorAction SilentlyContinue
-    Remove-LegacyModels
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Destination $licensePath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Destination $thirdPartyLicensesPath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Destination $installerPath -Force
