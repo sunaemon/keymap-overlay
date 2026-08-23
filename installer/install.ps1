@@ -60,13 +60,10 @@ function Uninstall-Release {
     Stop-Overlay
     Remove-ItemProperty -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $binaryPath, $generatorPath, $generatorLicensesPath, $licensePath, $thirdPartyLicensesPath, $installerPath -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $keyboardConfigDirectory -Recurse -Force -ErrorAction SilentlyContinue
-
     Write-Output 'Removed:'
     Write-Output "  binary: $binaryPath"
     Write-Output "  generator: $generatorPath"
     Write-Output "  generator licenses: $generatorLicensesPath"
-    Write-Output "  keyboard configs: $keyboardConfigDirectory"
     Write-Output "  licenses: $licensePath, $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"
     Write-Output "  autostart: $runKey\$runValue"
@@ -83,7 +80,6 @@ function Initialize-Paths {
     $script:binaryPath = Join-Path $programDirectory 'keymap-overlay.exe'
     $script:generatorPath = Join-Path $programDirectory 'keymap-overlay-generator.exe'
     $script:generatorLicensesPath = Join-Path $programDirectory 'GENERATOR-THIRD-PARTY-LICENSES.html'
-    $script:keyboardConfigDirectory = Join-Path $programDirectory 'keyboards'
     $script:licensePath = Join-Path $programDirectory 'LICENSE'
     $script:thirdPartyLicensesPath = Join-Path $programDirectory 'THIRD-PARTY-LICENSES.html'
     $script:installerPath = Join-Path $assetDirectory 'install.ps1'
@@ -141,27 +137,7 @@ function Stage-Release {
             throw "$assetName does not contain $name."
         }
     }
-    Assert-StagedKeyboardConfigs -TemporaryDirectory $TemporaryDirectory -AssetName $assetName
-
     return $releaseTag
-}
-
-function Assert-StagedKeyboardConfigs {
-    param(
-        [string]$TemporaryDirectory,
-        [string]$AssetName
-    )
-
-    $configs = @(Get-ChildItem -LiteralPath (Join-Path $TemporaryDirectory 'keyboards') -Filter 'config.json' -File -Recurse -ErrorAction SilentlyContinue |
-        Where-Object { $_.Directory.Name -match '^\d+$' })
-    if ($configs.Count -eq 0) {
-        throw "$AssetName does not contain keyboard configurations."
-    }
-    foreach ($config in $configs) {
-        if (-not (Test-Path -LiteralPath (Join-Path $config.Directory.FullName 'keyboard.json') -PathType Leaf)) {
-            throw "$AssetName has no keyboard.json beside $($config.FullName)."
-        }
-    }
 }
 
 function Confirm-Checksum {
@@ -218,10 +194,6 @@ function Backup-Installation {
             Copy-Item -LiteralPath $path -Destination $BackupDirectory
         }
     }
-    if (Test-Path -LiteralPath $keyboardConfigDirectory -PathType Container) {
-        Copy-Item -LiteralPath $keyboardConfigDirectory -Destination $backupDirectory -Recurse
-    }
-
     $runCommand = Get-ItemPropertyValue -Path $runKey -Name $runValue -ErrorAction SilentlyContinue
     if ($null -ne $runCommand) {
         Set-Content -LiteralPath (Join-Path $BackupDirectory 'run-command.txt') -Value $runCommand
@@ -251,8 +223,6 @@ function Install-StagedFiles {
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keymap-overlay.exe') -Destination $binaryPath -Force
     Remove-Item -LiteralPath $generatorPath, $generatorLicensesPath -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $keyboardConfigDirectory -Recurse -Force -ErrorAction SilentlyContinue
-    Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'keyboards') -Destination $keyboardConfigDirectory -Recurse
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'LICENSE') -Destination $licensePath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'THIRD-PARTY-LICENSES.html') -Destination $thirdPartyLicensesPath -Force
     Copy-Item -LiteralPath (Join-Path $TemporaryDirectory 'release-install.ps1') -Destination $installerPath -Force
@@ -261,9 +231,8 @@ function Install-StagedFiles {
 function Install-Autostart {
     $quotedBinary = '"{0}"' -f $binaryPath
     $quotedAssets = '"{0}"' -f $assetDirectory
-    $quotedKeyboards = '"{0}"' -f $keyboardConfigDirectory
-    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary --asset-dir $quotedAssets --keyboard-config-dir $quotedKeyboards"
-    Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets, '--keyboard-config-dir', $quotedKeyboards
+    Set-ItemProperty -Path $runKey -Name $runValue -Value "$quotedBinary --asset-dir $quotedAssets"
+    Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
 }
 
 function Restore-Installation {
@@ -278,12 +247,6 @@ function Restore-Installation {
             Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
         }
     }
-    $backupKeyboards = Join-Path $BackupDirectory 'keyboards'
-    Remove-Item -LiteralPath $keyboardConfigDirectory -Recurse -Force -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $backupKeyboards -PathType Container) {
-        Copy-Item -LiteralPath $backupKeyboards -Destination $keyboardConfigDirectory -Recurse
-    }
-
     $runCommandPath = Join-Path $BackupDirectory 'run-command.txt'
     if (Test-Path -LiteralPath $runCommandPath -PathType Leaf) {
         Set-ItemProperty -Path $runKey -Name $runValue -Value (Get-Content -LiteralPath $runCommandPath -Raw).Trim()
@@ -296,11 +259,7 @@ function Restore-Installation {
 function Restart-PreviousInstallation {
     if (Test-Path -LiteralPath $binaryPath -PathType Leaf) {
         $quotedAssets = '"{0}"' -f $assetDirectory
-        $arguments = @('--asset-dir', $quotedAssets)
-        if (Test-Path -LiteralPath $keyboardConfigDirectory -PathType Container) {
-            $arguments += @('--keyboard-config-dir', ('"{0}"' -f $keyboardConfigDirectory))
-        }
-        Start-Process -FilePath $binaryPath -ArgumentList $arguments
+        Start-Process -FilePath $binaryPath -ArgumentList '--asset-dir', $quotedAssets
     }
 }
 
@@ -309,7 +268,6 @@ function Write-InstalledFiles {
 
     Write-Output 'Installed:'
     Write-Output "  binary: $binaryPath"
-    Write-Output "  keyboard configs: $keyboardConfigDirectory"
     Write-Output "  license: $licensePath"
     Write-Output "  third-party licenses: $thirdPartyLicensesPath"
     Write-Output "  installer: $installerPath"

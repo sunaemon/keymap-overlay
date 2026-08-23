@@ -9,7 +9,7 @@ Describe 'install.ps1' {
         $script:binaryPath = Join-Path $programDirectory 'keymap-overlay.exe'
         $script:generatorPath = Join-Path $programDirectory 'keymap-overlay-generator.exe'
         $script:generatorLicensesPath = Join-Path $programDirectory 'GENERATOR-THIRD-PARTY-LICENSES.html'
-        $script:keyboardConfigDirectory = Join-Path $programDirectory 'keyboards'
+        $script:userKeyboardConfigDirectory = Join-Path $programDirectory 'keyboards'
         $script:licensePath = Join-Path $programDirectory 'LICENSE'
         $script:thirdPartyLicensesPath = Join-Path $programDirectory 'THIRD-PARTY-LICENSES.html'
         $script:installerPath = Join-Path $assetDirectory 'install.ps1'
@@ -106,8 +106,8 @@ Describe 'install.ps1' {
         Set-Content -LiteralPath $binaryPath -Value 'binary'
         Set-Content -LiteralPath $generatorPath -Value 'generator'
         Set-Content -LiteralPath $generatorLicensesPath -Value 'generator notices'
-        New-Item -ItemType Directory -Path (Join-Path $keyboardConfigDirectory '1') -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $keyboardConfigDirectory '1\config.json') -Value '{}'
+        New-Item -ItemType Directory -Path (Join-Path $userKeyboardConfigDirectory 'custom') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $userKeyboardConfigDirectory 'custom\config.json') -Value 'user config'
         Set-Content -LiteralPath $licensePath -Value 'license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'notices'
         Set-Content -LiteralPath $installerPath -Value 'installer'
@@ -119,12 +119,28 @@ Describe 'install.ps1' {
         $binaryPath | Should -Not -Exist
         $generatorPath | Should -Not -Exist
         $generatorLicensesPath | Should -Not -Exist
-        $keyboardConfigDirectory | Should -Not -Exist
+        Get-Content -LiteralPath (Join-Path $userKeyboardConfigDirectory 'custom\config.json') | Should -Be 'user config'
         $licensePath | Should -Not -Exist
         $thirdPartyLicensesPath | Should -Not -Exist
         $installerPath | Should -Not -Exist
         (Join-Path $assetDirectory '1.json') | Should -Exist
         $logDirectory | Should -Exist
+    }
+
+    It 'starts without selecting a keyboard configuration' {
+        Mock Set-ItemProperty
+        Mock Start-Process
+
+        Install-Autostart
+
+        Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
+            $Value -eq "`"$binaryPath`" --asset-dir `"$assetDirectory`"" -and
+            $Value -notlike '*--keyboard-config-dir*'
+        }
+        Should -Invoke Start-Process -Times 1 -ParameterFilter {
+            $FilePath -eq $binaryPath -and
+            ($ArgumentList -join ' ') -notlike '*--keyboard-config-dir*'
+        }
     }
 
     It 'forces the running overlay to stop and waits for it' {
@@ -153,8 +169,8 @@ Describe 'install.ps1' {
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
         Set-Content -LiteralPath $generatorPath -Value 'old generator'
         Set-Content -LiteralPath $generatorLicensesPath -Value 'old generator notices'
-        New-Item -ItemType Directory -Path (Join-Path $keyboardConfigDirectory '1') -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $keyboardConfigDirectory '1\config.json') -Value 'old config'
+        New-Item -ItemType Directory -Path (Join-Path $userKeyboardConfigDirectory 'custom') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $userKeyboardConfigDirectory 'custom\config.json') -Value 'user config'
         Set-Content -LiteralPath $licensePath -Value 'old license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'old notices'
         Set-Content -LiteralPath $installerPath -Value 'old installer'
@@ -183,7 +199,7 @@ Describe 'install.ps1' {
         Get-Content -LiteralPath $binaryPath | Should -Be 'old binary'
         Get-Content -LiteralPath $generatorPath | Should -Be 'old generator'
         Get-Content -LiteralPath $generatorLicensesPath | Should -Be 'old generator notices'
-        Get-Content -LiteralPath (Join-Path $keyboardConfigDirectory '1\config.json') | Should -Be 'old config'
+        Get-Content -LiteralPath (Join-Path $userKeyboardConfigDirectory 'custom\config.json') | Should -Be 'user config'
         Get-Content -LiteralPath $licensePath | Should -Be 'old license'
         Get-Content -LiteralPath $thirdPartyLicensesPath | Should -Be 'old notices'
         Get-Content -LiteralPath $installerPath | Should -Be 'old installer'
@@ -196,8 +212,8 @@ Describe 'install.ps1' {
         Set-Content -LiteralPath $binaryPath -Value 'old binary'
         Set-Content -LiteralPath $generatorPath -Value 'old generator'
         Set-Content -LiteralPath $generatorLicensesPath -Value 'old generator notices'
-        New-Item -ItemType Directory -Path (Join-Path $keyboardConfigDirectory '1') -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $keyboardConfigDirectory '1\config.json') -Value 'old config'
+        New-Item -ItemType Directory -Path (Join-Path $userKeyboardConfigDirectory 'custom') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $userKeyboardConfigDirectory 'custom\config.json') -Value 'user config'
         Set-Content -LiteralPath $licensePath -Value 'old license'
         Set-Content -LiteralPath $thirdPartyLicensesPath -Value 'old notices'
         Set-Content -LiteralPath $installerPath -Value 'old installer'
@@ -230,7 +246,7 @@ Describe 'install.ps1' {
         Get-Content -LiteralPath $binaryPath | Should -Be 'old binary'
         Get-Content -LiteralPath $generatorPath | Should -Be 'old generator'
         Get-Content -LiteralPath $generatorLicensesPath | Should -Be 'old generator notices'
-        Get-Content -LiteralPath (Join-Path $keyboardConfigDirectory '1\config.json') | Should -Be 'old config'
+        Get-Content -LiteralPath (Join-Path $userKeyboardConfigDirectory 'custom\config.json') | Should -Be 'user config'
         Get-Content -LiteralPath $licensePath | Should -Be 'old license'
         Get-Content -LiteralPath $thirdPartyLicensesPath | Should -Be 'old notices'
         Get-Content -LiteralPath $installerPath | Should -Be 'old installer'
