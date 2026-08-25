@@ -8,6 +8,7 @@ members = [
   "overlay/platforms/linux/protocol",
   "overlay/platforms/windows/bridge",
   "overlay/platforms/windows/winui",
+  "tools/keymap-overlay-hil",
 ]
 resolver = "2"
 

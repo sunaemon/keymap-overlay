@@ -7,12 +7,47 @@
 pub const RAW_HID_REPORT_MAGIC: [u8; 3] = *b"KMO";
 pub const RAW_HID_REPORT_VERSION: u8 = 1;
 pub const RAW_HID_REPORT_SIZE: usize = 32;
+/// VIA custom command reserved for hardware-in-the-loop layer-event tests.
+pub const HIL_COMMAND_ID: u8 = 0xFC;
+/// Distinguishes the HIL request from another keyboard-specific VIA command.
+pub const HIL_COMMAND_MAGIC: [u8; 4] = *b"KMOH";
+/// Version of the host-to-firmware HIL request.
+pub const HIL_COMMAND_VERSION: u8 = 1;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HilLayerState {
+    Pressed,
+    Released,
+}
+
+/// Builds a side-effect-free request that proves the HIL firmware is present.
+pub fn encode_hil_probe_command() -> [u8; RAW_HID_REPORT_SIZE] {
+    let mut report = [0_u8; RAW_HID_REPORT_SIZE];
+    report[0] = HIL_COMMAND_ID;
+    report[1..5].copy_from_slice(&HIL_COMMAND_MAGIC);
+    report[5] = HIL_COMMAND_VERSION;
+    report
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawLayerEvent {
     pub keyboard_id: u8,
     pub layer: u8,
     pub pressed: bool,
+}
+
+/// Builds the fixed-size VIA request for one deterministic layer event.
+pub fn encode_hil_layer_command(layer: u8, state: HilLayerState) -> [u8; RAW_HID_REPORT_SIZE] {
+    let mut report = [0_u8; RAW_HID_REPORT_SIZE];
+    report[0] = HIL_COMMAND_ID;
+    report[1..5].copy_from_slice(&HIL_COMMAND_MAGIC);
+    report[5] = HIL_COMMAND_VERSION;
+    report[6] = match state {
+        HilLayerState::Pressed => 1,
+        HilLayerState::Released => 2,
+    };
+    report[7] = layer;
+    report
 }
 
 /// An input to the active-layer state machine.
@@ -193,6 +228,29 @@ mod tests {
         let mut prefixed = vec![0_u8];
         prefixed.extend_from_slice(report);
         prefixed
+    }
+
+    #[test]
+    fn encodes_a_narrow_hil_layer_request() {
+        let press = encode_hil_layer_command(3, HilLayerState::Pressed);
+        assert_eq!(press[0], HIL_COMMAND_ID);
+        assert_eq!(&press[1..5], &HIL_COMMAND_MAGIC);
+        assert_eq!(press[5], HIL_COMMAND_VERSION);
+        assert_eq!(press[6], 1);
+        assert_eq!(press[7], 3);
+        assert!(press[8..].iter().all(|byte| *byte == 0));
+
+        let release = encode_hil_layer_command(3, HilLayerState::Released);
+        assert_eq!(release[6], 2);
+    }
+
+    #[test]
+    fn encodes_a_side_effect_free_hil_probe() {
+        let probe = encode_hil_probe_command();
+        assert_eq!(probe[0], HIL_COMMAND_ID);
+        assert_eq!(&probe[1..5], &HIL_COMMAND_MAGIC);
+        assert_eq!(probe[5], HIL_COMMAND_VERSION);
+        assert!(probe[6..].iter().all(|byte| *byte == 0));
     }
 
     fn event(keyboard_id: u8, layer: u8, pressed: bool) -> RawLayerEvent {
