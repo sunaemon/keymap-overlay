@@ -220,7 +220,7 @@ fn standard_keycode_name(raw: u16) -> String {
         0x0065 => "KC_APP".to_string(),
         0x0066 => "KC_PWR".to_string(),
         0x0067 => "KC_PEQL".to_string(),
-        0x0068..=0x0073 => format!("KC_F{}", raw - 0x0055),
+        0x0068..=0x0073 => format!("KC_F{}", raw - 0x005B),
         0x0074 => "KC_EXEC".to_string(),
         0x0075 => "KC_HELP".to_string(),
         0x0076 => "KC_MENU".to_string(),
@@ -431,6 +431,12 @@ mod tests {
         assert_eq!(resolve_keycode(0x0063, &[]), "KC_PDOT");
         assert_eq!(resolve_keycode(0x00AB, &[]), "KC_MNXT");
         assert_eq!(resolve_keycode(0x00AE, &[]), "KC_MPLY");
+    }
+
+    #[test]
+    fn extended_function_keycodes_keep_their_qmk_names() {
+        assert_eq!(resolve_keycode(0x0068, &[]), "KC_F13");
+        assert_eq!(resolve_keycode(0x0073, &[]), "KC_F24");
     }
 
     #[test]
