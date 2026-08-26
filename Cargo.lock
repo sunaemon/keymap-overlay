@@ -779,6 +779,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "keymap-overlay-hil"
+version = "0.0.7"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hidapi",
+ "keymap-core",
+ "keymap-overlay-generator",
+ "serde_json",
+]
+
+[[package]]
 name = "keymap-overlay-linux-daemon"
 version = "0.0.7"
 dependencies = [

@@ -511,6 +511,71 @@ else
 	$(error test-appkit-e2e-macos is only available on macOS)
 endif
 
+.PHONY: test-hardware-session-macos
+test-hardware-session-macos:
+ifeq ($(OS_FAMILY),macos)
+	./overlay/platforms/macos/tests/test_hardware_session.sh
+else
+	$(error test-hardware-session-macos is only available on macOS)
+endif
+
+.PHONY: build-hil-macos
+build-hil-macos:
+ifeq ($(OS_FAMILY),macos)
+	$(CARGO) build --release -p keymap-overlay-hil
+	mkdir -p target/hil
+	xcrun swiftc -o target/hil/keymap-overlay-macos-hil-ui \
+		overlay/platforms/macos/tests/hil_accessibility.swift
+	codesign --force --sign - --identifier com.sunaemon.keymap-overlay.hil-ui \
+		target/hil/keymap-overlay-macos-hil-ui
+else
+	$(error build-hil-macos is only available on macOS)
+endif
+
+.PHONY: test-hardware-lifecycle-macos
+test-hardware-lifecycle-macos:
+ifeq ($(OS_FAMILY),macos)
+	./overlay/platforms/macos/tests/test_hardware_lifecycle.sh
+else
+	$(error test-hardware-lifecycle-macos is only available on macOS)
+endif
+
+.PHONY: prepare-hardware-login-macos
+prepare-hardware-login-macos:
+ifeq ($(OS_FAMILY),macos)
+	./overlay/platforms/macos/tests/test_hardware_login.sh prepare
+else
+	$(error prepare-hardware-login-macos is only available on macOS)
+endif
+
+.PHONY: verify-hardware-login-macos
+verify-hardware-login-macos:
+ifeq ($(OS_FAMILY),macos)
+	./overlay/platforms/macos/tests/test_hardware_login.sh verify
+else
+	$(error verify-hardware-login-macos is only available on macOS)
+endif
+
+.PHONY: test-hardware-firmware-macos
+test-hardware-firmware-macos:
+ifeq ($(OS_FAMILY),macos)
+	./firmware/tools/test_hardware_macos.sh
+else
+	$(error test-hardware-firmware-macos is only available on macOS)
+endif
+
+.PHONY: test-hardware-release-macos
+test-hardware-release-macos:
+ifeq ($(OS_FAMILY),macos)
+	$(MAKE) test-hardware-firmware-macos
+	$(MAKE) test-hardware-session-macos
+	$(MAKE) test-hardware-lifecycle-macos
+	$(MAKE) prepare-hardware-login-macos
+	@echo "Sign out and sign in, then run 'make verify-hardware-login-macos'."
+else
+	$(error test-hardware-release-macos is only available on macOS)
+endif
+
 .PHONY: test-dbus-to-renderer-e2e-linux
 test-dbus-to-renderer-e2e-linux: build-overlay
 ifeq ($(OS_FAMILY),linux)
