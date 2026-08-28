@@ -65,6 +65,7 @@ EXPECTED_COVERAGE_IDS = (
     "simultaneous-keyboards",
 )
 CONDITIONAL_CHECK_IDS = frozenset(EXPECTED_GLOBAL_CHECK_IDS)
+FIRMWARE_EVIDENCE_PATHS = frozenset({"Makefile"})
 FIRMWARE_EVIDENCE_PREFIXES = ("firmware/", "model/")
 CANDIDATE_PATTERN = re.compile(
     r"^Candidate commit:\s*`([0-9a-fA-F]{40})`\s*$", re.MULTILINE
@@ -153,7 +154,7 @@ def check_pull_request_event(
         parse_changed_paths(
             run(
                 changed_files_command(
-                    event.pull_request.base.sha,
+                    f"v{previous_version}",
                     event.pull_request.head.sha,
                 )
             ).stdout
@@ -199,15 +200,15 @@ def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=True, capture_output=True, text=True)
 
 
-def changed_files_command(base_sha: str, head_sha: str) -> list[str]:
-    """Return the command that lists paths changed by a pull request."""
+def changed_files_command(base_ref: str, head_sha: str) -> list[str]:
+    """Return the command that lists paths changed between two revisions."""
     return [
         "git",
         "diff",
         "--no-renames",
         "--name-only",
         "-z",
-        base_sha,
+        base_ref,
         head_sha,
         "--",
     ]
@@ -298,7 +299,10 @@ def _valid_check_result(
 
 def _requires_firmware_evidence(changed_paths: frozenset[str]) -> bool:
     """Return whether candidate changes require flash and EEPROM evidence."""
-    return any(path.startswith(FIRMWARE_EVIDENCE_PREFIXES) for path in changed_paths)
+    return any(
+        path in FIRMWARE_EVIDENCE_PATHS or path.startswith(FIRMWARE_EVIDENCE_PREFIXES)
+        for path in changed_paths
+    )
 
 
 def _read_keyboard_requirements(directory: Path) -> KeyboardRequirements:

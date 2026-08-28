@@ -156,7 +156,7 @@ def prepare_release(
     try:
         changed_paths = parse_changed_paths(
             run(
-                changed_files_command(pull_request.base_sha, tested_sha),
+                changed_files_command(f"v{previous_version}", tested_sha),
                 True,
             ).stdout
         )

@@ -61,7 +61,7 @@ class FakeRunner:
             ("git", "show", f"{BASE_SHA}:pyproject.toml"): completed(
                 stdout=project(previous)
             ),
-            tuple(changed_files_command(BASE_SHA, TESTED_SHA)): completed(),
+            tuple(changed_files_command(f"v{previous}", TESTED_SHA)): completed(),
             tuple(commit_tree_command(REPOSITORY, HEAD_SHA)): completed(
                 stdout=evidence_tree
             ),
@@ -137,7 +137,7 @@ def test_a_version_bump_without_hardware_evidence_is_rejected(tmp_path: Path) ->
 
 
 def test_firmware_change_cannot_use_global_na_evidence(tmp_path: Path) -> None:
-    """Release preparation derives required firmware evidence from the merge diff."""
+    """Release preparation derives firmware evidence from the release delta."""
     runner = FakeRunner()
     pull_requests = json.loads(
         runner.results[tuple(pull_requests_command(REPOSITORY, TESTED_SHA))].stdout
@@ -156,7 +156,7 @@ def test_firmware_change_cannot_use_global_na_evidence(tmp_path: Path) -> None:
     runner.results[tuple(pull_requests_command(REPOSITORY, TESTED_SHA))] = completed(
         stdout=json.dumps(pull_requests)
     )
-    runner.results[tuple(changed_files_command(BASE_SHA, TESTED_SHA))] = completed(
+    runner.results[tuple(changed_files_command("v0.0.4", TESTED_SHA))] = completed(
         stdout="firmware/layer_notify.h\0"
     )
 
