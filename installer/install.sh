@@ -394,7 +394,20 @@ install_macos_service() {
 </plist>
 EOF
   mv "${service_path}.tmp" "$service_path" || return
-  launchctl bootstrap "gui/$(id -u)" "$service_path"
+  bootstrap_macos_service
+}
+
+bootstrap_macos_service() {
+  attempt=1
+  while ! output="$(launchctl bootstrap "gui/$(id -u)" "$service_path" 2>&1)"; do
+    if [ "$attempt" -ge 3 ]; then
+      printf '%s\n' "$output" >&2
+      return 1
+    fi
+    printf '%s\n' 'launchctl bootstrap failed; retrying...' >&2
+    attempt=$((attempt + 1))
+    sleep 1
+  done
 }
 
 stop_macos_service() {
@@ -407,7 +420,7 @@ uninstall_macos_service() {
 }
 
 restart_previous_macos_service() {
-  launchctl bootstrap "gui/$(id -u)" "$service_path"
+  bootstrap_macos_service
 }
 
 install_linux_service() {
