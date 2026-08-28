@@ -108,6 +108,25 @@ if output="$$(launchctl bootout "gui/$$(id -u)/$(KEYMAP_OVERLAY_LABEL)" 2>&1)"; 
 	fi
 endef
 
+# launchd can briefly reject a bootstrap after bootout has returned while the
+# old job is still being dismantled. Retry only this registration boundary;
+# persistent errors still fail the install with launchctl's final message.
+define BOOTSTRAP_KEYMAP_OVERLAY
+if launchctl bootstrap "gui/$$(id -u)" "$(KEYMAP_OVERLAY_PLIST)"; then \
+	:; \
+	else \
+	printf '%s\n' "launchctl bootstrap failed; retrying..." >&2; \
+	sleep 1; \
+	if launchctl bootstrap "gui/$$(id -u)" "$(KEYMAP_OVERLAY_PLIST)"; then \
+	:; \
+	else \
+	printf '%s\n' "launchctl bootstrap failed; retrying..." >&2; \
+	sleep 1; \
+	launchctl bootstrap "gui/$$(id -u)" "$(KEYMAP_OVERLAY_PLIST)"; \
+	fi; \
+	fi
+endef
+
 # The systemd counterpart. The unit file is ours, so its absence is what "not
 # installed" means; systemctl would fail on a unit it has never seen.
 define STOP_KEYMAP_OVERLAY_UNIT
@@ -705,7 +724,7 @@ _install_service_macos:
 		'</plist>'; \
 		} > "$(KEYMAP_OVERLAY_PLIST).tmp" && mv "$(KEYMAP_OVERLAY_PLIST).tmp" "$(KEYMAP_OVERLAY_PLIST)"
 	@$(BOOTOUT_KEYMAP_OVERLAY)
-	launchctl bootstrap "gui/$$(id -u)" "$(KEYMAP_OVERLAY_PLIST)"
+	@$(BOOTSTRAP_KEYMAP_OVERLAY)
 
 # Paths are quoted so that a directory containing spaces still parses.
 .PHONY: _install_service_linux

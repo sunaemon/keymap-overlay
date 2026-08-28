@@ -92,6 +92,21 @@ def test_qmk_commands_do_not_populate_missing_optional_submodules() -> None:
     assert "-e SKIP_GIT=yes" in result.stdout
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="launchd is unavailable")
+def test_macos_source_install_retries_transient_launchctl_bootstrap() -> None:
+    """Retry the narrow launchd race after replacing a running service."""
+    result = subprocess.run(
+        [MAKE, "-Bn", "_install_service_macos"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parents[2],
+    )
+
+    assert "launchctl bootstrap failed; retrying" in result.stdout
+    assert result.stdout.count('launchctl bootstrap "gui/') == 3
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")
 def test_live_asset_target_runs_the_native_generator() -> None:
     """Keep the default Vial draw path usable as an explicit development task."""

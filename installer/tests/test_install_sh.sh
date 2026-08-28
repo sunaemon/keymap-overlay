@@ -23,7 +23,7 @@ printf '/* stylesheet fixture */\n' >"$FIXTURE_DIRECTORY/gnome-shell/keymap-over
 chmod +x "$FIXTURE_DIRECTORY/keymap-overlay" "$FIXTURE_DIRECTORY/keymap-overlay-qt"
 tar -C "$FIXTURE_DIRECTORY" -czf "$ARCHIVE" keymap-overlay keymap-overlay-qt gnome-shell LICENSE THIRD-PARTY-LICENSES.html
 
-for command in awk cat cp dirname find grep gzip id mkdir mktemp mv rm tar; do
+for command in awk cat cp dirname find grep gzip id mkdir mktemp mv rm sleep tar; do
   ln -s "$(command -v "$command")" "$FAKE_BIN/$command"
 done
 
@@ -108,6 +108,15 @@ EOF
 cat >"$FAKE_BIN/launchctl" <<'EOF'
 #!/bin/sh
 printf 'launchctl %s\n' "$*" >>"$TEST_COMMAND_LOG"
+case "$*" in
+  *bootstrap*)
+    if [ "${TEST_FAIL_LAUNCHCTL_ONCE:-0}" -ne 0 ] && [ ! -f "${TEST_COMMAND_LOG}.launchctl-failed-once" ]; then
+      : >"${TEST_COMMAND_LOG}.launchctl-failed-once"
+      echo 'Bootstrap failed: 5: Input/output error' >&2
+      exit 1
+    fi
+    ;;
+esac
 exit 0
 EOF
 
@@ -262,6 +271,18 @@ test_macos_stops_service_before_replacing_binary() {
   test "$stop_line" -lt "$install_line"
 }
 
+test_macos_retries_transient_launchctl_bootstrap_failure() {
+  home="$TEST_DIRECTORY/macos launchctl retry home"
+  mkdir -p "$home"
+  : >"$home/commands.log"
+
+  TEST_FAIL_LAUNCHCTL_ONCE=1 \
+    run_installer "$home" Darwin arm64 keymap-overlay-macos-arm64.tar.gz
+
+  bootstrap_count=$(grep -c 'launchctl bootstrap' "$home/commands.log")
+  test "$bootstrap_count" -eq 2
+}
+
 test_gnome_disables_qt_renderer_unless_forced() {
   home="$TEST_DIRECTORY/gnome home"
   cache="$home/.cache/keymap-overlay"
@@ -369,6 +390,7 @@ test_install_does_not_select_example_keyboard_config() {
 test_linux_install_and_uninstall
 test_linux_arm64_install
 test_macos_stops_service_before_replacing_binary
+test_macos_retries_transient_launchctl_bootstrap_failure
 test_gnome_disables_qt_renderer_unless_forced
 test_failed_service_install_rolls_back
 test_failed_gnome_upgrade_keeps_qt_disabled
