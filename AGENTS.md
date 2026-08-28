@@ -184,7 +184,7 @@ so targets that never flash do not pay for the lookup.
 
 The overlay build shell on Windows is MSYS2 UCRT64, not QMK MSYS, so
 `make compile`, `make flash`, and other QMK-backed targets deliberately stop
-there. Native Raw HID startup refresh still reads the device. This does not
+there. Native Raw HID startup still reads the device. This does not
 prevent manual flashing of an already-built `.uf2`: put the keyboard in its
 bootloader and copy the file onto the mounted `RPI-RP2` volume in Explorer.
 
@@ -211,6 +211,23 @@ format and lint, while pre-push runs both test suites. During implementation,
 run the smallest relevant targeted checks. In a pull request's verification
 section, report the hook results once and list only change-specific checks
 separately.
+
+### Hardware Release Gate
+
+When preparing, reviewing, merging, or publishing a release, read and follow
+`docs/releasing.md`, `docs/hardware-release-testing.md`, and
+`docs/release-test-coverage.md`. `CLAUDE.md` links to this guide, so these
+instructions are shared by Codex and Claude. Use
+`.github/PULL_REQUEST_TEMPLATE/release.md` for the version-bump PR. After
+automated build and test checks pass, complete the hardware gate for the exact
+PR head SHA before merge.
+
+Never infer a physical pass from simulation or CI. Mark an `HRG` item complete
+only from an observed physical run or explicit tester evidence. A new
+behavior-affecting commit invalidates affected results. Do not merge the
+release PR, create a tag, publish a release, weaken the check, or bypass a
+failing `hardware-release-gate`. If required hardware is unavailable, stop and
+ask the release owner to complete the physical checks.
 
 `make check-licenses` regenerates the third-party notice in a temporary
 directory and compares it without changing the worktree. Pre-commit runs it
