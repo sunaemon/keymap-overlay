@@ -6,10 +6,15 @@ from pathlib import Path
 
 import pytest
 
+from installer.release.check_hardware_gate import (
+    EXPECTED_CHECK_SECTIONS,
+    changed_files_command,
+)
 from installer.release.prepare_release import (
     ReleasePlan,
     ReleasePreparationError,
     cargo_metadata_command,
+    commit_tree_command,
     prepare_release,
     pull_requests_command,
     read_project_version,
@@ -21,17 +26,28 @@ from installer.release.prepare_release import (
 REPOSITORY = "sunaemon/keymap-overlay"
 TESTED_SHA = "tested"
 BASE_SHA = "base"
+HEAD_SHA = "a" * 40
+TREE_SHA = "c" * 40
 
 
 class FakeRunner:
     """Return canned subprocess results for release preparation commands."""
 
-    def __init__(self, *, current: str = "0.0.5", previous: str = "0.0.4") -> None:
+    def __init__(
+        self,
+        *,
+        current: str = "0.0.5",
+        previous: str = "0.0.4",
+        evidence_tree: str = TREE_SHA,
+        published_tree: str = TREE_SHA,
+    ) -> None:
         packages = [{"name": "keymap-overlay", "version": current}]
         pull_requests = [
             {
                 "number": 42,
                 "base": {"ref": "main", "sha": BASE_SHA},
+                "head": {"ref": "release", "sha": HEAD_SHA},
+                "body": complete_gate(),
                 "merged_at": "2026-08-16T00:00:00Z",
             }
         ]
@@ -44,6 +60,13 @@ class FakeRunner:
             ),
             ("git", "show", f"{BASE_SHA}:pyproject.toml"): completed(
                 stdout=project(previous)
+            ),
+            tuple(changed_files_command(BASE_SHA, TESTED_SHA)): completed(),
+            tuple(commit_tree_command(REPOSITORY, HEAD_SHA)): completed(
+                stdout=evidence_tree
+            ),
+            tuple(commit_tree_command(REPOSITORY, TESTED_SHA)): completed(
+                stdout=published_tree
             ),
             tuple(release_command(REPOSITORY, f"v{current}")): not_found(),
             tuple(tag_command(REPOSITORY, f"v{current}")): not_found(),
@@ -80,9 +103,83 @@ def test_a_merge_without_a_version_bump_is_skipped(tmp_path: Path) -> None:
     assert plan == ReleasePlan(should_release=False)
 
 
+def test_a_merge_with_content_different_from_the_tested_head_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """A merge commit cannot publish a tree different from the tested PR head."""
+    with pytest.raises(ReleasePreparationError, match="differs from tested pull"):
+        prepare_release(
+            TESTED_SHA,
+            REPOSITORY,
+            project_file=write_project(tmp_path, "0.0.5"),
+            runner=FakeRunner(published_tree="d" * 40),
+        )
+
+
+def test_a_version_bump_without_hardware_evidence_is_rejected(tmp_path: Path) -> None:
+    """A merged version bump without hardware evidence is rejected."""
+    runner = FakeRunner()
+    pull_requests = json.loads(
+        runner.results[tuple(pull_requests_command(REPOSITORY, TESTED_SHA))].stdout
+    )
+    pull_requests[0]["body"] = None
+    runner.results[tuple(pull_requests_command(REPOSITORY, TESTED_SHA))] = completed(
+        stdout=json.dumps(pull_requests)
+    )
+
+    with pytest.raises(ReleasePreparationError, match="hardware release gate failed"):
+        prepare_release(
+            TESTED_SHA,
+            REPOSITORY,
+            project_file=write_project(tmp_path, "0.0.5"),
+            runner=runner,
+        )
+
+
+def test_firmware_change_cannot_use_global_na_evidence(tmp_path: Path) -> None:
+    """Release preparation derives required firmware evidence from the merge diff."""
+    runner = FakeRunner()
+    pull_requests = json.loads(
+        runner.results[tuple(pull_requests_command(REPOSITORY, TESTED_SHA))].stdout
+    )
+    pull_requests[0]["body"] = (
+        complete_gate()
+        .replace(
+            "GLOBAL-01** — Result: PASS",
+            "GLOBAL-01** — Result: N/A: no flash run",
+        )
+        .replace(
+            "GLOBAL-02** — Result: PASS",
+            "GLOBAL-02** — Result: N/A: no EEPROM run",
+        )
+    )
+    runner.results[tuple(pull_requests_command(REPOSITORY, TESTED_SHA))] = completed(
+        stdout=json.dumps(pull_requests)
+    )
+    runner.results[tuple(changed_files_command(BASE_SHA, TESTED_SHA))] = completed(
+        stdout="firmware/layer_notify.h\0"
+    )
+
+    with pytest.raises(ReleasePreparationError, match="GLOBAL-01, GLOBAL-02"):
+        prepare_release(
+            TESTED_SHA,
+            REPOSITORY,
+            project_file=write_project(tmp_path, "0.0.5"),
+            runner=runner,
+        )
+
+
 def test_an_existing_release_is_skipped(tmp_path: Path) -> None:
+    """An existing release bypasses duplicate gate and publication work."""
     runner = FakeRunner()
     runner.results[tuple(release_command(REPOSITORY, "v0.0.5"))] = completed()
+    pull_requests = json.loads(
+        runner.results[tuple(pull_requests_command(REPOSITORY, TESTED_SHA))].stdout
+    )
+    pull_requests[0]["body"] = None
+    runner.results[tuple(pull_requests_command(REPOSITORY, TESTED_SHA))] = completed(
+        stdout=json.dumps(pull_requests)
+    )
 
     plan = prepare_release(
         TESTED_SHA,
@@ -199,6 +296,52 @@ def write_project(tmp_path: Path, version: str) -> Path:
 def project(version: str) -> str:
     """Return minimal project metadata using a version."""
     return f'[project]\nname = "keymap-overlay"\nversion = "{version}"\n'
+
+
+def complete_gate() -> str:
+    """Return complete hardware evidence for the merged pull request."""
+    check_sections = "\n".join(
+        "### "
+        + heading
+        + "\n\n"
+        + "".join(
+            f"- [x] **{check_id}** — Result: PASS — passed\n" for check_id in check_ids
+        )
+        for heading, check_ids in EXPECTED_CHECK_SECTIONS.items()
+    )
+    return f"""Candidate commit: `{HEAD_SHA}`
+
+### Platform test matrix
+
+| Platform ID | Architecture | OS version | Desktop / session | Keyboard(s) | `KEYBOARD_ID(s)` | Firmware revision(s) |
+| ----------- | ------------ | ---------- | ----------------- | ----------- | ---------------- | -------------------- |
+| macos-arm64-appkit | arm64 | macOS 15.6 | AppKit / Aqua | Insixty | 1 | stable firmware |
+| linux-x86_64-kde-wayland | x86_64 | Fedora 42 | KDE Plasma 6 / Wayland | DOIO KB16 | 2 | stable firmware |
+| linux-x86_64-gnome-wayland | x86_64 | Ubuntu 26.04 | GNOME 49 / Wayland | Insixty | 1 | stable firmware |
+| linux-arm64-kde-wayland | arm64 | Fedora 42 | KDE Plasma 6 / Wayland | Insixty | 1 | stable firmware |
+| windows-x86_64-wpf | x86_64 | Windows 11 24H2 | WPF / desktop | Insixty, DOIO KB16 | 1, 2 | stable firmware |
+| windows-arm64-wpf | arm64 | Windows 11 24H2 | WPF / desktop | Insixty | 1 | stable firmware |
+
+### Keyboard coverage
+
+| Coverage ID | Keyboard(s) | `KEYBOARD_ID(s)` | Platform ID(s) | Result |
+| ----------- | ----------- | ---------------- | -------------- | ------ |
+| bundled-keyboards | Insixty, DOIO KB16 | 1, 2 | macos-arm64-appkit, linux-x86_64-kde-wayland | PASS |
+| encoder-keyboard | DOIO KB16 | 2 | linux-x86_64-kde-wayland | PASS |
+| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-wpf | PASS |
+
+{check_sections}
+### Lifecycle results
+
+| Platform ID | Upgrade | Rollback | Uninstall | Evidence |
+| ----------- | ------- | -------- | --------- | -------- |
+| macos-arm64-appkit | PASS | PASS | PASS | local acceptance log |
+| linux-x86_64-kde-wayland | PASS | PASS | PASS | local acceptance log |
+| linux-x86_64-gnome-wayland | PASS | PASS | PASS | local acceptance log |
+| linux-arm64-kde-wayland | PASS | PASS | PASS | local acceptance log |
+| windows-x86_64-wpf | PASS | PASS | PASS | local acceptance log |
+| windows-arm64-wpf | PASS | PASS | PASS | local acceptance log |
+"""
 
 
 def completed(

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import json
 import logging
+import re
 import subprocess
 import tomllib
 from collections.abc import Callable
@@ -12,6 +13,12 @@ from typing import Annotated, TypeVar
 import typer
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from installer.release.check_hardware_gate import (
+    HardwareGateError,
+    changed_files_command,
+    parse_changed_paths,
+    validate_hardware_gate,
+)
 from model.src.util import initialize_logging
 
 logger = logging.getLogger(__name__)
@@ -32,6 +39,8 @@ class PullRequest:
 
     number: int
     base_sha: str
+    head_sha: str
+    body: str | None
 
 
 @dataclass(frozen=True)
@@ -67,6 +76,8 @@ class GitHubPullRequest(BaseModel):
 
     number: int
     base: PullRequestBase
+    head: PullRequestBase
+    body: str | None
     merged_at: str | None
 
 
@@ -132,11 +143,32 @@ def prepare_release(
         raise ReleasePreparationError(
             "The version-changing commit is not the merge of a pull request into main"
         )
-
     tag = f"v{current_version}"
     if github_resource_exists(run, release_command(repository, tag)):
         logger.info("Release %s already exists; skipping duplicate publication", tag)
         return ReleasePlan(should_release=False)
+    require_matching_release_tree(
+        run,
+        repository,
+        pull_request.head_sha,
+        tested_sha,
+    )
+    try:
+        changed_paths = parse_changed_paths(
+            run(
+                changed_files_command(pull_request.base_sha, tested_sha),
+                True,
+            ).stdout
+        )
+        validate_hardware_gate(
+            pull_request.body,
+            pull_request.head_sha,
+            changed_paths,
+        )
+    except HardwareGateError as error:
+        raise ReleasePreparationError(
+            f"Pull request #{pull_request.number} hardware release gate failed: {error}"
+        ) from error
     if github_resource_exists(run, tag_command(repository, tag)):
         raise ReleasePreparationError(
             f"Tag {tag} already exists without a release; "
@@ -188,6 +220,22 @@ def validate_cargo_versions(version: str, metadata: CargoMetadata) -> None:
         )
 
 
+def require_matching_release_tree(
+    run: CommandRunner,
+    repository: str,
+    evidence_sha: str,
+    published_sha: str,
+) -> None:
+    """Require tested evidence and the published commit to have identical trees."""
+    evidence_tree = _read_commit_tree(run, repository, evidence_sha)
+    published_tree = _read_commit_tree(run, repository, published_sha)
+    if evidence_tree != published_tree:
+        raise ReleasePreparationError(
+            f"Published commit {published_sha} tree {published_tree} differs from "
+            f"tested pull request head {evidence_sha} tree {evidence_tree}"
+        )
+
+
 def find_merged_pull_request(
     response: list[GitHubPullRequest],
 ) -> PullRequest | None:
@@ -204,7 +252,12 @@ def find_merged_pull_request(
         )
     if not matches:
         return None
-    return PullRequest(number=matches[0].number, base_sha=matches[0].base.sha)
+    return PullRequest(
+        number=matches[0].number,
+        base_sha=matches[0].base.sha,
+        head_sha=matches[0].head.sha,
+        body=matches[0].body,
+    )
 
 
 def github_resource_exists(run: CommandRunner, command: list[str]) -> bool:
@@ -232,6 +285,11 @@ def pull_requests_command(repository: str, tested_sha: str) -> list[str]:
     return ["gh", "api", f"repos/{repository}/commits/{tested_sha}/pulls"]
 
 
+def commit_tree_command(repository: str, sha: str) -> list[str]:
+    """Return the command that reads a commit's Git tree ID from GitHub."""
+    return ["gh", "api", f"repos/{repository}/git/commits/{sha}", "--jq", ".tree.sha"]
+
+
 def release_command(repository: str, tag: str) -> list[str]:
     """Return the command that looks up a GitHub release by tag."""
     return ["gh", "api", f"repos/{repository}/releases/tags/{tag}"]
@@ -240,6 +298,14 @@ def release_command(repository: str, tag: str) -> list[str]:
 def tag_command(repository: str, tag: str) -> list[str]:
     """Return the command that looks up a Git tag reference."""
     return ["gh", "api", f"repos/{repository}/git/ref/tags/{tag}"]
+
+
+def _read_commit_tree(run: CommandRunner, repository: str, sha: str) -> str:
+    """Read and validate one Git tree ID from GitHub."""
+    tree = run(commit_tree_command(repository, sha), True).stdout.strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", tree):
+        raise ReleasePreparationError(f"GitHub returned an invalid tree ID for {sha}")
+    return tree.lower()
 
 
 def _run_json(
