@@ -31,7 +31,7 @@ and IDs with commas.
 ### Platform-independent checks
 
 These are release-wide conditions, not results from one operating system. Use
-`PASS`, or `N/A: <specific reason>` only when the candidate diff changes no
+`PASS`, or `N/A: <specific reason>` only when the release delta changes no
 firmware or embedded metadata.
 
 - [ ] **GLOBAL-01** — Result: PENDING — When firmware or embedded overlay metadata changed, `make compile` and `make flash KEYBOARD_ID=<id>` complete on macOS or Linux, and every affected keyboard returns from the bootloader without manual recovery.

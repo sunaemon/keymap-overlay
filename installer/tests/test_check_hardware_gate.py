@@ -203,7 +203,7 @@ def test_reasoned_global_na_results_pass() -> None:
 
 @pytest.mark.parametrize(
     "changed_path",
-    ("firmware/layer_notify.h", "model/generate_vial.py"),
+    ("firmware/layer_notify.h", "model/generate_vial.py", "Makefile"),
 )
 def test_global_na_is_rejected_when_firmware_inputs_changed(
     changed_path: str,
@@ -320,8 +320,8 @@ def test_version_bump_without_evidence_fails(tmp_path: Path) -> None:
         )
 
 
-def test_pull_request_gate_uses_candidate_diff_for_global_na(tmp_path: Path) -> None:
-    """The pull request entrypoint requires passes for changed embedded metadata."""
+def test_pull_request_gate_uses_release_delta_for_global_na(tmp_path: Path) -> None:
+    """Changes since the previous release require physical firmware passes."""
     body = (
         complete_gate()
         .replace(
@@ -362,7 +362,7 @@ class FakeRunner:
                 "--no-renames",
                 "--name-only",
                 "-z",
-                BASE_SHA,
+                f"v{self.previous}",
                 HEAD_SHA,
                 "--",
             ]

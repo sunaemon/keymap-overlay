@@ -88,9 +88,9 @@ preparation commands, platform commands, and physical actions are in
 The template deliberately separates three kinds of evidence:
 
 1. `GLOBAL-01` and `GLOBAL-02` are release-wide firmware conditions. They may
-   use a reasoned `N/A` only when the candidate diff changes no firmware or
+   use a reasoned `N/A` only when the release delta changes no firmware or
    embedded overlay metadata; the gate derives this eligibility from the
-   base and candidate commits.
+   previous release tag and candidate commit.
 2. Keyboard coverage records every bundled keyboard, one encoder keyboard, and
    all bundled keyboards connected simultaneously. The encoder row includes
    physical rotation/push and label verification; the simultaneous row includes

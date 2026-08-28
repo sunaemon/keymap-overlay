@@ -2,10 +2,12 @@
 
 use anyhow::{Context, Result, bail};
 use hidapi::HidDevice;
+use keymap_core::RAW_HID_REPORT_MAGIC;
 use lzma_rust2::XzReader;
 use serde_json::Value;
 use std::cmp::min;
 use std::io::Read;
+use std::time::{Duration, Instant};
 
 pub const USAGE_PAGE: u16 = 0xFF60;
 pub const USAGE_ID: u16 = 0x61;
@@ -21,6 +23,7 @@ const CMD_VIAL_GET_SIZE: u8 = 0x01;
 const CMD_VIAL_GET_DEFINITION: u8 = 0x02;
 const CMD_VIAL_GET_ENCODER: u8 = 0x03;
 const BUFFER_FETCH_CHUNK: usize = 28;
+const RESPONSE_TIMEOUT: Duration = Duration::from_millis(500);
 // Definitions are normally a few KiB. Limits keep a malformed HID device from
 // forcing an unbounded allocation or XZ decompression while the overlay starts.
 const MAX_COMPRESSED_DEFINITION_BYTES: usize = 1_048_576;
@@ -234,14 +237,41 @@ fn send_recv(device: &HidDevice, request: &[u8]) -> Result<[u8; MESSAGE_LENGTH]>
     device
         .write(&report)
         .context("Failed to send a Vial request")?;
-    let mut response = [0; MESSAGE_LENGTH];
-    let response_len = device
-        .read_timeout(&mut response, 500)
-        .context("Timed out waiting for a Vial response")?;
+
+    let deadline = Instant::now() + RESPONSE_TIMEOUT;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            bail!("Timed out waiting for a Vial response");
+        }
+        let timeout_ms = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
+        let mut response = [0; MESSAGE_LENGTH];
+        let response_len = device
+            .read_timeout(&mut response, timeout_ms)
+            .context("Failed while waiting for a Vial response")?;
+        if let Some(response) = classify_vial_response(response, response_len)? {
+            return Ok(response);
+        }
+    }
+}
+
+fn classify_vial_response(
+    response: [u8; MESSAGE_LENGTH],
+    response_len: usize,
+) -> Result<Option<[u8; MESSAGE_LENGTH]>> {
+    if response_len == 0 {
+        bail!("Timed out waiting for a Vial response");
+    }
     if response_len != MESSAGE_LENGTH {
         bail!("Incomplete Vial response: expected {MESSAGE_LENGTH} bytes, received {response_len}");
     }
-    Ok(response)
+    if response.starts_with(&RAW_HID_REPORT_MAGIC)
+        && matches!(response[6], 0 | 1)
+        && response[7..].iter().all(|byte| *byte == 0)
+    {
+        return Ok(None);
+    }
+    Ok(Some(response))
 }
 
 #[cfg(test)]
@@ -305,5 +335,34 @@ mod tests {
         let mut response = [0; MESSAGE_LENGTH];
         response[..request.len()].copy_from_slice(&request);
         assert!(response_matches_request(&response, &request));
+    }
+
+    #[test]
+    fn ignores_unsolicited_layer_events_while_waiting_for_vial() {
+        let mut layer_event = [0; MESSAGE_LENGTH];
+        layer_event[..7].copy_from_slice(&[b'K', b'M', b'O', 1, 2, 3, 1]);
+
+        assert_eq!(
+            classify_vial_response(layer_event, MESSAGE_LENGTH).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn accepts_complete_non_layer_reports_as_vial_responses() {
+        let mut response = [0; MESSAGE_LENGTH];
+        response[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+
+        assert_eq!(
+            classify_vial_response(response, MESSAGE_LENGTH).unwrap(),
+            Some(response)
+        );
+    }
+
+    #[test]
+    fn rejects_incomplete_reports_while_waiting_for_vial() {
+        let error = classify_vial_response([0; MESSAGE_LENGTH], MESSAGE_LENGTH - 1).unwrap_err();
+
+        assert!(error.to_string().contains("Incomplete Vial response"));
     }
 }

@@ -771,6 +771,8 @@ dependencies = [
  "anyhow",
  "clap",
  "hidapi",
+ "keymap-core",
+ "log",
  "lzma-rust2",
  "regex",
  "serde",

@@ -10,6 +10,7 @@ pub mod vial;
 use anyhow::{Context, Result};
 use hidapi::HidApi;
 use labels::Platform;
+use log::warn;
 use std::path::Path;
 
 pub fn read_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Result<T> {
@@ -48,19 +49,52 @@ pub fn read_live_keyboard_models(
 /// Builds in-memory models for every connected self-describing Vial keyboard.
 pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<types::KeyboardModels>> {
     let api = HidApi::new().context("Failed to initialize HID API")?;
-    let mut models = Vec::new();
-    for info in api
-        .device_list()
-        .filter(|info| info.usage_page() == vial::USAGE_PAGE && info.usage() == vial::USAGE_ID)
-    {
-        let device = api
-            .open_path(info.path())
-            .with_context(|| format!("Failed to open Raw HID device {:?}", info.path()))?;
-        if let Some(model) = device::read_self_describing_keyboard_models(&device, platform)
-            .with_context(|| format!("Failed to read Vial device {:?}", info.path()))?
-        {
-            models.push(model);
-        }
+    Ok(collect_connected_keyboard_models(
+        api.device_list()
+            .filter(|info| info.usage_page() == vial::USAGE_PAGE && info.usage() == vial::USAGE_ID),
+        |info| {
+            let device = api
+                .open_path(info.path())
+                .with_context(|| format!("Failed to open Raw HID device {:?}", info.path()))?;
+            device::read_self_describing_keyboard_models(&device, platform)
+                .with_context(|| format!("Failed to read Vial device {:?}", info.path()))
+        },
+    ))
+}
+
+fn collect_connected_keyboard_models<T>(
+    devices: impl IntoIterator<Item = T>,
+    mut read: impl FnMut(T) -> Result<Option<types::KeyboardModels>>,
+) -> Vec<types::KeyboardModels> {
+    devices
+        .into_iter()
+        .filter_map(|device| match read(device) {
+            Ok(model) => model,
+            Err(error) => {
+                warn!("Skipping unusable Raw HID device: {error:#}");
+                None
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::bail;
+
+    #[test]
+    fn one_unusable_device_does_not_discard_other_models() {
+        let models = collect_connected_keyboard_models([1, 2, 3], |device| match device {
+            1 => Ok(Some(types::KeyboardModels {
+                keyboard_id: 1,
+                layers: Default::default(),
+            })),
+            2 => bail!("not a self-describing Vial keyboard"),
+            _ => Ok(None),
+        });
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].keyboard_id, 1);
     }
-    Ok(models)
 }
