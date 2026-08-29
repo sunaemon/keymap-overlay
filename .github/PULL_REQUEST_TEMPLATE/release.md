@@ -58,8 +58,8 @@ accept only `PASS`; they cannot be completed from another platform's result.
 
 - [ ] **MAC-01** — Result: PENDING — The keyboard types normally before and after the run, and its USB identity and `KEYBOARD_ID` match its configuration directory.
 - [ ] **MAC-02** — Result: PENDING — Native startup loads the in-memory model directly from the device, uses no host model/config arguments, and reports no device-open, Vial-read, model, or Raw HID errors.
-- [ ] **MAC-03** — Result: PENDING — Every `MO` key shows its layer while held and hides it on release; fast taps and ten repeated holds leave no stuck or stale overlay.
-- [ ] **MAC-04** — Result: PENDING — Two held `MO` keys follow numeric precedence, restore the still-held lower layer, and hide after the final release.
+- [ ] **MAC-03** — Result: PENDING — Every physical `MO` switch emits its matching press/release report; deterministic reports through the real keyboard prove held visibility, fast taps, and ten repeated show/hide cycles without stale state.
+- [ ] **MAC-04** — Result: PENDING — Deterministic reports through the real keyboard for two held layers follow numeric precedence, restore the lower layer, and hide after the final release.
 - [ ] **MAC-05** — Result: PENDING — Geometry, platform labels, custom glyphs, transparent keys, and the highlighted held key match the live Vial keymap.
 - [ ] **MAC-06** — Result: PENDING — Unplugging while visible hides the overlay; reconnecting works when loaded at startup, while a keyboard absent at startup requires a restart.
 - [ ] **MAC-07** — Result: PENDING — Restarting after a live Vial edit rereads the model, with no device read on the layer-key hot path.
