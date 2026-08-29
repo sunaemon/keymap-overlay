@@ -542,11 +542,12 @@ endif
 build-hil-macos:
 ifeq ($(OS_FAMILY),macos)
 	$(CARGO) build --release -p keymap-overlay-hil
-	mkdir -p target/hil
-	xcrun swiftc -o target/hil/keymap-overlay-macos-hil-ui \
+	mkdir -p target/hil/KeymapOverlayHIL.app/Contents/MacOS
+	cp overlay/platforms/macos/tests/hil_accessibility_info.plist \
+		target/hil/KeymapOverlayHIL.app/Contents/Info.plist
+	xcrun swiftc -o target/hil/KeymapOverlayHIL.app/Contents/MacOS/keymap-overlay-macos-hil-ui \
 		overlay/platforms/macos/tests/hil_accessibility.swift
-	codesign --force --sign - --identifier com.sunaemon.keymap-overlay.hil-ui \
-		target/hil/keymap-overlay-macos-hil-ui
+	codesign --force --deep --sign - target/hil/KeymapOverlayHIL.app
 else
 	$(error build-hil-macos is only available on macOS)
 endif

@@ -29,10 +29,10 @@ Build the stable, ad-hoc-signed Accessibility probe:
 make build-hil-macos
 ```
 
-Add `target/hil/keymap-overlay-macos-hil-ui` to System Settings > Privacy &
-Security > Accessibility. Keep the overlay binary in Input Monitoring as the
-normal installation procedure requires. Rebuild first and grant the resulting
-stable binary, because macOS associates the permission with its signed code.
+Add `target/hil/KeymapOverlayHIL.app` to System Settings > Privacy & Security >
+Accessibility. Keep the overlay binary in Input Monitoring as the normal
+installation procedure requires. Rebuild first and grant the resulting stable
+app, because macOS associates the permission with its signed code.
 
 Flash both bundled keyboards with this candidate before running the session
 targets. The fully automated firmware target requires two site-specific
