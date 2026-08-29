@@ -180,15 +180,15 @@ machine's login security settings.
 | ----------- | ------------------------------------------------------------------------------------ | ----------------------------------------------- |
 | `GLOBAL-01` | Compile, controlled bootloader entry, flash, and return                              | Real keyboard and bootloader controller         |
 | `GLOBAL-02` | Compiled reset plus Vial persistence across switched USB power                       | Real EEPROM and switched USB port               |
-| `MAC-01`    | USB identity plus typing/focus capture                                               | A matrix switch still types normally            |
-| `MAC-02`    | Installed native startup, device model read, plist, and logs                         | Real Raw HID/Vial device                        |
-| `MAC-03`    | Every physical `MO` press/release report plus deterministic fast and repeated cycles | None after both transcripts pass                |
-| `MAC-04`    | Deterministic nested KMO reports and numeric precedence                              | None; switch report proof is inherited from 03  |
+| `MAC-01`    | Installed native startup, device model read, plist, and logs                         | Real Raw HID/Vial device                        |
+| `MAC-02`    | Deterministic nested KMO reports and numeric precedence                              | None; switch report proof is inherited from 08  |
+| `MAC-03`    | Real Vial EEPROM edit and real process restart                                       | None after the session transcript passes        |
+| `MAC-04`    | Accessibility focus/typing, pointer click-through, and window order                  | None on the signed-in interactive desktop       |
 | `MAC-05`    | Live Vial labels, encoder direction labels/output, geometry, and held layer          | Encoder sensor/push and visual review           |
-| `MAC-06`    | Controlled physical USB removal, return, and absent startup                          | Switched physical port                          |
-| `MAC-07`    | Real Vial EEPROM edit and real process restart                                       | None after the session transcript passes        |
-| `MAC-08`    | Accessibility focus/typing, pointer click-through, and window order                  | None on the signed-in interactive desktop       |
-| `MAC-09`    | Window bounds on every attached display and scale                                    | Every release-relevant display must be attached |
+| `MAC-06`    | Window bounds on every attached display and scale                                    | Every release-relevant display must be attached |
+| `MAC-07`    | USB identity plus typing/focus capture                                               | A matrix switch still types normally            |
+| `MAC-08`    | Every physical `MO` press/release report plus deterministic fast and repeated cycles | None after both transcripts pass                |
+| `MAC-09`    | Controlled physical USB removal, return, and absent startup                          | Switched physical port                          |
 | `MAC-10`    | Post-login LaunchAgent continuation and first HIL event                              | Actual sign-out/sign-in session boundary        |
 | Lifecycle   | Real upgrade/uninstall/reinstall plus isolated rollback                              | Running user launchd session                    |
 
