@@ -128,7 +128,12 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
     configure_window(&window);
 
     let (sender, receiver) = mpsc::channel();
-    let source = spawn_layer_event_source(ChannelSink(sender), simulated, raw_hid_devices);
+    let source = spawn_layer_event_source(
+        ChannelSink(sender),
+        simulated,
+        raw_hid_devices,
+        models.keys().map(|(keyboard_id, _)| *keyboard_id),
+    );
     if source.uses_raw_hid() {
         spawn_device_watcher(source);
     }

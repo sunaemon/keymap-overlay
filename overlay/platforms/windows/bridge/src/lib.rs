@@ -23,6 +23,7 @@ static PREPARED_MODELS: OnceLock<PreparedModels> = OnceLock::new();
 struct PreparedModels {
     json: Vec<u8>,
     raw_hid_devices: Mutex<Vec<StartupRawHidDevice>>,
+    modeled_keyboard_ids: Vec<u8>,
 }
 
 #[derive(Serialize)]
@@ -138,6 +139,10 @@ fn start(wake: extern "system" fn(), simulated: Option<SimulatedLayer>) -> i32 {
         },
         simulated,
         startup_devices,
+        PREPARED_MODELS
+            .get()
+            .into_iter()
+            .flat_map(|prepared| prepared.modeled_keyboard_ids.iter().copied()),
     );
     if shared.listener.set(listener).is_err() {
         return -2;
@@ -168,9 +173,15 @@ fn prepare() -> i32 {
 }
 
 fn prepare_models(startup: StartupModels) -> anyhow::Result<PreparedModels> {
+    let modeled_keyboard_ids = startup
+        .models
+        .keys()
+        .map(|(keyboard_id, _)| *keyboard_id)
+        .collect();
     Ok(PreparedModels {
         json: serialize_models(startup.models)?,
         raw_hid_devices: Mutex::new(startup.raw_hid_devices),
+        modeled_keyboard_ids,
     })
 }
 

@@ -413,9 +413,14 @@ pub fn spawn_layer_event_source(
     sink: impl LayerEventSink + 'static,
     simulated: Option<SimulatedLayer>,
     startup_devices: Vec<StartupRawHidDevice>,
+    modeled_keyboard_ids: impl IntoIterator<Item = u8>,
 ) -> LayerEventSourceHandle {
     let Some(simulated) = simulated else {
-        return LayerEventSourceHandle::RawHid(spawn_raw_hid_listener(sink, startup_devices));
+        return LayerEventSourceHandle::RawHid(spawn_raw_hid_listener(
+            sink,
+            startup_devices,
+            modeled_keyboard_ids.into_iter().collect(),
+        ));
     };
     thread::spawn(move || {
         info!(
@@ -473,13 +478,9 @@ impl RawHidListenerHandle {
 pub fn spawn_raw_hid_listener(
     sink: impl LayerEventSink + 'static,
     startup_devices: Vec<StartupRawHidDevice>,
+    modeled_keyboard_ids: HashSet<u8>,
 ) -> RawHidListenerHandle {
-    let modeled_keyboard_ids = Arc::new(
-        startup_devices
-            .iter()
-            .map(|device| device.keyboard_id)
-            .collect::<HashSet<_>>(),
-    );
+    let modeled_keyboard_ids = Arc::new(modeled_keyboard_ids);
     let (wake, requests) = mpsc::channel();
     let requester = EnumerationRequester::new(wake);
     let handle = RawHidListenerHandle {
@@ -1070,6 +1071,7 @@ mod tests {
                 layer: 3,
             }),
             Vec::new(),
+            std::iter::empty(),
         );
 
         assert!(!source.uses_raw_hid());

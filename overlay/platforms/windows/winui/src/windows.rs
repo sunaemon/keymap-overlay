@@ -125,8 +125,9 @@ fn render(
     simulated: Option<SimulatedLayer>,
 ) -> Element {
     let (transition, set_transition) = context.use_async_state(Transition::Hide);
+    let listener_models = Arc::clone(&models);
     context.use_effect((), move || {
-        start_listener(set_transition, simulated, raw_hid_devices)
+        start_listener(set_transition, simulated, raw_hid_devices, listener_models)
     });
 
     let model = match &transition {
@@ -163,6 +164,7 @@ fn start_listener(
     set_transition: AsyncSetState<Transition>,
     simulated: Option<SimulatedLayer>,
     raw_hid_devices: Arc<Mutex<Vec<StartupRawHidDevice>>>,
+    models: Arc<ModelCache>,
 ) {
     let startup_devices = std::mem::take(
         &mut *raw_hid_devices
@@ -176,6 +178,7 @@ fn start_listener(
         },
         simulated,
         startup_devices,
+        models.keys().map(|(keyboard_id, _)| *keyboard_id),
     );
     native::install_listener(listener);
 }

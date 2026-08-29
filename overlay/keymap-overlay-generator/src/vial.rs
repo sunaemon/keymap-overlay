@@ -13,6 +13,7 @@ pub const USAGE_PAGE: u16 = 0xFF60;
 pub const USAGE_ID: u16 = 0x61;
 
 const MESSAGE_LENGTH: usize = 32;
+const MAX_INPUT_MESSAGE_LENGTH: usize = MESSAGE_LENGTH + 1;
 const VIA_UNHANDLED: u8 = 0xFF;
 const CMD_VIA_GET_PROTOCOL_VERSION: u8 = 0x01;
 const CMD_VIA_VIAL_PREFIX: u8 = 0xFE;
@@ -302,7 +303,7 @@ fn send_recv(
             bail!("Timed out waiting for a Vial response");
         }
         let timeout_ms = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
-        let mut response = [0; MESSAGE_LENGTH];
+        let mut response = [0; MAX_INPUT_MESSAGE_LENGTH];
         let response_len = device
             .read_timeout(&mut response, timeout_ms)
             .context("Failed while waiting for a Vial response")?;
@@ -313,16 +314,14 @@ fn send_recv(
 }
 
 fn classify_vial_response(
-    response: [u8; MESSAGE_LENGTH],
+    response: [u8; MAX_INPUT_MESSAGE_LENGTH],
     response_len: usize,
     layer_events: &mut Vec<RawLayerEvent>,
 ) -> Result<Option<[u8; MESSAGE_LENGTH]>> {
     if response_len == 0 {
         bail!("Timed out waiting for a Vial response");
     }
-    if response_len != MESSAGE_LENGTH {
-        bail!("Incomplete Vial response: expected {MESSAGE_LENGTH} bytes, received {response_len}");
-    }
+    let response = normalize_input_report(response, response_len)?;
     if response.starts_with(&RAW_HID_REPORT_MAGIC)
         && matches!(response[6], 0 | 1)
         && response[7..].iter().all(|byte| *byte == 0)
@@ -333,6 +332,24 @@ fn classify_vial_response(
         return Ok(None);
     }
     Ok(Some(response))
+}
+
+fn normalize_input_report(
+    report: [u8; MAX_INPUT_MESSAGE_LENGTH],
+    report_len: usize,
+) -> Result<[u8; MESSAGE_LENGTH]> {
+    let payload = match report_len {
+        MESSAGE_LENGTH => &report[..MESSAGE_LENGTH],
+        MAX_INPUT_MESSAGE_LENGTH => &report[1..MAX_INPUT_MESSAGE_LENGTH],
+        _ => {
+            bail!(
+                "Incomplete Vial response: expected {MESSAGE_LENGTH} or {MAX_INPUT_MESSAGE_LENGTH} bytes, received {report_len}"
+            )
+        }
+    };
+    let mut normalized = [0; MESSAGE_LENGTH];
+    normalized.copy_from_slice(payload);
+    Ok(normalized)
 }
 
 #[cfg(test)]
@@ -400,7 +417,7 @@ mod tests {
 
     #[test]
     fn preserves_unsolicited_layer_events_while_waiting_for_vial() {
-        let mut layer_event = [0; MESSAGE_LENGTH];
+        let mut layer_event = [0; MAX_INPUT_MESSAGE_LENGTH];
         layer_event[..7].copy_from_slice(&[b'K', b'M', b'O', 1, 2, 3, 1]);
         let mut layer_events = Vec::new();
 
@@ -419,23 +436,64 @@ mod tests {
     }
 
     #[test]
-    fn accepts_complete_non_layer_reports_as_vial_responses() {
-        let mut response = [0; MESSAGE_LENGTH];
-        response[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+    fn preserves_report_id_prefixed_layer_events_while_waiting_for_vial() {
+        let mut layer_event = [0; MAX_INPUT_MESSAGE_LENGTH];
+        layer_event[1..8].copy_from_slice(&[b'K', b'M', b'O', 1, 2, 3, 0]);
         let mut layer_events = Vec::new();
 
         assert_eq!(
+            classify_vial_response(layer_event, MAX_INPUT_MESSAGE_LENGTH, &mut layer_events)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            layer_events,
+            vec![RawLayerEvent {
+                keyboard_id: 2,
+                layer: 3,
+                pressed: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn accepts_complete_non_layer_reports_as_vial_responses() {
+        let mut response = [0; MAX_INPUT_MESSAGE_LENGTH];
+        response[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+        let mut layer_events = Vec::new();
+        let mut expected = [0; MESSAGE_LENGTH];
+        expected[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+
+        assert_eq!(
             classify_vial_response(response, MESSAGE_LENGTH, &mut layer_events).unwrap(),
-            Some(response)
+            Some(expected)
+        );
+        assert!(layer_events.is_empty());
+    }
+
+    #[test]
+    fn accepts_report_id_prefixed_vial_responses() {
+        let mut response = [0; MAX_INPUT_MESSAGE_LENGTH];
+        response[1..4].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+        let mut expected = [0; MESSAGE_LENGTH];
+        expected[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+        let mut layer_events = Vec::new();
+
+        assert_eq!(
+            classify_vial_response(response, MAX_INPUT_MESSAGE_LENGTH, &mut layer_events).unwrap(),
+            Some(expected)
         );
         assert!(layer_events.is_empty());
     }
 
     #[test]
     fn rejects_incomplete_reports_while_waiting_for_vial() {
-        let error =
-            classify_vial_response([0; MESSAGE_LENGTH], MESSAGE_LENGTH - 1, &mut Vec::new())
-                .unwrap_err();
+        let error = classify_vial_response(
+            [0; MAX_INPUT_MESSAGE_LENGTH],
+            MESSAGE_LENGTH - 1,
+            &mut Vec::new(),
+        )
+        .unwrap_err();
 
         assert!(error.to_string().contains("Incomplete Vial response"));
     }
