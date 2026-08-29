@@ -7,6 +7,11 @@ See [Release Gate Coverage](release-test-coverage.md) for exactly what CI
 already proves, what remains manual, and the E2E/HIL plan for retiring each
 check.
 
+The macOS HIL procedure deliberately splits switch-to-report firmware evidence
+from report-to-overlay host evidence. This keeps the physical action small
+without treating requested reports as physical switch evidence; see
+[macOS Release-Gate Automation](macos-release-automation.md).
+
 ## Required Test Matrix
 
 The proposed macOS, KDE Plasma, and Windows runs cover AppKit, Qt/LayerShellQt,
@@ -172,23 +177,40 @@ must contain no HID-open or Vial-model error from this start.
 
 ## 3. Run the Common Physical Checks
 
+On macOS ARM64, run the two protocol-boundary proofs first:
+
+```bash
+make test-hardware-physical-reports-macos
+make test-hardware-session-macos
+```
+
+The first target asks for one quick tap of every configured physical `MO` key
+and verifies its expected ordered Raw HID press/release messages. The second
+uses deterministic messages emitted by the already-flashed real keyboard to
+exercise repeated show/hide, nested precedence, live Vial restart reads, and
+interactive AppKit window safety. Their exact-head transcripts jointly satisfy
+`MAC-03`; the second satisfies `MAC-04`, `MAC-07`, and `MAC-08`. No separate
+physical two-key chord is required after every participating switch has passed
+the first target. This exception applies only to macOS until another platform
+has an equivalent release-binary HIL procedure.
+
 Perform these checks on every row of the required platform matrix. Before and
 after the run, verify normal keyboard input and matching USB/`KEYBOARD_ID`
 identity for that platform's `*-01` check. The install-and-log inspection in
 section 2 supplies `*-02`. The prefixes are `MAC`, `KDE`, `GNOME`, `KDEA`,
 `WIN`, and `WINA`.
 
-1. For `*-03`, with the keyboard connected before startup, hold every `MO` key. Verify the
+1. Except for the macOS split proof above, for `*-03`, with the keyboard connected before startup, hold every `MO` key. Verify the
    correct live Vial layer appears immediately, remains visible while held, and
    hides on release.
 2. For `*-05`, compare geometry, platform-specific labels, custom glyphs, transparent keys,
    held-key highlighting, and encoder position with the live Vial layout.
-3. Also for `*-03`, tap each `MO` key quickly, then show and hide it at least ten times. Verify
+3. Except for the macOS split proof above, also for `*-03`, tap each `MO` key quickly, then show and hide it at least ten times. Verify
    that no stale or stuck overlay remains.
-4. For `*-04`, hold two `MO` keys. Verify numeric layer precedence, release the higher one
+4. Except for the macOS split proof above, for `*-04`, hold two `MO` keys. Verify numeric layer precedence, release the higher one
    and confirm the lower layer returns, then release the last key and confirm
    the overlay hides.
-5. For `*-08`, in a text editor, continue typing while repeatedly showing the overlay. Click
+5. Except for the automated macOS AppKit assertions above, for `*-08`, in a text editor, continue typing while repeatedly showing the overlay. Click
    through the overlay as well. Every character and click must reach the editor;
    focus and the caret must not move. Explicitly verify the second and later
    show on Windows.
@@ -205,7 +227,7 @@ section 2 supplies `*-02`. The prefixes are `MAC`, `KDE`, `GNOME`, `KDEA`,
    Connecting it afterward must not display a model. Restart the overlay with
    the keyboard connected; physical layer events must then work. This is the
    intentional startup-read behavior.
-10. For `*-07`, stop the overlay, make a visible key-binding change in Vial, close Vial,
+10. Except for the automated macOS live-Vial session above, for `*-07`, stop the overlay, make a visible key-binding change in Vial, close Vial,
     and restart the overlay. The overlay must show the changed live binding.
     Restore the binding and restart once more.
 11. For the release-wide `simultaneous-keyboards` coverage row, connect all

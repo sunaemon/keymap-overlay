@@ -1,14 +1,21 @@
 # macOS Release-Gate Automation
 
-The macOS hardware-in-the-loop (HIL) runner combines a real, self-describing
-Vial keyboard with deterministic firmware reports and macOS Accessibility
-assertions. It runs the release overlay without `--simulate` and saves each
-operation's transcript under `~/.local/var/log/keymap-overlay/hil/`.
+The macOS hardware-in-the-loop (HIL) procedure separates release evidence at
+the Raw HID protocol boundary:
 
-This automation supplements the hardware release gate until it is required on
-a dedicated macOS ARM64 runner and has demonstrated that it fails for the
-regressions each checklist item describes. Do not mark an existing physical
-item from these targets alone or weaken the gate to accept their output.
+1. A guided physical check proves that every real `MO` matrix switch makes QMK
+   emit the expected `(keyboard_id, layer, pressed)` report.
+2. The host driver asks the already-flashed real keyboard to emit chosen KMO
+   reports, and the installed release overlay proves parsing, state reduction,
+   model composition, and AppKit rendering deterministically.
+
+The second half runs without `--simulate`; the versioned firmware command emits
+the same KMO report that the physical path emits. Flash the candidate HIL
+firmware once, not once per report. The deterministic half never counts as
+matrix-switch evidence, while the physical half does not need to repeat every
+renderer scenario. Together, their exact-head transcripts may satisfy the
+corresponding macOS checklist item. Each operation is saved under
+`~/.local/var/log/keymap-overlay/hil/`.
 
 ## Safety Boundary
 
@@ -35,7 +42,8 @@ installation procedure requires. Rebuild first and grant the resulting stable
 app, because macOS associates the permission with its signed code.
 
 Flash both bundled keyboards with this candidate before running the session
-targets. The fully automated firmware target requires two site-specific
+targets. The HIL command can then emit any valid layer press or release without
+another flash. The fully automated firmware target requires two site-specific
 executables:
 
 - `KMO_HIL_BOOTLOADER_CONTROL`: invoked as `enter KEYBOARD_ID`; it physically
@@ -59,10 +67,11 @@ KMO_HIL_USB_CONTROL=/path/to/usb-control \
 make test-hardware-release-macos
 ```
 
-It runs firmware/EEPROM/disconnect, AppKit/Accessibility, and lifecycle checks
-in order, then prepares the post-login continuation. Sign out and sign in, and
-finish with `make verify-hardware-login-macos`. The session boundary is split
-because macOS terminates the shell that initiated sign-out.
+It runs firmware/EEPROM/disconnect, guided physical report capture,
+AppKit/Accessibility, and lifecycle checks in order, then prepares the
+post-login continuation. Sign out and sign in, and finish with
+`make verify-hardware-login-macos`. The session boundary is split because macOS
+terminates the shell that initiated sign-out.
 
 ### Firmware, EEPROM, and disconnect behavior
 
@@ -78,6 +87,27 @@ with a new EEPROM epoch, and confirms the default returns. It then edits the
 binding again, power-cycles the actual USB port, and confirms persistence. The
 same controlled port verifies visible disconnect, reconnect, absence at
 startup, and recovery after a real overlay restart.
+
+### Physical switch-to-report proof
+
+```bash
+make test-hardware-physical-reports-macos
+```
+
+The target installs the exact clean candidate, stops the overlay so its parser
+is not part of this proof, and opens each keyboard's physical Raw HID endpoint
+directly. It prompts for one quick physical tap of each bundled `MO` key and
+accepts only an ordered press then release for the expected keyboard ID and
+layer. The default sequence is:
+
+- Insixty far-right key on the Z row: keyboard 1, layer 1;
+- Insixty bottom-left key: keyboard 1, layer 2;
+- DOIO bottom-left key: keyboard 2, layer 3.
+
+Override the set with `KMO_HIL_PHYSICAL_REPORTS="ID:LAYER ..."` when the bundled
+keymaps change. This target never invokes the deterministic HIL layer command.
+One physical tap proves both the press and release firmware messages; repeated
+show/hide and nested-state coverage belongs to the deterministic session below.
 
 ### Live AppKit session
 
@@ -135,22 +165,22 @@ machine's login security settings.
 
 ## Coverage and Remaining Physical Assertions
 
-| Gate        | Automated evidence                                              | Physical assertion retained                     |
-| ----------- | --------------------------------------------------------------- | ----------------------------------------------- |
-| `GLOBAL-01` | Compile, controlled bootloader entry, flash, and return         | Real keyboard and bootloader controller         |
-| `GLOBAL-02` | Compiled reset plus Vial persistence across switched USB power  | Real EEPROM and switched USB port               |
-| `MAC-01`    | USB identity plus typing/focus capture                          | A matrix switch still types normally            |
-| `MAC-02`    | Installed native startup, device model read, plist, and logs    | Real Raw HID/Vial device                        |
-| `MAC-03`    | Repeated deterministic firmware KMO reports                     | Physical switch-to-QMK report path              |
-| `MAC-04`    | Nested KMO reports and numeric precedence                       | Physical two-switch chord                       |
-| `MAC-05`    | Live Vial F13, AppKit labels, geometry, and held layer          | Encoder rotation/push and visual review         |
-| `MAC-06`    | Controlled physical USB removal, return, and absent startup     | Switched physical port                          |
-| `MAC-07`    | Vial EEPROM edit and real process restart                       | Real EEPROM                                     |
-| `MAC-08`    | Accessibility focus/typing, pointer click-through, window order | Interactive macOS desktop                       |
-| `MAC-09`    | Window bounds on every attached display and scale               | Every release-relevant display must be attached |
-| `MAC-10`    | Post-login LaunchAgent continuation and first HIL event         | Actual sign-out/sign-in session boundary        |
-| Lifecycle   | Real upgrade/uninstall/reinstall plus isolated rollback         | Running user launchd session                    |
+| Gate        | Exact-head HIL evidence                                                              | Additional physical assertion                   |
+| ----------- | ------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| `GLOBAL-01` | Compile, controlled bootloader entry, flash, and return                              | Real keyboard and bootloader controller         |
+| `GLOBAL-02` | Compiled reset plus Vial persistence across switched USB power                       | Real EEPROM and switched USB port               |
+| `MAC-01`    | USB identity plus typing/focus capture                                               | A matrix switch still types normally            |
+| `MAC-02`    | Installed native startup, device model read, plist, and logs                         | Real Raw HID/Vial device                        |
+| `MAC-03`    | Every physical `MO` press/release report plus deterministic fast and repeated cycles | None after both transcripts pass                |
+| `MAC-04`    | Deterministic nested KMO reports and numeric precedence                              | None; switch report proof is inherited from 03  |
+| `MAC-05`    | Live Vial F13, AppKit labels, geometry, and held layer                               | Encoder rotation/push and visual review         |
+| `MAC-06`    | Controlled physical USB removal, return, and absent startup                          | Switched physical port                          |
+| `MAC-07`    | Real Vial EEPROM edit and real process restart                                       | None after the session transcript passes        |
+| `MAC-08`    | Accessibility focus/typing, pointer click-through, and window order                  | None on the signed-in interactive desktop       |
+| `MAC-09`    | Window bounds on every attached display and scale                                    | Every release-relevant display must be attached |
+| `MAC-10`    | Post-login LaunchAgent continuation and first HIL event                              | Actual sign-out/sign-in session boundary        |
+| Lifecycle   | Real upgrade/uninstall/reinstall plus isolated rollback                              | Running user launchd session                    |
 
-The physical matrix and encoder gaps need actuators or instrumented switch and
-encoder fixtures before their manual coverage rows can be retired. The
-firmware KMO command deliberately does not pretend to cover them.
+The guided matrix taps and physical encoder actions still need a person until
+actuators or instrumented fixtures perform them. The firmware KMO command
+deliberately does not pretend to cover those inputs.

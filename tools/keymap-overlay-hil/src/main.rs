@@ -4,13 +4,14 @@ mod macos {
     use clap::{Parser, Subcommand, ValueEnum};
     use hidapi::{HidApi, HidDevice};
     use keymap_core::{
-        HilLayerState, RAW_HID_REPORT_SIZE, encode_hil_layer_command, encode_hil_probe_command,
+        HilLayerState, RAW_HID_REPORT_SIZE, RawLayerEvent, encode_hil_layer_command,
+        encode_hil_probe_command, parse_raw_layer_event,
     };
     use keymap_overlay_generator::types::KeymapOverlayMetadata;
     use keymap_overlay_generator::vial::{self, USAGE_ID, USAGE_PAGE};
     use serde_json::Value;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     const VIA_GET_KEYCODE: u8 = 0x04;
     const VIA_SET_KEYCODE: u8 = 0x05;
@@ -45,6 +46,15 @@ mod macos {
             layer: u8,
             #[arg(long)]
             state: State,
+        },
+        /// Observes one physical MO switch's press and release reports.
+        ObserveLayer {
+            #[arg(long)]
+            keyboard_id: u8,
+            #[arg(long)]
+            layer: u8,
+            #[arg(long, default_value_t = 90_000)]
+            timeout_ms: u64,
         },
         /// Reads one live Vial keycode.
         GetKeycode {
@@ -107,6 +117,11 @@ mod macos {
                 layer,
                 state,
             } => send_layer_event(keyboard_id, layer, state),
+            Command::ObserveLayer {
+                keyboard_id,
+                layer,
+                timeout_ms,
+            } => observe_physical_layer(keyboard_id, layer, timeout_ms),
             Command::GetKeycode {
                 keyboard_id,
                 layer,
@@ -147,6 +162,67 @@ mod macos {
         write_report(&keyboard.device, &command).context("Failed to send the HIL layer command")?;
         thread::sleep(HIL_DISPATCH_DELAY);
         Ok(())
+    }
+
+    fn observe_physical_layer(keyboard_id: u8, layer: u8, timeout_ms: u64) -> Result<()> {
+        if layer == 0 {
+            bail!("Layer zero is not a momentary overlay layer");
+        }
+        if timeout_ms == 0 {
+            bail!("The physical observation timeout must be positive");
+        }
+        let keyboard = open_keyboard(keyboard_id)?;
+        let timeout = Duration::from_millis(timeout_ms);
+        let started = Instant::now();
+        let mut pressed = false;
+        let mut report = [0_u8; RAW_HID_REPORT_SIZE + 1];
+
+        while started.elapsed() < timeout {
+            let remaining = timeout.saturating_sub(started.elapsed());
+            let read_timeout = remaining.as_millis().clamp(1, 250) as i32;
+            let count = keyboard
+                .device
+                .read_timeout(&mut report, read_timeout)
+                .context("Failed while waiting for a physical KMO report")?;
+            if count == 0 {
+                continue;
+            }
+            let Some(event) = parse_raw_layer_event(&report[..count]) else {
+                continue;
+            };
+            if observe_expected_event(&mut pressed, keyboard_id, layer, event)? {
+                return Ok(());
+            }
+        }
+        bail!("Timed out waiting for keyboard {keyboard_id} layer {layer} press and release")
+    }
+
+    fn observe_expected_event(
+        pressed: &mut bool,
+        keyboard_id: u8,
+        layer: u8,
+        event: RawLayerEvent,
+    ) -> Result<bool> {
+        if event.keyboard_id != keyboard_id || event.layer != layer {
+            bail!(
+                "Expected keyboard {keyboard_id} layer {layer}, received keyboard {} layer {}",
+                event.keyboard_id,
+                event.layer
+            );
+        }
+        if event.pressed {
+            if *pressed {
+                bail!("Received a duplicate physical press before release");
+            }
+            *pressed = true;
+            println!("keyboard_id={keyboard_id} layer={layer} pressed=true");
+            return Ok(false);
+        }
+        if !*pressed {
+            bail!("Received a physical release before press");
+        }
+        println!("keyboard_id={keyboard_id} layer={layer} pressed=false");
+        Ok(true)
     }
 
     fn probe(keyboard_id: u8) -> Result<()> {
@@ -325,6 +401,55 @@ mod macos {
         #[test]
         fn rejects_a_keycode_outside_sixteen_bits() {
             assert!(parse_keycode("0x10000").is_err());
+        }
+
+        #[test]
+        fn accepts_one_ordered_physical_press_and_release() {
+            let mut pressed = false;
+            assert!(
+                !observe_expected_event(
+                    &mut pressed,
+                    1,
+                    2,
+                    RawLayerEvent {
+                        keyboard_id: 1,
+                        layer: 2,
+                        pressed: true,
+                    },
+                )
+                .unwrap()
+            );
+            assert!(
+                observe_expected_event(
+                    &mut pressed,
+                    1,
+                    2,
+                    RawLayerEvent {
+                        keyboard_id: 1,
+                        layer: 2,
+                        pressed: false,
+                    },
+                )
+                .unwrap()
+            );
+        }
+
+        #[test]
+        fn rejects_a_physical_report_for_another_layer() {
+            let mut pressed = false;
+            assert!(
+                observe_expected_event(
+                    &mut pressed,
+                    1,
+                    2,
+                    RawLayerEvent {
+                        keyboard_id: 1,
+                        layer: 3,
+                        pressed: true,
+                    },
+                )
+                .is_err()
+            );
         }
     }
 }

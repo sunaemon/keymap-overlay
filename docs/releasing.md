@@ -114,6 +114,13 @@ The ten platform checks have the same meaning on every backend:
 | `09`   | Placement and size on every affected display, scale, and native renderer                                   |
 | `10`   | Real sign-out/sign-in autostart and the first physical layer event                                         |
 
+For macOS, the approved HIL procedure may compose `MAC-03` from a guided
+physical switch-to-report transcript and deterministic report-to-AppKit
+assertions through the real keyboard. `MAC-04`, `MAC-07`, and `MAC-08` may use
+their exact-head HIL session assertions. The checklist results remain required;
+this split reduces repeated human input and does not turn requested reports
+into physical-switch evidence.
+
 The person merging the release preparation PR owns the gate. It passes only
 when every required coverage row is recorded, every applicable item passes,
 every not-applicable global item has a reason, and the recorded PR head still
