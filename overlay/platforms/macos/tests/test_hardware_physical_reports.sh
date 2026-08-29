@@ -5,11 +5,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
-DRIVER="$ROOT/target/release/keymap-overlay-hil"
 SERVICE_LABEL=com.sunaemon.keymap-overlay
-PLIST="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
+LOG="$HOME/.local/var/log/keymap-overlay/overlay.log"
 EXPECTED_REPORTS_TEXT="${KMO_HIL_PHYSICAL_REPORTS:-1:1 1:2 2:3}"
-TIMEOUT_SECONDS="${KMO_HIL_PHYSICAL_TIMEOUT_SECONDS:-90}"
+KEYBOARD_COUNT="${KMO_HIL_KEYBOARD_COUNT:-2}"
+TIMEOUT_SECONDS="${KMO_HIL_PHYSICAL_TIMEOUT_SECONDS:-180}"
 TRANSCRIPT_DIR="${KMO_HIL_LOG_DIR:-$HOME/.local/var/log/keymap-overlay/hil}"
 TRANSCRIPT="$TRANSCRIPT_DIR/macos-physical-reports-$(date '+%Y%m%d-%H%M%S').log"
 
@@ -27,53 +27,59 @@ physical_key_label() {
   esac
 }
 
-stop_overlay() {
-  local output
-  if output="$(launchctl bootout "gui/$(id -u)/$SERVICE_LABEL" 2>&1)"; then
-    return
-  fi
-  case "$output" in
-    ""|*"Could not find service"*|*"No such process"*) ;;
-    *) printf '%s\n' "$output" >&2; return 1 ;;
-  esac
-}
-
-start_overlay() {
-  launchctl bootstrap "gui/$(id -u)" "$PLIST"
+wait_for_log() {
+  local start_line=$1
+  local pattern=$2
+  local deadline=$((SECONDS + TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    if [[ -f "$LOG" ]] && tail -n "+$start_line" "$LOG" | grep -Fq "$pattern"; then
+      return
+    fi
+    sleep 0.1
+  done
+  fail "Timed out waiting for log entry: $pattern"
 }
 
 observe_physical_tap() {
   local keyboard_id=$1
   local layer=$2
-  local label
+  local label start_line pattern deadline events states state_count
   label="$(physical_key_label "$keyboard_id" "$layer")"
+  start_line="$(( $(wc -l <"$LOG") + 1 ))"
+  pattern="Layer event: keyboard=$keyboard_id layer=$layer pressed="
+  deadline=$((SECONDS + TIMEOUT_SECONDS))
 
   printf '\nACTION: Quickly tap %s once.\n' "$label"
-  "$DRIVER" observe-layer \
-    --keyboard-id "$keyboard_id" \
-    --layer "$layer" \
-    --timeout-ms "$((TIMEOUT_SECONDS * 1000))"
+  printf 'Waiting for physical press and release reports (timeout: %ss)...\n' \
+    "$TIMEOUT_SECONDS"
+
+  states=""
+  events=""
+  while (( SECONDS < deadline )); do
+    events="$(tail -n "+$start_line" "$LOG" | grep -F "$pattern" || true)"
+    states="$(printf '%s\n' "$events" | sed -n \
+      "s/.*Layer event: keyboard=$keyboard_id layer=$layer pressed=\(true\|false\).*/\1/p")"
+    state_count="$(printf '%s\n' "$states" | sed '/^$/d' | wc -l | tr -d ' ')"
+    (( state_count >= 2 )) && break
+    sleep 0.1
+  done
+
+  [[ "$states" == $'true\nfalse' ]] || {
+    [[ -z "$events" ]] || printf '%s\n' "$events" >&2
+    fail "Expected exactly one ordered physical press/release for keyboard=$keyboard_id layer=$layer"
+  }
+  printf '%s\n' "$events"
   printf 'PASS: keyboard=%s layer=%s physical press/release report\n' \
     "$keyboard_id" "$layer"
 }
 
-restore_overlay() {
-  local status=$?
-  set +e
-  if $overlay_stopped; then
-    start_overlay
-  fi
-  exit "$status"
-}
-
 mkdir -p "$TRANSCRIPT_DIR"
 exec > >(tee "$TRANSCRIPT") 2>&1
-overlay_stopped=false
-trap restore_overlay EXIT
 
 [[ "$(uname -s)" == Darwin ]] || fail "This test requires macOS"
 [[ "$(uname -m)" == arm64 ]] || fail "This release row requires macOS arm64"
 [[ -z "$(git -C "$ROOT" status --short)" ]] || fail "Candidate worktree is not clean"
+[[ "$KEYBOARD_COUNT" =~ ^[1-9][0-9]*$ ]] || fail "KMO_HIL_KEYBOARD_COUNT must be positive"
 [[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || \
   fail "KMO_HIL_PHYSICAL_TIMEOUT_SECONDS must be positive"
 
@@ -87,19 +93,19 @@ done
 printf 'Candidate: %s\n' "$(git -C "$ROOT" rev-parse HEAD)"
 printf 'Physical reports: %s\n' "$EXPECTED_REPORTS_TEXT"
 
-make -C "$ROOT" build-hil-driver-macos
+log_start=1
+if [[ -f "$LOG" ]]; then
+  log_start="$(( $(wc -l <"$LOG") + 1 ))"
+fi
 make -C "$ROOT" install-overlay
-[[ -f "$PLIST" ]] || fail "The macOS LaunchAgent plist was not installed"
-stop_overlay
-overlay_stopped=true
+launchctl print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null
+wait_for_log "$log_start" "Adopted $KEYBOARD_COUNT startup Raw HID device(s)"
 
 for report in "${expected_reports[@]}"; do
   observe_physical_tap "${report%%:*}" "${report#*:}"
 done
 
-start_overlay
-overlay_stopped=false
-
 printf '\nPASS: every configured physical MO key emitted ordered press/release Raw HID reports\n'
+printf 'Reports were observed by the already-authorized installed overlay.\n'
 printf 'No deterministic HIL layer command was used by this test.\n'
 printf 'Transcript: %s\n' "$TRANSCRIPT"
