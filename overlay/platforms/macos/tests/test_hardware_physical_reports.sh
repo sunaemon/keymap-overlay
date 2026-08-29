@@ -57,8 +57,8 @@ observe_physical_tap() {
   events=""
   while (( SECONDS < deadline )); do
     events="$(tail -n "+$start_line" "$LOG" | grep -F "$pattern" || true)"
-    states="$(printf '%s\n' "$events" | sed -n \
-      "s/.*Layer event: keyboard=$keyboard_id layer=$layer pressed=\(true\|false\).*/\1/p")"
+    states="$(printf '%s\n' "$events" | sed -En \
+      "s/.*Layer event: keyboard=$keyboard_id layer=$layer pressed=(true|false).*/\1/p")"
     state_count="$(printf '%s\n' "$states" | sed '/^$/d' | wc -l | tr -d ' ')"
     (( state_count >= 2 )) && break
     sleep 0.1
