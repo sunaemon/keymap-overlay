@@ -83,23 +83,26 @@ uses the same HID interface, so unrelated VIAL traffic is ignored.
 Bundled firmware also implements a narrow hardware-in-the-loop request through
 VIA's keyboard-specific command `0xFC`:
 
-| Bytes | Meaning                                                  |
-| ----- | -------------------------------------------------------- |
-| 0     | VIA keyboard command: `0xFC`                             |
-| 1–4   | ASCII magic: `KMOH`                                      |
-| 5     | HIL protocol version: `1`                                |
-| 6     | Action (`0` probe, `1` press report, `2` release report) |
-| 7     | Layer number for a press or release                      |
-| 8     | Response status (`0` accepted, `1` invalid)              |
-| 9–31  | Reserved and zero-filled                                 |
+| Bytes | Meaning                                                                                   |
+| ----- | ----------------------------------------------------------------------------------------- |
+| 0     | VIA keyboard command: `0xFC`                                                              |
+| 1–4   | ASCII magic: `KMOH`                                                                       |
+| 5     | HIL protocol version: `1`                                                                 |
+| 6     | Action (`0` probe, `1` press report, `2` release report, `3` encoder CCW, `4` encoder CW) |
+| 7     | Layer number for a report action, or zero-based encoder index for an encoder action       |
+| 8     | Response status (`0` accepted, `1` invalid)                                               |
+| 9–31  | Reserved and zero-filled                                                                  |
 
-The firmware defers the resulting unsolicited KMO report until VIA has sent
-the request response, so Raw HID writes never overlap. Only layers from `1` to
-`DYNAMIC_KEYMAP_LAYER_COUNT - 1` are accepted. This interface emits the same
-overlay report as the physical notification path, but deliberately cannot
-inject a keyboard key, change QMK's active layer, write EEPROM, detach USB, or
-enter the bootloader. It therefore supplies deterministic frontend and host
-integration coverage without being mistaken for matrix-switch evidence.
+The firmware defers the resulting unsolicited KMO report or encoder queue
+entry until VIA has sent the request response, so reports never overlap. Only
+layers from `1` to `DYNAMIC_KEYMAP_LAYER_COUNT - 1` and configured encoder
+indices are accepted. A report action emits the same overlay report as the
+physical notification path. An encoder action enters QMK's normal bounded
+encoder queue, so it resolves and emits the current live Vial encoder binding;
+the request cannot choose an arbitrary keycode. The interface cannot change
+QMK's active layer, write EEPROM, detach USB, or enter the bootloader. It
+therefore supplies deterministic frontend and mapped-output coverage without
+being mistaken for matrix-switch, encoder-sensor, or push-switch evidence.
 
 Device arrival notifications request another enumeration without interrupting
 healthy readers, so a release cannot be lost while the new device becomes

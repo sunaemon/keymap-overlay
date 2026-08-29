@@ -93,8 +93,9 @@ The template deliberately separates three kinds of evidence:
    previous release tag and candidate commit.
 2. Keyboard coverage records every bundled keyboard, one encoder keyboard, and
    all bundled keyboards connected simultaneously. The encoder row includes
-   physical rotation/push and label verification; the simultaneous row includes
-   model identity and most-recent-keyboard ownership.
+   physical shaft/direction-wiring and push-switch observations. Exact-head HIL
+   may supply the direction-label and mapped-output evidence; the simultaneous
+   row includes model identity and most-recent-keyboard ownership.
 3. Each required platform and architecture has its own ten checks. The stable
    prefixes are `MAC`, `KDE`, `GNOME`, `KDEA`, `WIN`, and `WINA`; a result from
    one prefix never satisfies another.
