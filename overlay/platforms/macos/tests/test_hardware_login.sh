@@ -28,8 +28,8 @@ run_ui_probe() {
   local expected=$1
   local output error
   shift
-  output="$(mktemp "$HIL_LOG_DIR/macos-login-ui.XXXXXX.out")"
-  error="$(mktemp "$HIL_LOG_DIR/macos-login-ui.XXXXXX.err")"
+  output="$(mktemp "$HIL_LOG_DIR/macos-login-ui.out.XXXXXX")"
+  error="$(mktemp "$HIL_LOG_DIR/macos-login-ui.err.XXXXXX")"
   if ! open -W -n -o "$output" --stderr "$error" "$UI_PROBE_APP" --args "$@"; then
     cat "$output" "$error"
     fail "LaunchServices could not run the HIL UI app"
