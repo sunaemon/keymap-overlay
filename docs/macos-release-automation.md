@@ -94,11 +94,13 @@ startup, and recovery after a real overlay restart.
 make test-hardware-physical-reports-macos
 ```
 
-The target installs the exact clean candidate, stops the overlay so its parser
-is not part of this proof, and opens each keyboard's physical Raw HID endpoint
-directly. It prompts for one quick physical tap of each bundled `MO` key and
-accepts only an ordered press then release for the expected keyboard ID and
-layer. The default sequence is:
+The target installs the exact clean candidate and monitors its structured layer
+event log. This reuses the release overlay's existing Input Monitoring grant
+instead of requiring a second grant for a test-only command-line binary. It
+prompts for one quick physical tap of each bundled `MO` key and accepts only an
+ordered press then release for the expected keyboard ID and layer. The target
+does not request a report through the HIL command, so each captured event comes
+from the prompted physical switch. The default sequence is:
 
 - Insixty far-right key on the Z row: keyboard 1, layer 1;
 - Insixty bottom-left key: keyboard 1, layer 2;
