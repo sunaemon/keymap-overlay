@@ -40,10 +40,12 @@ firmware or embedded metadata.
 ### Keyboard coverage
 
 Across the platform runs, record every bundled keyboard. The encoder row also
-requires every encoder's counter-clockwise, clockwise, and push labels to match
-its physical actions and position. The simultaneous row also requires each
-model to use the correct ID and the most recently used keyboard to own the
-overlay.
+requires every encoder's counter-clockwise, clockwise, and push labels and
+actions to match its position. An exact-head encoder HIL transcript may prove
+the two direction labels and mapped host outputs, but it does not replace the
+physical shaft/direction-wiring or push-switch observations. The simultaneous
+row also requires each model to use the correct ID and the most recently used
+keyboard to own the overlay.
 
 | Coverage ID            | Keyboard(s) | `KEYBOARD_ID(s)` | Platform ID(s) | Result  |
 | ---------------------- | ----------- | ---------------- | -------------- | ------- |

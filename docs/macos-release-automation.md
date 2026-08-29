@@ -8,6 +8,9 @@ the Raw HID protocol boundary:
 2. The host driver asks the already-flashed real keyboard to emit chosen KMO
    reports, and the installed release overlay proves parsing, state reduction,
    model composition, and AppKit rendering deterministically.
+3. On the encoder keyboard, the driver queues chosen rotations through QMK's
+   normal encoder path and the signed probe captures the live Vial-mapped USB
+   keyboard outputs.
 
 The second half runs without `--simulate`; the versioned firmware command emits
 the same KMO report that the physical path emits. Flash the candidate HIL
@@ -19,10 +22,12 @@ corresponding macOS checklist item. Each operation is saved under
 
 ## Safety Boundary
 
-The firmware accepts one versioned VIA custom command. It can emit only a KMO
-layer press or release report. It cannot inject a keyboard key, alter QMK's
-active layer, reset EEPROM, enter the bootloader, or detach USB. The normal
-physical `MO` path remains unchanged.
+The firmware accepts one versioned VIA custom command. It can emit a KMO layer
+press or release report, or queue a configured encoder index and direction.
+The encoder action resolves the current live Vial binding through QMK's normal
+encoder queue; the request cannot name an arbitrary keycode. It cannot alter
+QMK's active layer, reset EEPROM, enter the bootloader, or detach USB. The
+normal physical `MO` and encoder-driver paths remain unchanged.
 
 The host driver also exposes the existing Vial get, set, and reset operations
 needed to verify startup rereads and EEPROM persistence. Destructive reset and
@@ -42,9 +47,9 @@ installation procedure requires. Rebuild first and grant the resulting stable
 app, because macOS associates the permission with its signed code.
 
 Flash both bundled keyboards with this candidate before running the session
-targets. The HIL command can then emit any valid layer press or release without
-another flash. The fully automated firmware target requires two site-specific
-executables:
+targets. The HIL command can then emit any valid layer press or release, plus
+either direction for any configured encoder, without another flash. The fully
+automated firmware target requires two site-specific executables:
 
 - `KMO_HIL_BOOTLOADER_CONTROL`: invoked as `enter KEYBOARD_ID`; it physically
   puts that board into its real bootloader.
@@ -118,8 +123,9 @@ make test-hardware-session-macos
 ```
 
 The session target temporarily changes a transparent base-layer position to
-F13, restarts the installed candidate, and restores the original value in an
-exit trap. Its signed probe asserts:
+F13 and the six DOIO base encoder directions to A through F, restarts the
+installed candidate, and restores every original value in an exit trap. Its
+signed probe asserts:
 
 - clean native startup and absence of obsolete model arguments;
 - the F13 live-Vial label through the AppKit Accessibility hierarchy;
@@ -127,10 +133,13 @@ exit trap. Its signed probe asserts:
 - continued typing focus, click-through, and topmost ordering;
 - centering on every currently attached display;
 - ownership and restoration with both bundled keyboards connected.
+- all six encoder labels and the ordered USB key events produced when firmware
+  queues counter-clockwise and clockwise rotation for each encoder.
 
 Override `KMO_HIL_KEYBOARD_ID`, `KMO_HIL_SECONDARY_KEYBOARD_ID`,
-`KMO_HIL_PRIMARY_LAYER`, or `KMO_HIL_SECONDARY_LAYER` when testing another
-valid pair.
+`KMO_HIL_PRIMARY_LAYER`, `KMO_HIL_SECONDARY_LAYER`,
+`KMO_HIL_ENCODER_KEYBOARD_ID`, or `KMO_HIL_ENCODER_LAYER` when testing another
+valid pair. The current session fixture expects the bundled three-encoder DOIO.
 
 ### Upgrade, rollback, and uninstall
 
@@ -175,7 +184,7 @@ machine's login security settings.
 | `MAC-02`    | Installed native startup, device model read, plist, and logs                         | Real Raw HID/Vial device                        |
 | `MAC-03`    | Every physical `MO` press/release report plus deterministic fast and repeated cycles | None after both transcripts pass                |
 | `MAC-04`    | Deterministic nested KMO reports and numeric precedence                              | None; switch report proof is inherited from 03  |
-| `MAC-05`    | Live Vial F13, AppKit labels, geometry, and held layer                               | Encoder rotation/push and visual review         |
+| `MAC-05`    | Live Vial labels, encoder direction labels/output, geometry, and held layer          | Encoder sensor/push and visual review           |
 | `MAC-06`    | Controlled physical USB removal, return, and absent startup                          | Switched physical port                          |
 | `MAC-07`    | Real Vial EEPROM edit and real process restart                                       | None after the session transcript passes        |
 | `MAC-08`    | Accessibility focus/typing, pointer click-through, and window order                  | None on the signed-in interactive desktop       |
@@ -183,6 +192,7 @@ machine's login security settings.
 | `MAC-10`    | Post-login LaunchAgent continuation and first HIL event                              | Actual sign-out/sign-in session boundary        |
 | Lifecycle   | Real upgrade/uninstall/reinstall plus isolated rollback                              | Running user launchd session                    |
 
-The guided matrix taps and physical encoder actions still need a person until
-actuators or instrumented fixtures perform them. The firmware KMO command
-deliberately does not pretend to cover those inputs.
+The guided matrix taps, physical encoder sensor, and push switch still need a
+person until actuators or instrumented fixtures perform them. Synthetic
+rotation replaces manual checking of all six live mapped outputs; it does not
+claim that a shaft moved or a push switch closed.

@@ -11,8 +11,13 @@ KEYBOARD_ID="${KMO_HIL_KEYBOARD_ID:-1}"
 SECONDARY_KEYBOARD_ID="${KMO_HIL_SECONDARY_KEYBOARD_ID:-2}"
 PRIMARY_LAYER="${KMO_HIL_PRIMARY_LAYER:-1}"
 SECONDARY_LAYER="${KMO_HIL_SECONDARY_LAYER:-2}"
+ENCODER_KEYBOARD_ID="${KMO_HIL_ENCODER_KEYBOARD_ID:-2}"
+ENCODER_LAYER="${KMO_HIL_ENCODER_LAYER:-1}"
 LABEL_KEYCODE=0x0068
 LABEL=F13
+ENCODER_TEST_KEYCODES=(0x0004 0x0005 0x0006 0x0007 0x0008 0x0009)
+ENCODER_LABELS=A,B,C,D,E,F
+ENCODER_MAC_KEYCODES=0,11,8,2,14,3
 SERVICE_LABEL=com.sunaemon.keymap-overlay
 PLIST="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
 LOG="$HOME/.local/var/log/keymap-overlay/overlay.log"
@@ -23,6 +28,8 @@ original_keycode=""
 test_row=""
 test_column=""
 restore_required=false
+encoder_restore_required=false
+encoder_original_keycodes=()
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -67,6 +74,21 @@ restore_live_keymap() {
     "$DRIVER" set-keycode \
       --keyboard-id "$KEYBOARD_ID" --layer 0 --row "$test_row" \
       --column "$test_column" --keycode "$original_keycode"
+  fi
+  if $encoder_restore_required; then
+    local binding=0
+    local index direction
+    stop_overlay
+    for index in 0 1 2; do
+      for direction in ccw cw; do
+        "$DRIVER" set-encoder \
+          --keyboard-id "$ENCODER_KEYBOARD_ID" --layer 0 --index "$index" \
+          --direction "$direction" --keycode "${encoder_original_keycodes[$binding]}"
+        binding=$((binding + 1))
+      done
+    done
+  fi
+  if $restore_required || $encoder_restore_required; then
     make -C "$ROOT" install-overlay
   fi
   exit "$status"
@@ -102,6 +124,28 @@ stop_overlay
   --column "$test_column" --keycode "$LABEL_KEYCODE"
 restore_required=true
 
+binding=0
+for index in 0 1 2; do
+  for direction in ccw cw; do
+    encoder_original_keycodes+=("$(
+      "$DRIVER" get-encoder \
+        --keyboard-id "$ENCODER_KEYBOARD_ID" --layer 0 --index "$index" \
+        --direction "$direction"
+    )")
+    binding=$((binding + 1))
+  done
+done
+encoder_restore_required=true
+binding=0
+for index in 0 1 2; do
+  for direction in ccw cw; do
+    "$DRIVER" set-encoder \
+      --keyboard-id "$ENCODER_KEYBOARD_ID" --layer 0 --index "$index" \
+      --direction "$direction" --keycode "${ENCODER_TEST_KEYCODES[$binding]}"
+    binding=$((binding + 1))
+  done
+done
+
 log_start=1
 if [[ -f "$LOG" ]]; then
   log_start="$(( $(wc -l <"$LOG") + 1 ))"
@@ -131,8 +175,13 @@ run_ui_probe "macOS Accessibility HIL checks passed" \
   --secondary-keyboard-id "$SECONDARY_KEYBOARD_ID" \
   --layer "$PRIMARY_LAYER" \
   --secondary-layer "$SECONDARY_LAYER" \
-  --expected-label "$LABEL"
+  --expected-label "$LABEL" \
+  --encoder-keyboard-id "$ENCODER_KEYBOARD_ID" \
+  --encoder-layer "$ENCODER_LAYER" \
+  --encoder-labels "$ENCODER_LABELS" \
+  --encoder-key-codes "$ENCODER_MAC_KEYCODES"
 
 printf 'PASS: macOS live startup, Vial reread, labels, layer transitions, focus, '\
-'click-through, topmost, attached-display placement, and simultaneous keyboards\n'
+'click-through, topmost, attached-display placement, simultaneous keyboards, '\
+'and synthetic encoder rotations through live firmware output\n'
 printf 'Transcript: %s\n' "$TRANSCRIPT"

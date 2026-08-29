@@ -4,7 +4,8 @@ mod macos {
     use clap::{Parser, Subcommand, ValueEnum};
     use hidapi::{HidApi, HidDevice};
     use keymap_core::{
-        HilLayerState, RAW_HID_REPORT_SIZE, encode_hil_layer_command, encode_hil_probe_command,
+        HilEncoderDirection, HilLayerState, RAW_HID_REPORT_SIZE, carries_report_magic,
+        encode_hil_encoder_command, encode_hil_layer_command, encode_hil_probe_command,
     };
     use keymap_overlay_generator::types::KeymapOverlayMetadata;
     use keymap_overlay_generator::vial::{self, USAGE_ID, USAGE_PAGE};
@@ -15,6 +16,9 @@ mod macos {
     const VIA_GET_KEYCODE: u8 = 0x04;
     const VIA_SET_KEYCODE: u8 = 0x05;
     const VIA_RESET_KEYMAP: u8 = 0x06;
+    const VIAL_PREFIX: u8 = 0xFE;
+    const VIAL_GET_ENCODER: u8 = 0x03;
+    const VIAL_SET_ENCODER: u8 = 0x04;
     const RESPONSE_TIMEOUT_MS: i32 = 1_000;
     const HIL_DISPATCH_DELAY: Duration = Duration::from_millis(50);
 
@@ -46,6 +50,15 @@ mod macos {
             #[arg(long)]
             state: State,
         },
+        /// Queues one synthetic rotation through QMK's encoder path.
+        Rotate {
+            #[arg(long)]
+            keyboard_id: u8,
+            #[arg(long)]
+            index: u8,
+            #[arg(long)]
+            direction: Direction,
+        },
         /// Reads one live Vial keycode.
         GetKeycode {
             #[arg(long)]
@@ -70,6 +83,30 @@ mod macos {
             #[arg(long, value_parser = parse_keycode)]
             keycode: u16,
         },
+        /// Reads one live Vial encoder binding.
+        GetEncoder {
+            #[arg(long)]
+            keyboard_id: u8,
+            #[arg(long)]
+            layer: u8,
+            #[arg(long)]
+            index: u8,
+            #[arg(long)]
+            direction: Direction,
+        },
+        /// Writes one live Vial encoder binding.
+        SetEncoder {
+            #[arg(long)]
+            keyboard_id: u8,
+            #[arg(long)]
+            layer: u8,
+            #[arg(long)]
+            index: u8,
+            #[arg(long)]
+            direction: Direction,
+            #[arg(long, value_parser = parse_keycode)]
+            keycode: u16,
+        },
         /// Finds a displayed key inherited from layer zero.
         FindTransparent {
             #[arg(long)]
@@ -90,6 +127,12 @@ mod macos {
         Release,
     }
 
+    #[derive(Clone, Copy, Debug, ValueEnum)]
+    enum Direction {
+        Ccw,
+        Cw,
+    }
+
     struct ConnectedKeyboard {
         keyboard_id: u8,
         vendor_id: u16,
@@ -107,6 +150,11 @@ mod macos {
                 layer,
                 state,
             } => send_layer_event(keyboard_id, layer, state),
+            Command::Rotate {
+                keyboard_id,
+                index,
+                direction,
+            } => rotate_encoder(keyboard_id, index, direction),
             Command::GetKeycode {
                 keyboard_id,
                 layer,
@@ -120,6 +168,19 @@ mod macos {
                 column,
                 keycode,
             } => set_keycode(keyboard_id, layer, row, column, keycode),
+            Command::GetEncoder {
+                keyboard_id,
+                layer,
+                index,
+                direction,
+            } => get_encoder(keyboard_id, layer, index, direction),
+            Command::SetEncoder {
+                keyboard_id,
+                layer,
+                index,
+                direction,
+                keycode,
+            } => set_encoder(keyboard_id, layer, index, direction, keycode),
             Command::FindTransparent { keyboard_id, layer } => find_transparent(keyboard_id, layer),
             Command::ResetKeymap { keyboard_id } => reset_keymap(keyboard_id),
         }
@@ -144,7 +205,20 @@ mod macos {
             State::Release => HilLayerState::Released,
         };
         let command = encode_hil_layer_command(layer, state);
-        write_report(&keyboard.device, &command).context("Failed to send the HIL layer command")?;
+        send_hil_command(&keyboard, &command, "layer")?;
+        thread::sleep(HIL_DISPATCH_DELAY);
+        Ok(())
+    }
+
+    fn rotate_encoder(keyboard_id: u8, index: u8, direction: Direction) -> Result<()> {
+        let keyboard = open_keyboard(keyboard_id)?;
+        validate_encoder_index(&keyboard, index)?;
+        let direction = match direction {
+            Direction::Ccw => HilEncoderDirection::CounterClockwise,
+            Direction::Cw => HilEncoderDirection::Clockwise,
+        };
+        let command = encode_hil_encoder_command(index, direction);
+        send_hil_command(&keyboard, &command, "encoder rotation")?;
         thread::sleep(HIL_DISPATCH_DELAY);
         Ok(())
     }
@@ -174,6 +248,52 @@ mod macos {
         send_recv(
             &keyboard.device,
             &[VIA_SET_KEYCODE, layer, row, column, high, low],
+        )?;
+        println!("0x{keycode:04X}");
+        Ok(())
+    }
+
+    fn get_encoder(keyboard_id: u8, layer: u8, index: u8, direction: Direction) -> Result<()> {
+        let keyboard = open_keyboard(keyboard_id)?;
+        validate_encoder_index(&keyboard, index)?;
+        let response = send_recv(
+            &keyboard.device,
+            &[VIAL_PREFIX, VIAL_GET_ENCODER, layer, index],
+        )?;
+        let offset = match direction {
+            Direction::Ccw => 0,
+            Direction::Cw => 2,
+        };
+        let keycode = u16::from_be_bytes([response[offset], response[offset + 1]]);
+        println!("0x{keycode:04X}");
+        Ok(())
+    }
+
+    fn set_encoder(
+        keyboard_id: u8,
+        layer: u8,
+        index: u8,
+        direction: Direction,
+        keycode: u16,
+    ) -> Result<()> {
+        let keyboard = open_keyboard(keyboard_id)?;
+        validate_encoder_index(&keyboard, index)?;
+        let clockwise = match direction {
+            Direction::Ccw => 0,
+            Direction::Cw => 1,
+        };
+        let [high, low] = keycode.to_be_bytes();
+        send_recv(
+            &keyboard.device,
+            &[
+                VIAL_PREFIX,
+                VIAL_SET_ENCODER,
+                layer,
+                index,
+                clockwise,
+                high,
+                low,
+            ],
         )?;
         println!("0x{keycode:04X}");
         Ok(())
@@ -222,6 +342,42 @@ mod macos {
         let keyboard = open_keyboard(keyboard_id)?;
         send_recv(&keyboard.device, &[VIA_RESET_KEYMAP])?;
         println!("keyboard_id={keyboard_id} reset=compiled-defaults");
+        Ok(())
+    }
+
+    fn send_hil_command(
+        keyboard: &ConnectedKeyboard,
+        command: &[u8; RAW_HID_REPORT_SIZE],
+        description: &str,
+    ) -> Result<()> {
+        let response = send_recv(&keyboard.device, command)
+            .with_context(|| format!("Failed to send the HIL {description} command"))?;
+        if response[8] != 0 {
+            bail!(
+                "Keyboard {} rejected the HIL {description} command",
+                keyboard.keyboard_id
+            );
+        }
+        Ok(())
+    }
+
+    fn validate_encoder_index(keyboard: &ConnectedKeyboard, index: u8) -> Result<()> {
+        let metadata: KeymapOverlayMetadata = serde_json::from_value(
+            keyboard
+                .definition
+                .get("keymapOverlay")
+                .cloned()
+                .context("Device definition has no keymapOverlay metadata")?,
+        )
+        .context("Device keymapOverlay metadata is invalid")?;
+        let encoder_count = metadata.keyboard.encoder_count();
+        if usize::from(index) >= encoder_count {
+            bail!(
+                "Encoder index {index} is outside keyboard {}'s range 0..{}",
+                keyboard.keyboard_id,
+                encoder_count.saturating_sub(1)
+            );
+        }
         Ok(())
     }
 
@@ -297,7 +453,9 @@ mod macos {
             if count == 0 {
                 bail!("Timed out waiting for the Vial response");
             }
-            if count == RAW_HID_REPORT_SIZE && response[0] == request[0] {
+            let encoder_read = request.starts_with(&[VIAL_PREFIX, VIAL_GET_ENCODER])
+                && !carries_report_magic(&response);
+            if count == RAW_HID_REPORT_SIZE && (response[0] == request[0] || encoder_read) {
                 return Ok(response);
             }
         }

@@ -20,6 +20,12 @@ pub enum HilLayerState {
     Released,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HilEncoderDirection {
+    CounterClockwise,
+    Clockwise,
+}
+
 /// Builds a side-effect-free request that proves the HIL firmware is present.
 pub fn encode_hil_probe_command() -> [u8; RAW_HID_REPORT_SIZE] {
     let mut report = [0_u8; RAW_HID_REPORT_SIZE];
@@ -47,6 +53,23 @@ pub fn encode_hil_layer_command(layer: u8, state: HilLayerState) -> [u8; RAW_HID
         HilLayerState::Released => 2,
     };
     report[7] = layer;
+    report
+}
+
+/// Builds the fixed-size request for one event in QMK's encoder queue.
+pub fn encode_hil_encoder_command(
+    index: u8,
+    direction: HilEncoderDirection,
+) -> [u8; RAW_HID_REPORT_SIZE] {
+    let mut report = [0_u8; RAW_HID_REPORT_SIZE];
+    report[0] = HIL_COMMAND_ID;
+    report[1..5].copy_from_slice(&HIL_COMMAND_MAGIC);
+    report[5] = HIL_COMMAND_VERSION;
+    report[6] = match direction {
+        HilEncoderDirection::CounterClockwise => 3,
+        HilEncoderDirection::Clockwise => 4,
+    };
+    report[7] = index;
     report
 }
 
@@ -251,6 +274,21 @@ mod tests {
         assert_eq!(&probe[1..5], &HIL_COMMAND_MAGIC);
         assert_eq!(probe[5], HIL_COMMAND_VERSION);
         assert!(probe[6..].iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn encodes_a_narrow_hil_encoder_request() {
+        let counter_clockwise =
+            encode_hil_encoder_command(2, HilEncoderDirection::CounterClockwise);
+        assert_eq!(counter_clockwise[0], HIL_COMMAND_ID);
+        assert_eq!(&counter_clockwise[1..5], &HIL_COMMAND_MAGIC);
+        assert_eq!(counter_clockwise[5], HIL_COMMAND_VERSION);
+        assert_eq!(counter_clockwise[6], 3);
+        assert_eq!(counter_clockwise[7], 2);
+        assert!(counter_clockwise[8..].iter().all(|byte| *byte == 0));
+
+        let clockwise = encode_hil_encoder_command(2, HilEncoderDirection::Clockwise);
+        assert_eq!(clockwise[6], 4);
     }
 
     fn event(keyboard_id: u8, layer: u8, pressed: bool) -> RawLayerEvent {

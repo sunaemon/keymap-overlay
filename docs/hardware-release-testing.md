@@ -217,9 +217,14 @@ section 2 supplies `*-02`. The prefixes are `MAC`, `KDE`, `GNOME`, `KDEA`,
 6. For `*-09`, on each affected monitor and scale factor, verify centering, size, topmost
    behavior, labels, and click-through behavior.
 7. For the release-wide `encoder-keyboard` coverage row, hold the relevant layer
-   on an encoder keyboard and rotate both directions,
-   then push every encoder. Verify the displayed labels, physical actions, and
-   positions agree.
+   on an encoder keyboard and rotate both directions, then push every encoder.
+   Verify that each physical control is detected and that every push label,
+   action, and position agrees. An exact-head encoder HIL transcript may replace
+   manual verification of the counter-clockwise and clockwise labels and mapped
+   host actions: it queues each direction through QMK's normal encoder path and
+   captures the resulting live Vial-mapped USB event. It does not prove the
+   shaft sensor, direction wiring, or push switch, so record those physical
+   observations separately.
 8. For `*-06`, while a layer is visible, unplug the keyboard. The overlay must hide. Plug
    the same keyboard back in without restarting; because its model was loaded
    at startup, layer events must resume.

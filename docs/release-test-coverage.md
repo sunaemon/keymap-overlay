@@ -34,8 +34,10 @@ rows in the release gate.
   release binary. A guided target captures every physical `MO` switch's KMO
   press/release pair; deterministic commands through the real keyboard then
   exercise repeated and nested AppKit scenarios, a real Vial EEPROM edit and
-  restart, and interactive focus, pointer, and window-order assertions. These
-  are local exact-head gate results, not CI or simulation.
+  restart, every live encoder direction binding and resulting USB key event,
+  and interactive focus, pointer, and window-order assertions. These are local
+  exact-head gate results, not CI or simulation. Synthetic encoder queue input
+  does not prove the physical shaft sensor or push switch.
 
 ## Manual Gate Mapping
 
@@ -48,7 +50,7 @@ rows in the release gate.
 | Platform `*-03` physical `MO` events   | Linux UHID proves one KMO pair; macOS HIL captures every physical pair and drives deterministic AppKit repeats | Equivalent switch report proof plus release-renderer scenarios remains on Linux and Windows        | Virtual Vial+KMO E2E on every OS, plus HIL firmware report verification                                     |
 | Platform `*-04` held-layer precedence  | Unit tests cover ordering; macOS HIL drives nested reports through the real keyboard and AppKit                | End-to-end release-renderer scenarios remain on Linux and Windows                                  | Multi-report E2E scenarios using release binaries on all frontends                                          |
 | Platform `*-05` geometry and labels    | Generator unit tests cover geometry, platform labels, custom labels, and transparency; Qt has one golden image | Candidate firmware metadata and live Vial state render correctly on every frontend                 | Virtual Vial fixtures plus golden/semantic assertions for AppKit, GNOME, Qt, and WPF                        |
-| `encoder-keyboard` coverage            | Generator unit tests cover encoder placement/actions                                                           | Real Vial encoder bindings, physical actions, and encoder rendering                                | Encoder-rich virtual Vial fixture, frontend assertions, and HIL rotation/push input                         |
+| `encoder-keyboard` coverage            | Generator tests cover placement; macOS HIL checks all live direction labels and mapped USB outputs             | Physical shaft/direction wiring, pushes, push labels/actions, and rendering on other frontends     | Encoder-rich virtual Vial fixtures on every frontend plus instrumented rotation/push input                  |
 | Platform `*-06` disconnect and arrival | Reducer disconnect and arrival-coalescing unit tests                                                           | OS arrival watchers, physical removal, and reconnect on macOS/Linux/Windows                        | Disconnectable virtual HID devices on each OS exercising the release process                                |
 | Platform `*-07` Vial edit and restart  | Decoders have unit tests; macOS HIL edits real Vial EEPROM and asserts the changed model after process restart | The equivalent real-device restart sequence remains on Linux and Windows                           | Stateful virtual Vial device changed between real process starts; HIL persistence remains in `GLOBAL-02`    |
 | `simultaneous-keyboards` coverage      | Reducer tests cover multiple IDs; duplicate-ID loading has no HID E2E                                          | Enumeration of simultaneous physical devices, duplicate-ID rejection, and correct model ownership  | Multiple virtual Vial devices, including duplicate-ID failure and recent-owner scenarios                    |
@@ -83,7 +85,7 @@ manual work:
    Windows Run key. This is required before retiring platform check `*-10`.
 5. Add a small HIL rack with both bundled keyboards and controlled USB power.
    Only HIL can fully retire `GLOBAL-01`, `GLOBAL-02`, platform check `*-01`,
-   encoder coverage, and the physical firmware portion of `*-03`.
+   encoder sensor/push coverage, and the physical firmware portion of `*-03`.
 
 An exact-head local HIL target may narrow the human actions inside a platform
 row when it runs the installed release binary, preserves any irreducibly
