@@ -11,6 +11,7 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 TEMPLATE="$ROOT/overlay/platforms/macos/tests/login_hil.plist"
 DRIVER="$ROOT/target/release/keymap-overlay-hil"
 UI_PROBE_APP="$ROOT/target/hil/KeymapOverlayHIL.app"
+UI_PROBE="$UI_PROBE_APP/Contents/MacOS/keymap-overlay-macos-hil-ui"
 HIL_LOG_DIR="${KMO_HIL_LOG_DIR:-$HOME/.local/var/log/keymap-overlay/hil}"
 RESULT="$HIL_LOG_DIR/macos-login-result.txt"
 STDOUT_LOG="$HIL_LOG_DIR/macos-login.out.log"
@@ -31,9 +32,9 @@ run_ui_probe() {
   shift
   output="$(mktemp "$HIL_LOG_DIR/macos-login-ui.out.XXXXXX")"
   error="$(mktemp "$HIL_LOG_DIR/macos-login-ui.err.XXXXXX")"
-  if ! open -W -n -o "$output" --stderr "$error" "$UI_PROBE_APP" --args "$@"; then
+  if ! "$UI_PROBE" "$@" >"$output" 2>"$error"; then
     cat "$output" "$error"
-    fail "LaunchServices could not run the HIL UI app"
+    fail "The HIL UI app failed"
   fi
   cat "$output" "$error"
   grep -Fqx "$expected" "$output" || \
