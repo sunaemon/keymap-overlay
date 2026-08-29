@@ -74,11 +74,13 @@ candidate_installed=false
 [[ -z "$(git -C "$ROOT" status --short)" ]] || fail "Candidate changed during previous install"
 [[ "$(git -C "$ROOT" rev-parse HEAD)" == "$candidate_sha" ]] || \
   fail "Candidate SHA changed during upgrade setup"
+log_start="$(( $(wc -l <"$LOG") + 1 ))"
 make -C "$ROOT" clean
 make -C "$ROOT" install-overlay
 candidate_installed=true
 
 launchctl print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null
+wait_for_log "$log_start" "Adopted 2 startup Raw HID device(s)"
 log_start="$(( $(wc -l <"$LOG") + 1 ))"
 "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$LAYER" --state press
 wait_for_log \
