@@ -66,9 +66,9 @@ pub fn read_keyboard_models(
 pub fn read_self_describing_keyboard_models(
     dev: &HidDevice,
     platform: Platform,
-    layer_events: &mut Vec<RawLayerEvent>,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
 ) -> Result<Option<KeyboardModels>> {
-    let definition = vial::read_device_definition_recording_events(dev, layer_events)?;
+    let definition = vial::read_device_definition_recording_events(dev, on_layer_event)?;
     let Some(metadata) = definition.get("keymapOverlay").cloned() else {
         return Ok(None);
     };
@@ -78,7 +78,7 @@ pub fn read_self_describing_keyboard_models(
         dev,
         definition,
         metadata.keyboard.encoder_count(),
-        layer_events,
+        on_layer_event,
     )?;
     build_keyboard_models(
         device_model,

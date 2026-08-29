@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use keymap_overlay_runtime::{
     Arguments, LayerEvent, LayerEventSink, LogDestination, ModelCache, OverlayModel, Parser as _,
     PendingTransition, SimulatedLayer, StartupRawHidDevice, Transition, compose_model,
-    default_log_file, initialize_logging, load_live_models, spawn_layer_event_source, write_notice,
+    default_log_file, initialize_logging, spawn_layer_event_source, startup_models, write_notice,
 };
 use std::sync::{Arc, Mutex};
 use windows_reactor::{
@@ -107,7 +107,7 @@ pub(crate) fn run() -> Result<()> {
         None => LogDestination::File(default_log_file()?),
     };
     initialize_logging(destination)?;
-    let startup = load_live_models()?;
+    let startup = startup_models(simulated)?;
     windows_reactor::bootstrap().context("Failed to initialize the Windows App SDK runtime")?;
     native::run(OverlayComponent {
         models: Arc::new(startup.models),

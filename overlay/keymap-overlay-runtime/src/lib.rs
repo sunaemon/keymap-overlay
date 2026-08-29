@@ -8,6 +8,7 @@ use keymap_core::{
     parse_raw_layer_event,
 };
 pub use keymap_core::{LayerEvent, RawLayerEvent};
+use keymap_overlay_generator::StartupLayerEvent;
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -162,7 +163,7 @@ pub struct StartupRawHidDevice {
     device: HidDevice,
     path: String,
     keyboard_id: u8,
-    layer_events: Vec<RawLayerEvent>,
+    layer_events: Vec<StartupLayerEvent>,
 }
 
 /// Returns live Vial models, or an in-memory fixture for simulation mode.
@@ -451,10 +452,16 @@ pub fn spawn_layer_event_source(
 
 fn replay_startup_layer_events(
     sink: &impl LayerEventSink,
-    keyboard_id: u8,
-    events: Vec<RawLayerEvent>,
+    device_events: impl IntoIterator<Item = (u8, Vec<StartupLayerEvent>)>,
 ) {
-    for event in events {
+    let mut events = device_events
+        .into_iter()
+        .flat_map(|(keyboard_id, events)| events.into_iter().map(move |event| (keyboard_id, event)))
+        .collect::<Vec<_>>();
+    events.sort_by_key(|(_, event)| event.sequence);
+
+    for (keyboard_id, startup_event) in events {
+        let event = startup_event.event;
         if event.keyboard_id != keyboard_id {
             warn!(
                 "Ignoring startup layer event for keyboard {} from device model {}",
@@ -726,13 +733,15 @@ fn adopt_startup_raw_hid_devices<S: LayerEventSink + 'static>(
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(startup.path.clone());
     }
-    for startup in &mut startup_devices {
-        replay_startup_layer_events(
-            sink,
-            startup.keyboard_id,
-            std::mem::take(&mut startup.layer_events),
-        );
-    }
+    replay_startup_layer_events(
+        sink,
+        startup_devices.iter_mut().map(|startup| {
+            (
+                startup.keyboard_id,
+                std::mem::take(&mut startup.layer_events),
+            )
+        }),
+    );
     let opened = startup_devices.len();
     for startup in startup_devices {
         spawn_raw_hid_reader(
@@ -1086,17 +1095,63 @@ mod tests {
     }
 
     #[test]
-    fn startup_layer_events_are_replayed_in_order() {
+    fn startup_layer_events_are_replayed_in_cross_device_order() {
+        let (sender, receiver) = mpsc::channel();
+        let first_device_event = RawLayerEvent {
+            keyboard_id: 2,
+            layer: 3,
+            pressed: true,
+        };
+        let second_device_event = RawLayerEvent {
+            keyboard_id: 9,
+            layer: 2,
+            pressed: true,
+        };
+        let device_events = vec![
+            (
+                2,
+                vec![
+                    StartupLayerEvent {
+                        sequence: 2,
+                        event: first_device_event,
+                    },
+                    StartupLayerEvent {
+                        sequence: 3,
+                        event: RawLayerEvent {
+                            keyboard_id: 9,
+                            layer: 4,
+                            pressed: true,
+                        },
+                    },
+                ],
+            ),
+            (
+                9,
+                vec![StartupLayerEvent {
+                    sequence: 1,
+                    event: second_device_event,
+                }],
+            ),
+        ];
+
+        replay_startup_layer_events(&ChannelSink(sender), device_events);
+
+        assert_eq!(
+            receiver.try_iter().collect::<Vec<_>>(),
+            vec![
+                LayerEvent::Report(second_device_event),
+                LayerEvent::Report(first_device_event),
+            ]
+        );
+    }
+
+    #[test]
+    fn startup_layer_events_keep_each_devices_internal_order() {
         let (sender, receiver) = mpsc::channel();
         let events = vec![
             RawLayerEvent {
                 keyboard_id: 2,
                 layer: 1,
-                pressed: true,
-            },
-            RawLayerEvent {
-                keyboard_id: 9,
-                layer: 2,
                 pressed: true,
             },
             RawLayerEvent {
@@ -1106,13 +1161,26 @@ mod tests {
             },
         ];
 
-        replay_startup_layer_events(&ChannelSink(sender), 2, events.clone());
+        replay_startup_layer_events(
+            &ChannelSink(sender),
+            [(
+                2,
+                events
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(sequence, event)| StartupLayerEvent {
+                        sequence: sequence as u64,
+                        event,
+                    })
+                    .collect(),
+            )],
+        );
 
         assert_eq!(
             receiver.try_iter().collect::<Vec<_>>(),
             events
                 .into_iter()
-                .filter(|event| event.keyboard_id == 2)
                 .map(LayerEvent::Report)
                 .collect::<Vec<_>>()
         );

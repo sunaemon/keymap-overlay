@@ -3,7 +3,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-const CUSTOM_KEYCODE_BASE_NAMES: [&str; 3] = ["SAFE_RANGE", "QK_USER_0", "QK_KB_0"];
+const CUSTOM_KEYCODE_BASE_NAME: &str = "QK_KB_0";
 const ENCODER_PAIR_NAME: &str = "ENCODER_CCW_CW";
 
 pub fn strip_c_comments(text: &str) -> String {
@@ -30,14 +30,17 @@ pub fn parse_custom_keycode_names(keymap_c: &str) -> Result<Vec<String>> {
         }
         if let Some((name, value)) = entry.split_once('=') {
             let value = value.trim();
-            if !CUSTOM_KEYCODE_BASE_NAMES.contains(&value) {
-                bail!("Explicit keycode assignment is not supported: {entry}");
+            if value != CUSTOM_KEYCODE_BASE_NAME {
+                bail!("Custom keycodes must start at {CUSTOM_KEYCODE_BASE_NAME}: {entry}");
             }
             if !names.is_empty() {
                 bail!("Custom keycode base may only be assigned to the first entry: {entry}");
             }
             names.push(name.trim().to_string());
         } else {
+            if names.is_empty() {
+                bail!("Custom keycodes must start at {CUSTOM_KEYCODE_BASE_NAME}: {entry}");
+            }
             names.push(entry.to_string());
         }
     }
@@ -224,7 +227,7 @@ mod tests {
     fn parses_custom_keycode_names_in_order() {
         let keymap_c = r#"
         enum custom_keycodes {
-          KC_ALPHA = SAFE_RANGE, // α
+          KC_ALPHA = QK_KB_0,    // α
           KC_BETA,               // β
         };
         "#;
@@ -241,6 +244,21 @@ mod tests {
     }
 
     #[test]
+    fn rejects_non_keyboard_custom_keycode_bases() {
+        for base in ["SAFE_RANGE", "QK_USER_0"] {
+            let keymap_c = format!("enum custom_keycodes {{ KC_ALPHA = {base} }};");
+            let error = parse_custom_keycode_names(&keymap_c).unwrap_err();
+            assert!(error.to_string().contains("must start at QK_KB_0"));
+        }
+    }
+
+    #[test]
+    fn rejects_an_implicit_custom_keycode_base() {
+        let error = parse_custom_keycode_names("enum custom_keycodes { KC_ALPHA };").unwrap_err();
+        assert!(error.to_string().contains("must start at QK_KB_0"));
+    }
+
+    #[test]
     fn a_keymap_without_custom_keycodes_returns_an_empty_list() {
         assert!(
             parse_custom_keycode_names("#include QMK_KEYBOARD_H")
@@ -251,7 +269,7 @@ mod tests {
 
     #[test]
     fn rejects_a_mid_enum_custom_keycode_base_reset() {
-        let keymap_c = "enum custom_keycodes { KC_ALPHA = SAFE_RANGE, KC_BETA = SAFE_RANGE };";
+        let keymap_c = "enum custom_keycodes { KC_ALPHA = QK_KB_0, KC_BETA = QK_KB_0 };";
         assert!(parse_custom_keycode_names(keymap_c).is_err());
     }
 
