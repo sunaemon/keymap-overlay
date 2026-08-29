@@ -93,7 +93,7 @@ after_login() {
   done
   (( SECONDS < deadline )) || fail "Keyboards did not become ready after sign-in"
 
-  local service_state overlay_pid
+  local service_state overlay_pid accessibility_output
   while (( SECONDS < deadline )); do
     if service_state="$(launchctl print "gui/$(id -u)/$OVERLAY_LABEL" 2>/dev/null)"; then
       overlay_pid="$(awk '$1 == "pid" && $2 == "=" { print $3; exit }' <<<"$service_state")"
@@ -104,6 +104,16 @@ after_login() {
     sleep 1
   done
   [[ "${overlay_pid:-}" =~ ^[0-9]+$ ]] || fail "Overlay did not start after sign-in"
+
+  while (( SECONDS < deadline )); do
+    if accessibility_output="$("$UI_PROBE" --check-accessibility 2>/dev/null)" && \
+      [[ "$accessibility_output" == "Accessibility permission is available" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  [[ "${accessibility_output:-}" == "Accessibility permission is available" ]] || \
+    fail "Accessibility permission did not become ready after sign-in"
 
   run_ui_probe "macOS Accessibility HIL checks passed" \
     --overlay-pid "$overlay_pid" \
