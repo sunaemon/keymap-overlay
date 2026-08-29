@@ -1,0 +1,73 @@
+{
+  "name": "Test Keyboard",
+  "vendorId": "0xFEED",
+  "productId": "0x0001",
+  "matrix": {
+    "rows": 2,
+    "cols": 2
+  },
+  "layouts": {
+    "keymap": [["0,0", "0,1"]]
+  },
+  "customKeycodes": [
+    {
+      "name": "KC_ALPHA",
+      "title": "",
+      "shortName": "α"
+    },
+    {
+      "name": "KC_BETA",
+      "title": "",
+      "shortName": "β"
+    },
+    {
+      "name": "KC_INTERNAL",
+      "title": "",
+      "shortName": ""
+    }
+  ],
+  "keymapOverlay": {
+    "keyboardId": 7,
+    "layoutName": "LAYOUT",
+    "pixelsPerUnit": 64,
+    "keyboard": {
+      "keyboard_name": "Test Keyboard",
+      "layouts": {
+        "LAYOUT": {
+          "layout": [
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "matrix": [0, 0],
+              "w": 1.0,
+              "h": 1.0,
+              "r": 0.0
+            },
+            {
+              "x": 1.0,
+              "y": 0.0,
+              "matrix": [0, 1],
+              "w": 1.0,
+              "h": 1.0,
+              "r": 0.0
+            }
+          ]
+        }
+      },
+      "manufacturer": "Test Man",
+      "usb": {
+        "vid": "0xFEED",
+        "pid": "0x0001",
+        "device_version": "0.0.1"
+      },
+      "matrix_pins": {
+        "cols": ["D2", "D3"],
+        "rows": ["D0", "D1"]
+      }
+    },
+    "config": {
+      "qmk_keyboard": "test/keyboard",
+      "encoders": []
+    }
+  }
+}

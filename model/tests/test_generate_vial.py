@@ -45,6 +45,21 @@ def test_generate_vial_embeds_custom_keycodes_from_keymap_c(tmp_path: Path) -> N
     ]
 
 
+def test_generate_vial_matches_the_rust_contract_fixture() -> None:
+    """The checked-in Vial definition is the Python-to-Rust boundary."""
+    vial = generate_vial(
+        DATA_DIR / "keyboard.json",
+        "LAYOUT",
+        keymap_c=DATA_DIR / "contract-keymap.c",
+        keyboard_config=DATA_DIR / "contract-config.json",
+        keyboard_id=7,
+        pixels_per_unit=64,
+    )
+    expected = json.loads((DATA_DIR / "vial-contract.json").read_text(encoding="utf-8"))
+
+    assert vial.model_dump(mode="json", exclude_none=True) == expected
+
+
 @pytest.mark.parametrize("base", ["SAFE_RANGE", "QK_USER_0"])
 def test_generate_vial_rejects_a_non_keyboard_custom_keycode_base(
     tmp_path: Path, base: str

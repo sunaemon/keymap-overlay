@@ -119,7 +119,9 @@ pub struct DisplayKey {
     pub height: u32,
     pub label: Vec<String>,
     pub held: bool,
+    #[serde(default)]
     pub transparent: bool,
+    #[serde(default)]
     pub momentary_layer: Option<u8>,
 }
 
@@ -132,9 +134,13 @@ pub struct DisplayEncoder {
     pub clockwise: Vec<String>,
     pub press: String,
     pub held: bool,
+    #[serde(default)]
     pub counter_clockwise_transparent: bool,
+    #[serde(default)]
     pub clockwise_transparent: bool,
+    #[serde(default)]
     pub press_transparent: bool,
+    #[serde(default)]
     pub momentary_layer: Option<u8>,
 }
 
@@ -142,4 +148,40 @@ pub struct DisplayEncoder {
 pub struct KeyboardModels {
     pub keyboard_id: u8,
     pub layers: HashMap<u8, OverlayModel>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn older_display_models_default_composition_metadata() {
+        let key: DisplayKey = serde_json::from_value(json!({
+            "x": 0,
+            "y": 0,
+            "width": 10,
+            "height": 10,
+            "label": ["A"],
+            "held": false
+        }))
+        .expect("display key without composition metadata");
+        let encoder: DisplayEncoder = serde_json::from_value(json!({
+            "x": 0,
+            "y": 0,
+            "size": 10,
+            "counter_clockwise": ["LEFT"],
+            "clockwise": ["RIGHT"],
+            "press": "PLAY",
+            "held": false
+        }))
+        .expect("display encoder without composition metadata");
+
+        assert!(!key.transparent);
+        assert_eq!(key.momentary_layer, None);
+        assert!(!encoder.counter_clockwise_transparent);
+        assert!(!encoder.clockwise_transparent);
+        assert!(!encoder.press_transparent);
+        assert_eq!(encoder.momentary_layer, None);
+    }
 }

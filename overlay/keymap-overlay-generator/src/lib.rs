@@ -1,6 +1,5 @@
 pub mod custom_keycodes;
 pub mod device;
-pub mod keymap_c;
 pub mod labels;
 pub mod model;
 pub mod qmk_keymap;

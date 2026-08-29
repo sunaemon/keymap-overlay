@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from model.src.types import VialCustomKeycode
 from model.src.util import (
     load_layout_keys,
-    parse_custom_keycode_short_names,
+    parse_custom_keycodes,
     parse_hex_keycode,
     parse_keycode_value,
     parse_qk_kb_keycode,
@@ -88,14 +89,14 @@ def test_load_layout_keys_rejects_an_unknown_layout() -> None:
         load_layout_keys(DATA_DIR / "keyboard.json", "LAYOUT_MISSING")
 
 
-def test_parse_custom_keycode_short_names_uses_single_token_comments(
+def test_parse_custom_keycodes_uses_single_token_comments(
     tmp_path: Path,
 ) -> None:
     keymap_c = tmp_path / "keymap.c"
     keymap_c.write_text(
         """
         enum custom_keycodes {
-          KC_ALPHA = SAFE_RANGE, // α
+          KC_ALPHA = QK_KB_0,    // α
           KC_BETA,               // β
           EIZO_USB_C,             // USB-C
           KC_INTERNAL            // a longer explanation is not a label
@@ -104,8 +105,9 @@ def test_parse_custom_keycode_short_names_uses_single_token_comments(
         encoding="utf-8",
     )
 
-    assert parse_custom_keycode_short_names(keymap_c) == {
-        "KC_ALPHA": "α",
-        "KC_BETA": "β",
-        "EIZO_USB_C": "USB-C",
-    }
+    assert parse_custom_keycodes(keymap_c) == [
+        VialCustomKeycode(name="KC_ALPHA", shortName="α"),
+        VialCustomKeycode(name="KC_BETA", shortName="β"),
+        VialCustomKeycode(name="EIZO_USB_C", shortName="USB-C"),
+        VialCustomKeycode(name="KC_INTERNAL", shortName=""),
+    ]

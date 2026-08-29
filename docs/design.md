@@ -390,6 +390,10 @@ layout coordinates. Matrix placement replaces the normal key drawing with one
 circular knob, places counter-clockwise and clockwise actions above it, and
 keeps its push action centred inside.
 
+`keymap-overlay-generator` owns the canonical Rust semantic model types. The
+runtime re-exports those same types for platform frontends instead of maintaining
+a second representation or serializing models between the two linked libraries.
+
 All runtimes read connected keyboards from Vial into memory at startup. Layer
 events received between Vial responses are buffered and replayed through the
 normal reducer when the live listener starts. Each accepted keyboard's open HID

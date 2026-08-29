@@ -6,7 +6,7 @@ import re
 import sys
 from pathlib import Path
 
-from model.src.types import KeyboardJson, LayoutKey, parse_json
+from model.src.types import KeyboardJson, LayoutKey, VialCustomKeycode, parse_json
 
 # An enum custom_keycodes entry must start at the keyboard-specific range that
 # Vial uses when mapping embedded labels back to dynamic keycodes.
@@ -83,8 +83,8 @@ def load_layout_keys(
     return keyboard_data.layout_keys(layout_name)
 
 
-def parse_custom_keycode_names(keymap_c: Path) -> list[str]:
-    """Return enum custom_keycodes member names from keymap.c, in declared order."""
+def parse_custom_keycodes(keymap_c: Path) -> list[VialCustomKeycode]:
+    """Parse validated custom keycode identities and labels from keymap.c."""
     content = keymap_c.read_text(encoding="utf-8")
     match = re.search(
         r"enum\s+custom_keycodes\s*\{([^}]*)\};", content, re.DOTALL | re.MULTILINE
@@ -92,13 +92,23 @@ def parse_custom_keycode_names(keymap_c: Path) -> list[str]:
     if match is None:
         return []
 
+    body = match.group(1)
+    short_names: dict[str, str] = {}
+    # Requiring one whitespace-free token distinguishes a label such as "α" or
+    # "USB-C" from a prose comment explaining the entry.
+    for line in body.splitlines():
+        label = re.fullmatch(
+            r"\s*([A-Za-z_]\w*)(?:\s*=\s*[^,]+)?\s*,?\s*//\s*(\S+)\s*",
+            line,
+        )
+        if label:
+            short_names[label.group(1)] = label.group(2)
+
     entries = [
-        entry.strip()
-        for entry in strip_c_comments(match.group(1)).split(",")
-        if entry.strip()
+        entry.strip() for entry in strip_c_comments(body).split(",") if entry.strip()
     ]
 
-    names: list[str] = []
+    custom_keycodes: list[VialCustomKeycode] = []
     for index, entry in enumerate(entries):
         if "=" in entry:
             name, value = (part.strip() for part in entry.split("=", 1))
@@ -116,29 +126,7 @@ def parse_custom_keycode_names(keymap_c: Path) -> list[str]:
                     f"Custom keycodes must start at {CUSTOM_KEYCODE_BASE_NAME}: {entry}"
                 )
             name = entry
-        names.append(name)
-    return names
-
-
-def parse_custom_keycode_short_names(keymap_c: Path) -> dict[str, str]:
-    """Read single-token comment labels off enum custom_keycodes entries."""
-    # Requiring one whitespace-free token distinguishes a label such as "α" or
-    # "USB-C" from a prose comment explaining the entry.
-    content = keymap_c.read_text(encoding="utf-8")
-    labels: dict[str, str] = {}
-
-    custom_keycodes = re.search(
-        r"enum\s+custom_keycodes\s*\{(.*?)\};",
-        content,
-        re.DOTALL,
-    )
-    if custom_keycodes:
-        for line in custom_keycodes.group(1).splitlines():
-            match = re.fullmatch(
-                r"\s*([A-Za-z_]\w*)(?:\s*=\s*[^,]+)?\s*,?\s*//\s*(\S+)\s*",
-                line,
-            )
-            if match:
-                labels[match.group(1)] = match.group(2)
-
-    return labels
+        custom_keycodes.append(
+            VialCustomKeycode(name=name, shortName=short_names.get(name, ""))
+        )
+    return custom_keycodes

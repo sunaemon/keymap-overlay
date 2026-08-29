@@ -40,7 +40,8 @@ client reads a connected device's embedded Vial definition and dynamic keymap
 in one Raw HID session. `device.rs` resolves custom keycodes directly, while
 `model.rs` owns geometry and model construction, `labels.rs` owns generic and
 platform-specific presentation labels, and `types.rs` mirrors `model/src/types.py`'s
-`keyboard.json`/`config.json` structs.
+`keyboard.json`/`config.json` structs and owns the canonical semantic display-model
+types that `keymap-overlay-runtime` re-exports.
 
 ### 2. Keymap Data Generation (`model/`)
 
