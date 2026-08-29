@@ -307,7 +307,11 @@ fn send_recv(
         let response_len = device
             .read_timeout(&mut response, timeout_ms)
             .context("Failed while waiting for a Vial response")?;
-        if let Some(response) = classify_vial_response(response, response_len, layer_events)? {
+        if let Some(response) =
+            classify_vial_response(response, response_len, layer_events, || {
+                hid_device_identity(device)
+            })?
+        {
             return Ok(response);
         }
     }
@@ -317,11 +321,17 @@ fn classify_vial_response(
     response: [u8; MAX_INPUT_MESSAGE_LENGTH],
     response_len: usize,
     layer_events: &mut Vec<RawLayerEvent>,
+    device_identity: impl FnOnce() -> String,
 ) -> Result<Option<[u8; MESSAGE_LENGTH]>> {
     if response_len == 0 {
         bail!("Timed out waiting for a Vial response");
     }
-    let response = normalize_input_report(response, response_len)?;
+    let response = normalize_input_report(response, response_len).with_context(|| {
+        format!(
+            "Failed to normalize a Vial response from {}",
+            device_identity()
+        )
+    })?;
     if response.starts_with(&RAW_HID_REPORT_MAGIC)
         && matches!(response[6], 0 | 1)
         && response[7..].iter().all(|byte| *byte == 0)
@@ -332,6 +342,18 @@ fn classify_vial_response(
         return Ok(None);
     }
     Ok(Some(response))
+}
+
+fn hid_device_identity(device: &HidDevice) -> String {
+    match device.get_device_info() {
+        Ok(info) => format!(
+            "HID device {:04x}:{:04x} at {:?}",
+            info.vendor_id(),
+            info.product_id(),
+            info.path()
+        ),
+        Err(error) => format!("HID device with unavailable identity ({error})"),
+    }
 }
 
 fn normalize_input_report(
@@ -356,6 +378,16 @@ fn normalize_input_report(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn classify_test_response(
+        response: [u8; MAX_INPUT_MESSAGE_LENGTH],
+        response_len: usize,
+        layer_events: &mut Vec<RawLayerEvent>,
+    ) -> Result<Option<[u8; MESSAGE_LENGTH]>> {
+        classify_vial_response(response, response_len, layer_events, || {
+            "HID device 0000:0000 at test-path".to_owned()
+        })
+    }
 
     #[test]
     fn decodes_vial_keymap_bytes_as_big_endian_keycodes() {
@@ -422,7 +454,7 @@ mod tests {
         let mut layer_events = Vec::new();
 
         assert_eq!(
-            classify_vial_response(layer_event, MESSAGE_LENGTH, &mut layer_events).unwrap(),
+            classify_test_response(layer_event, MESSAGE_LENGTH, &mut layer_events).unwrap(),
             None
         );
         assert_eq!(
@@ -442,7 +474,7 @@ mod tests {
         let mut layer_events = Vec::new();
 
         assert_eq!(
-            classify_vial_response(layer_event, MAX_INPUT_MESSAGE_LENGTH, &mut layer_events)
+            classify_test_response(layer_event, MAX_INPUT_MESSAGE_LENGTH, &mut layer_events)
                 .unwrap(),
             None
         );
@@ -465,7 +497,7 @@ mod tests {
         expected[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
 
         assert_eq!(
-            classify_vial_response(response, MESSAGE_LENGTH, &mut layer_events).unwrap(),
+            classify_test_response(response, MESSAGE_LENGTH, &mut layer_events).unwrap(),
             Some(expected)
         );
         assert!(layer_events.is_empty());
@@ -480,7 +512,7 @@ mod tests {
         let mut layer_events = Vec::new();
 
         assert_eq!(
-            classify_vial_response(response, MAX_INPUT_MESSAGE_LENGTH, &mut layer_events).unwrap(),
+            classify_test_response(response, MAX_INPUT_MESSAGE_LENGTH, &mut layer_events).unwrap(),
             Some(expected)
         );
         assert!(layer_events.is_empty());
@@ -488,13 +520,15 @@ mod tests {
 
     #[test]
     fn rejects_incomplete_reports_while_waiting_for_vial() {
-        let error = classify_vial_response(
+        let error = classify_test_response(
             [0; MAX_INPUT_MESSAGE_LENGTH],
             MESSAGE_LENGTH - 1,
             &mut Vec::new(),
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("Incomplete Vial response"));
+        let message = format!("{error:#}");
+        assert!(message.contains("Incomplete Vial response"));
+        assert!(message.contains("HID device 0000:0000 at test-path"));
     }
 }
