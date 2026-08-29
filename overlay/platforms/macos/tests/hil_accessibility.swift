@@ -69,18 +69,23 @@ private final class ProbeView: NSView {
     }
 }
 
+private final class ProbeWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 private final class Runner {
     private let configuration: Configuration
     private let probe = ProbeView()
     private let textField = NSTextField()
-    private let window: NSWindow
+    private let window: ProbeWindow
 
     init(configuration: Configuration) throws {
         self.configuration = configuration
         guard let screen = NSScreen.main else {
             throw Failure("No macOS screen is available")
         }
-        window = NSWindow(
+        window = ProbeWindow(
             contentRect: screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
