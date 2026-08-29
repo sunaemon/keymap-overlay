@@ -11,6 +11,7 @@ private struct Configuration {
     let overlayPID: pid_t
     let driver: String
     let keyboardID: UInt8
+    let secondaryKeyboardID: UInt8
     let layer: UInt8
     let secondaryLayer: UInt8
     let expectedLabel: String
@@ -32,6 +33,8 @@ private struct Configuration {
             let driver = values["--driver"],
             let keyboardText = values["--keyboard-id"],
             let keyboardID = UInt8(keyboardText),
+            let secondaryKeyboardText = values["--secondary-keyboard-id"],
+            let secondaryKeyboardID = UInt8(secondaryKeyboardText),
             let layerText = values["--layer"],
             let layer = UInt8(layerText),
             let secondaryLayerText = values["--secondary-layer"],
@@ -40,7 +43,8 @@ private struct Configuration {
         else {
             throw Failure(
                 "Required: --overlay-pid PID --driver PATH --keyboard-id ID "
-                    + "--layer LAYER --expected-label LABEL")
+                    + "--secondary-keyboard-id ID --layer LAYER "
+                    + "--secondary-layer LAYER --expected-label LABEL")
         }
         guard secondaryLayer > layer else {
             throw Failure("--secondary-layer must be numerically above --layer")
@@ -49,6 +53,7 @@ private struct Configuration {
             overlayPID: overlayPID,
             driver: driver,
             keyboardID: keyboardID,
+            secondaryKeyboardID: secondaryKeyboardID,
             layer: layer,
             secondaryLayer: secondaryLayer,
             expectedLabel: expectedLabel)
@@ -140,15 +145,20 @@ private final class Runner {
         try assertCenteredOnAvailableDisplays()
         try assertRepeatedHolds()
         try assertLayerPrecedence()
+        try assertKeyboardOwnership()
         print("macOS Accessibility HIL checks passed")
     }
 
-    private func sendLayer(state: String, layer: UInt8? = nil) throws {
+    private func sendLayer(
+        state: String,
+        layer: UInt8? = nil,
+        keyboardID: UInt8? = nil
+    ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: configuration.driver)
         process.arguments = [
             "layer",
-            "--keyboard-id", String(configuration.keyboardID),
+            "--keyboard-id", String(keyboardID ?? configuration.keyboardID),
             "--layer", String(layer ?? configuration.layer),
             "--state", state,
         ]
@@ -246,6 +256,28 @@ private final class Runner {
         _ = try waitForOverlay(visible: false)
     }
 
+    private func assertKeyboardOwnership() throws {
+        try sendLayer(state: "press")
+        _ = try waitForOverlay(visible: true)
+        let primaryLabels = overlayLabels()
+
+        try sendLayer(state: "press", keyboardID: configuration.secondaryKeyboardID)
+        _ = try waitForOverlay(visible: true)
+        let secondaryLabels = overlayLabels()
+        guard secondaryLabels != primaryLabels else {
+            throw Failure("The most recently used keyboard did not replace the rendered model")
+        }
+
+        try sendLayer(state: "release", keyboardID: configuration.secondaryKeyboardID)
+        _ = try waitForOverlay(visible: true)
+        guard overlayLabels() == primaryLabels else {
+            throw Failure("Releasing the recent keyboard did not restore the held keyboard model")
+        }
+
+        try sendLayer(state: "release")
+        _ = try waitForOverlay(visible: false)
+    }
+
     private func assertCenteredOnAvailableDisplays() throws {
         var displayCount: UInt32 = 0
         CGGetActiveDisplayList(0, nil, &displayCount)
@@ -294,6 +326,13 @@ private final class Runner {
             pumpRunLoop(for: 0.05)
         } while Date() < deadline
         throw Failure("Timed out waiting for overlay visible=\(visible)")
+    }
+
+    private func overlayLabels() -> [String] {
+        accessibilityStrings(
+            in: AXUIElementCreateApplication(configuration.overlayPID),
+            depth: 0
+        ).sorted()
     }
 }
 
