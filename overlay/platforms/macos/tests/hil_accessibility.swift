@@ -5,13 +5,24 @@ import AppKit
 import ApplicationServices
 import Foundation
 
+private let idleWindowServerSize = 10.0
+
+private struct EncoderConfiguration {
+    let keyboardID: UInt8
+    let layer: UInt8
+    let labels: [String]
+    let keyCodes: [UInt16]
+}
+
 private struct Configuration {
     let overlayPID: pid_t
     let driver: String
     let keyboardID: UInt8
+    let secondaryKeyboardID: UInt8
     let layer: UInt8
     let secondaryLayer: UInt8
     let expectedLabel: String
+    let encoder: EncoderConfiguration?
 
     static func parse() throws -> Configuration {
         var values: [String: String] = [:]
@@ -30,6 +41,8 @@ private struct Configuration {
             let driver = values["--driver"],
             let keyboardText = values["--keyboard-id"],
             let keyboardID = UInt8(keyboardText),
+            let secondaryKeyboardText = values["--secondary-keyboard-id"],
+            let secondaryKeyboardID = UInt8(secondaryKeyboardText),
             let layerText = values["--layer"],
             let layer = UInt8(layerText),
             let secondaryLayerText = values["--secondary-layer"],
@@ -38,18 +51,63 @@ private struct Configuration {
         else {
             throw Failure(
                 "Required: --overlay-pid PID --driver PATH --keyboard-id ID "
-                    + "--layer LAYER --expected-label LABEL")
+                    + "--secondary-keyboard-id ID --layer LAYER "
+                    + "--secondary-layer LAYER --expected-label LABEL")
         }
         guard secondaryLayer > layer else {
             throw Failure("--secondary-layer must be numerically above --layer")
+        }
+
+        let encoder: EncoderConfiguration?
+        if let skipEncoderChecks = values["--skip-encoder-checks"] {
+            guard skipEncoderChecks == "true" else {
+                throw Failure("--skip-encoder-checks accepts only true")
+            }
+            encoder = nil
+        } else {
+            guard
+                let encoderKeyboardText = values["--encoder-keyboard-id"],
+                let encoderKeyboardID = UInt8(encoderKeyboardText),
+                let encoderLayerText = values["--encoder-layer"],
+                let encoderLayer = UInt8(encoderLayerText),
+                let encoderLabelsText = values["--encoder-labels"],
+                let encoderKeyCodesText = values["--encoder-key-codes"]
+            else {
+                throw Failure(
+                    "Required encoder options: --encoder-keyboard-id ID "
+                        + "--encoder-layer LAYER --encoder-labels CSV "
+                        + "--encoder-key-codes CSV; or --skip-encoder-checks true")
+            }
+            let encoderLabels = encoderLabelsText.split(separator: ",").map(String.init)
+            let encoderKeyCodes = try encoderKeyCodesText.split(separator: ",").map {
+                guard let keyCode = UInt16($0) else {
+                    throw Failure("Encoder key codes must be unsigned 16-bit integers")
+                }
+                return keyCode
+            }
+            guard
+                !encoderLabels.isEmpty,
+                encoderLabels.count.isMultiple(of: 2),
+                encoderKeyCodes.count == encoderLabels.count
+            else {
+                throw Failure(
+                    "Encoder labels and key codes must be equal-length, non-empty direction pairs")
+            }
+            encoder = EncoderConfiguration(
+                keyboardID: encoderKeyboardID,
+                layer: encoderLayer,
+                labels: encoderLabels,
+                keyCodes: encoderKeyCodes)
         }
         return Configuration(
             overlayPID: overlayPID,
             driver: driver,
             keyboardID: keyboardID,
+            secondaryKeyboardID: secondaryKeyboardID,
             layer: layer,
             secondaryLayer: secondaryLayer,
-            expectedLabel: expectedLabel)
+            expectedLabel: expectedLabel,
+            encoder: encoder)
     }
 }
 
@@ -69,20 +127,27 @@ private final class ProbeView: NSView {
     }
 }
 
+private final class ProbeWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 private final class Runner {
     private let configuration: Configuration
     private let probe = ProbeView()
     private let textField = NSTextField()
-    private let window: NSWindow
+    private let window: ProbeWindow
+    private var observedKeyCodes: [UInt16] = []
+    private var eventMonitor: Any?
 
     init(configuration: Configuration) throws {
         self.configuration = configuration
         guard let screen = NSScreen.main else {
             throw Failure("No macOS screen is available")
         }
-        window = NSWindow(
+        window = ProbeWindow(
             contentRect: screen.frame,
-            styleMask: [.borderless],
+            styleMask: [.titled, .resizable],
             backing: .buffered,
             defer: false)
         window.level = .normal
@@ -99,10 +164,41 @@ private final class Runner {
             throw Failure(
                 "Accessibility permission is required for the stable HIL UI binary")
         }
-        window.makeKeyAndOrderFront(nil)
+        guard CGPreflightPostEventAccess() else {
+            throw Failure("Accessibility permission does not allow posting pointer events")
+        }
+        guard NSApp.activationPolicy() == .regular else {
+            throw Failure("The focus probe could not adopt a regular activation policy")
+        }
         NSApp.activate(ignoringOtherApps: true)
+        pumpRunLoop(for: 0.1)
+        window.makeKeyAndOrderFront(nil)
+        window.makeKey()
         window.makeFirstResponder(textField)
-        pumpRunLoop(for: 0.5)
+        let focusDeadline = Date().addingTimeInterval(2)
+        repeat {
+            pumpRunLoop(for: 0.1)
+        } while (!window.isKeyWindow || window.firstResponder !== textField.currentEditor())
+            && Date() < focusDeadline
+        guard window.isKeyWindow, window.firstResponder === textField.currentEditor() else {
+            throw Failure(
+                "The focus probe could not establish its initial field focus "
+                    + "(frontmost=\(String(describing: NSWorkspace.shared.frontmostApplication?.processIdentifier)), "
+                    + "pid=\(getpid()), key=\(window.isKeyWindow), "
+                    + "responder=\(String(describing: window.firstResponder)), "
+                    + "editor=\(String(describing: textField.currentEditor())))")
+        }
+
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            self?.observedKeyCodes.append(event.keyCode)
+            return event
+        }
+        defer {
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+            }
+        }
 
         try sendLayer(state: "press")
         let overlay = try waitForOverlay(visible: true)
@@ -113,15 +209,23 @@ private final class Runner {
         try assertCenteredOnAvailableDisplays()
         try assertRepeatedHolds()
         try assertLayerPrecedence()
+        try assertKeyboardOwnership()
+        if let encoder = configuration.encoder {
+            try assertEncoderRotations(encoder)
+        }
         print("macOS Accessibility HIL checks passed")
     }
 
-    private func sendLayer(state: String, layer: UInt8? = nil) throws {
+    private func sendLayer(
+        state: String,
+        layer: UInt8? = nil,
+        keyboardID: UInt8? = nil
+    ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: configuration.driver)
         process.arguments = [
             "layer",
-            "--keyboard-id", String(configuration.keyboardID),
+            "--keyboard-id", String(keyboardID ?? configuration.keyboardID),
             "--layer", String(layer ?? configuration.layer),
             "--state", state,
         ]
@@ -133,19 +237,49 @@ private final class Runner {
         pumpRunLoop(for: 0.25)
     }
 
+    private func sendEncoder(
+        index: Int,
+        direction: String,
+        encoder: EncoderConfiguration
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: configuration.driver)
+        process.arguments = [
+            "rotate",
+            "--keyboard-id", String(encoder.keyboardID),
+            "--index", String(index),
+            "--direction", direction,
+        ]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw Failure(
+                "HIL driver failed while rotating encoder \(index) \(direction)")
+        }
+        pumpRunLoop(for: 0.25)
+    }
+
     private func assertFocusAndTyping() throws {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid() else {
             throw Failure("The overlay took application focus")
         }
-        guard window.isKeyWindow, window.firstResponder === textField.currentEditor() else {
-            throw Failure("The overlay moved focus away from the text field")
+        let editor = textField.currentEditor()
+        guard window.isKeyWindow, window.firstResponder === editor else {
+            throw Failure(
+                "The overlay moved focus away from the text field "
+                    + "(key=\(window.isKeyWindow), responder=\(String(describing: window.firstResponder)), "
+                    + "editor=\(String(describing: editor)))")
         }
 
-        let marker = "focus-through-overlay"
-        postText(marker)
+        let marker = "a"
+        postText(marker, windowNumber: window.windowNumber)
         pumpRunLoop(for: 0.25)
         guard textField.stringValue == marker else {
-            throw Failure("Injected typing did not remain in the focused text field")
+            throw Failure(
+                "Posted typing did not remain in the focused text field "
+                    + "(active=\(NSApp.isActive), key=\(window.isKeyWindow), "
+                    + "frontmost=\(String(describing: NSWorkspace.shared.frontmostApplication?.processIdentifier)), "
+                    + "value=\(textField.stringValue))")
         }
     }
 
@@ -211,6 +345,56 @@ private final class Runner {
         _ = try waitForOverlay(visible: false)
     }
 
+    private func assertKeyboardOwnership() throws {
+        try sendLayer(state: "press")
+        _ = try waitForOverlay(visible: true)
+        let primaryLabels = overlayLabels()
+
+        try sendLayer(state: "press", keyboardID: configuration.secondaryKeyboardID)
+        _ = try waitForOverlay(visible: true)
+        let secondaryLabels = overlayLabels()
+        guard secondaryLabels != primaryLabels else {
+            throw Failure("The most recently used keyboard did not replace the rendered model")
+        }
+
+        try sendLayer(state: "release", keyboardID: configuration.secondaryKeyboardID)
+        _ = try waitForOverlay(visible: true)
+        guard overlayLabels() == primaryLabels else {
+            throw Failure("Releasing the recent keyboard did not restore the held keyboard model")
+        }
+
+        try sendLayer(state: "release")
+        _ = try waitForOverlay(visible: false)
+    }
+
+    private func assertEncoderRotations(_ encoder: EncoderConfiguration) throws {
+        try sendLayer(
+            state: "press",
+            layer: encoder.layer,
+            keyboardID: encoder.keyboardID)
+        _ = try waitForOverlay(visible: true)
+        for label in encoder.labels {
+            try assertLabel(label)
+        }
+
+        observedKeyCodes.removeAll()
+        for index in 0..<(encoder.labels.count / 2) {
+            try sendEncoder(index: index, direction: "ccw", encoder: encoder)
+            try sendEncoder(index: index, direction: "cw", encoder: encoder)
+        }
+        guard observedKeyCodes == encoder.keyCodes else {
+            throw Failure(
+                "Synthetic encoder rotations produced key codes \(observedKeyCodes); "
+                    + "expected \(encoder.keyCodes)")
+        }
+
+        try sendLayer(
+            state: "release",
+            layer: encoder.layer,
+            keyboardID: encoder.keyboardID)
+        _ = try waitForOverlay(visible: false)
+    }
+
     private func assertCenteredOnAvailableDisplays() throws {
         var displayCount: UInt32 = 0
         CGGetActiveDisplayList(0, nil, &displayCount)
@@ -242,15 +426,30 @@ private final class Runner {
     private func waitForOverlay(visible: Bool) throws -> WindowRecord {
         let deadline = Date().addingTimeInterval(5)
         repeat {
-            if let record = windowList().first(where: { $0.pid == configuration.overlayPID }) {
-                let isVisible = record.bounds.width > 1 && record.bounds.height > 1
+            let record = windowList().first(where: { $0.pid == configuration.overlayPID })
+            if let record {
+                let isVisible =
+                    record.bounds.width > idleWindowServerSize
+                    || record.bounds.height > idleWindowServerSize
                 if isVisible == visible {
                     return record
                 }
+            } else if !visible {
+                return WindowRecord(
+                    pid: configuration.overlayPID,
+                    number: 0,
+                    bounds: .zero)
             }
             pumpRunLoop(for: 0.05)
         } while Date() < deadline
         throw Failure("Timed out waiting for overlay visible=\(visible)")
+    }
+
+    private func overlayLabels() -> [String] {
+        accessibilityStrings(
+            in: AXUIElementCreateApplication(configuration.overlayPID),
+            depth: 0
+        ).sorted()
     }
 }
 
@@ -306,18 +505,24 @@ private func accessibilityStrings(in element: AXUIElement, depth: Int) -> [Strin
     return strings
 }
 
-private func postText(_ text: String) {
-    let characters = Array(text.utf16)
-    characters.withUnsafeBufferPointer { buffer in
-        for keyDown in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: keyDown) else {
-                continue
-            }
-            event.keyboardSetUnicodeString(
-                stringLength: characters.count,
-                unicodeString: buffer.baseAddress)
-            event.post(tap: .cghidEventTap)
+private func postText(_ text: String, windowNumber: Int) {
+    for type in [NSEvent.EventType.keyDown, NSEvent.EventType.keyUp] {
+        guard
+            let event = NSEvent.keyEvent(
+                with: type,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: text,
+                charactersIgnoringModifiers: text,
+                isARepeat: false,
+                keyCode: 0)
+        else {
+            continue
         }
+        NSApp.postEvent(event, atStart: false)
     }
 }
 
@@ -332,7 +537,19 @@ private func postMouseClick(at point: CGPoint) {
 }
 
 private func pumpRunLoop(for seconds: TimeInterval) {
-    RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    let deadline = Date().addingTimeInterval(seconds)
+    repeat {
+        guard
+            let event = NSApp.nextEvent(
+                matching: .any,
+                until: deadline,
+                inMode: .default,
+                dequeue: true)
+        else {
+            continue
+        }
+        NSApp.sendEvent(event)
+    } while Date() < deadline
 }
 
 private func fail(_ error: Error) -> Never {

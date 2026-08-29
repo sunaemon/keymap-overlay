@@ -538,15 +538,31 @@ else
 	$(error test-hardware-session-macos is only available on macOS)
 endif
 
-.PHONY: build-hil-macos
-build-hil-macos:
+.PHONY: test-hardware-physical-reports-macos
+test-hardware-physical-reports-macos:
+ifeq ($(OS_FAMILY),macos)
+	./overlay/platforms/macos/tests/test_hardware_physical_reports.sh
+else
+	$(error test-hardware-physical-reports-macos is only available on macOS)
+endif
+
+.PHONY: build-hil-driver-macos
+build-hil-driver-macos:
 ifeq ($(OS_FAMILY),macos)
 	$(CARGO) build --release -p keymap-overlay-hil
-	mkdir -p target/hil
-	xcrun swiftc -o target/hil/keymap-overlay-macos-hil-ui \
+else
+	$(error build-hil-driver-macos is only available on macOS)
+endif
+
+.PHONY: build-hil-macos
+build-hil-macos: build-hil-driver-macos
+ifeq ($(OS_FAMILY),macos)
+	mkdir -p target/hil/KeymapOverlayHIL.app/Contents/MacOS
+	cp overlay/platforms/macos/tests/hil_accessibility_info.plist \
+		target/hil/KeymapOverlayHIL.app/Contents/Info.plist
+	xcrun swiftc -o target/hil/KeymapOverlayHIL.app/Contents/MacOS/keymap-overlay-macos-hil-ui \
 		overlay/platforms/macos/tests/hil_accessibility.swift
-	codesign --force --sign - --identifier com.sunaemon.keymap-overlay.hil-ui \
-		target/hil/keymap-overlay-macos-hil-ui
+	codesign --force --deep --sign - target/hil/KeymapOverlayHIL.app
 else
 	$(error build-hil-macos is only available on macOS)
 endif
@@ -587,6 +603,7 @@ endif
 test-hardware-release-macos:
 ifeq ($(OS_FAMILY),macos)
 	$(MAKE) test-hardware-firmware-macos
+	$(MAKE) test-hardware-physical-reports-macos
 	$(MAKE) test-hardware-session-macos
 	$(MAKE) test-hardware-lifecycle-macos
 	$(MAKE) prepare-hardware-login-macos

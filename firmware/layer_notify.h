@@ -6,6 +6,16 @@
 #include "eeconfig.h"
 #include "raw_hid.h"
 
+#ifdef ENCODER_ENABLE
+#include "encoder.h"
+#endif
+
+#if defined(ENCODER_ENABLE) && defined(ENCODER_MAP_ENABLE)
+#include "action_layer.h"
+#include "keyboard.h"
+#include "keymap_common.h"
+#endif
+
 #ifndef KEYMAP_EEPROM_EPOCH
 #define KEYMAP_EEPROM_EPOCH 0
 #endif
@@ -36,10 +46,12 @@ _Static_assert(KEYBOARD_ID >= 0 && KEYBOARD_ID <= 255,
 #define KEYMAP_OVERLAY_HIL_PROBE 0
 #define KEYMAP_OVERLAY_HIL_PRESS 1
 #define KEYMAP_OVERLAY_HIL_RELEASE 2
+#define KEYMAP_OVERLAY_HIL_ENCODER_CCW 3
+#define KEYMAP_OVERLAY_HIL_ENCODER_CW 4
 
 static bool keymap_overlay_hil_event_pending;
-static uint8_t keymap_overlay_hil_pending_layer;
-static bool keymap_overlay_hil_pending_pressed;
+static uint8_t keymap_overlay_hil_pending_action;
+static uint8_t keymap_overlay_hil_pending_value;
 #endif
 
 static inline void keymap_overlay_send_layer_event(uint8_t layer,
@@ -72,8 +84,11 @@ static inline void keymap_overlay_notify_momentary_layer(uint16_t keycode,
 }
 
 #ifdef KEYMAP_OVERLAY_HIL_ENABLE
-// Accepts only deterministic overlay-report requests. It cannot inject a key,
-// change the active QMK layer, write EEPROM, or enter the bootloader.
+// Accepts deterministic overlay-report requests and, on encoder keyboards,
+// encoder indices that enter the same bounded queue as physical rotation. It
+// cannot choose an arbitrary keycode, change the active QMK layer, or write
+// EEPROM. Reject the effective QK_BOOT binding before queueing an encoder
+// event, so this command cannot enter the bootloader through the live keymap.
 void raw_hid_receive_kb(uint8_t *data, uint8_t length) {
   if (length != KEYMAP_OVERLAY_REPORT_SIZE ||
       data[0] != KEYMAP_OVERLAY_HIL_COMMAND_ID ||
@@ -87,33 +102,68 @@ void raw_hid_receive_kb(uint8_t *data, uint8_t length) {
   }
 
   const uint8_t action = data[6];
-  const uint8_t layer = data[7];
+  const uint8_t value = data[7];
   if (action == KEYMAP_OVERLAY_HIL_PROBE) {
     data[8] = 0;
     return;
   }
-  if ((action != KEYMAP_OVERLAY_HIL_PRESS &&
-       action != KEYMAP_OVERLAY_HIL_RELEASE) ||
-      layer == 0 || layer >= DYNAMIC_KEYMAP_LAYER_COUNT) {
-    data[8] = 1;
+
+  const bool layer_action = action == KEYMAP_OVERLAY_HIL_PRESS ||
+                            action == KEYMAP_OVERLAY_HIL_RELEASE;
+  if (layer_action && value > 0 && value < DYNAMIC_KEYMAP_LAYER_COUNT) {
+    keymap_overlay_hil_pending_action = action;
+    keymap_overlay_hil_pending_value = value;
+    keymap_overlay_hil_event_pending = true;
+    data[8] = 0;
     return;
   }
 
-  keymap_overlay_hil_pending_layer = layer;
-  keymap_overlay_hil_pending_pressed = action == KEYMAP_OVERLAY_HIL_PRESS;
-  keymap_overlay_hil_event_pending = true;
-  data[8] = 0;
+#if defined(ENCODER_ENABLE) && defined(ENCODER_MAP_ENABLE)
+  const bool encoder_action = action == KEYMAP_OVERLAY_HIL_ENCODER_CCW ||
+                              action == KEYMAP_OVERLAY_HIL_ENCODER_CW;
+  if (encoder_action && value < NUM_ENCODERS) {
+    const bool clockwise = action == KEYMAP_OVERLAY_HIL_ENCODER_CW;
+    const keypos_t key = {.row = clockwise ? KEYLOC_ENCODER_CW
+                                           : KEYLOC_ENCODER_CCW,
+                          .col = value};
+    const uint8_t layer = layer_switch_get_layer(key);
+    if (keymap_key_to_keycode(layer, key) == QK_BOOT) {
+      data[8] = 1;
+      return;
+    }
+    keymap_overlay_hil_pending_action = action;
+    keymap_overlay_hil_pending_value = value;
+    keymap_overlay_hil_event_pending = true;
+    data[8] = 0;
+    return;
+  }
+#endif
+
+  data[8] = 1;
 }
 
 // VIA sends the command response after raw_hid_receive_kb returns. Defer the
-// unsolicited KMO report so the two writes never overlap inside Raw HID.
+// unsolicited KMO report or encoder event until the next housekeeping pass so
+// the response never overlaps another Raw HID or keyboard report.
 void housekeeping_task_user(void) {
   if (!keymap_overlay_hil_event_pending) {
     return;
   }
   keymap_overlay_hil_event_pending = false;
-  keymap_overlay_send_layer_event(keymap_overlay_hil_pending_layer,
-                                  keymap_overlay_hil_pending_pressed);
+
+  if (keymap_overlay_hil_pending_action == KEYMAP_OVERLAY_HIL_PRESS ||
+      keymap_overlay_hil_pending_action == KEYMAP_OVERLAY_HIL_RELEASE) {
+    keymap_overlay_send_layer_event(keymap_overlay_hil_pending_value,
+                                    keymap_overlay_hil_pending_action ==
+                                        KEYMAP_OVERLAY_HIL_PRESS);
+    return;
+  }
+
+#if defined(ENCODER_ENABLE) && defined(ENCODER_MAP_ENABLE)
+  (void)encoder_queue_event(keymap_overlay_hil_pending_value,
+                            keymap_overlay_hil_pending_action ==
+                                KEYMAP_OVERLAY_HIL_ENCODER_CW);
+#endif
 }
 #endif
 

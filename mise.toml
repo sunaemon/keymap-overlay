@@ -36,6 +36,6 @@ set -e
 uv sync
 ruff check --fix .
 ty check --extra-search-path model/typings .
-shellcheck installer/install.sh installer/tests/test_install_sh.sh overlay/platforms/linux/tests/test_dbus_to_renderer_e2e.sh overlay/platforms/linux/tests/test_hid_to_dbus_e2e.sh overlay/platforms/macos/tests/test_appkit_e2e.sh overlay/platforms/macos/tests/test_hardware_session.sh overlay/platforms/macos/tests/test_hardware_lifecycle.sh overlay/platforms/macos/tests/test_hardware_login.sh firmware/tools/test_hardware_macos.sh
+shellcheck installer/install.sh installer/tests/test_install_sh.sh overlay/platforms/linux/tests/test_dbus_to_renderer_e2e.sh overlay/platforms/linux/tests/test_hid_to_dbus_e2e.sh overlay/platforms/macos/tests/test_appkit_e2e.sh overlay/platforms/macos/tests/test_hardware_physical_reports.sh overlay/platforms/macos/tests/test_hardware_session.sh overlay/platforms/macos/tests/test_hardware_lifecycle.sh overlay/platforms/macos/tests/test_hardware_login.sh firmware/tools/test_hardware_macos.sh
 cargo clippy --workspace --all-targets -- -D warnings
 """

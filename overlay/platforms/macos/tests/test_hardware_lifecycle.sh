@@ -74,16 +74,22 @@ candidate_installed=false
 [[ -z "$(git -C "$ROOT" status --short)" ]] || fail "Candidate changed during previous install"
 [[ "$(git -C "$ROOT" rev-parse HEAD)" == "$candidate_sha" ]] || \
   fail "Candidate SHA changed during upgrade setup"
+log_start="$(( $(wc -l <"$LOG") + 1 ))"
 make -C "$ROOT" clean
 make -C "$ROOT" install-overlay
 candidate_installed=true
 
 launchctl print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null
+wait_for_log "$log_start" "Adopted 2 startup Raw HID device(s)"
 log_start="$(( $(wc -l <"$LOG") + 1 ))"
 "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$LAYER" --state press
-wait_for_log "$log_start" "show keyboard=$KEYBOARD_ID layers=[$LAYER]"
+wait_for_log \
+  "$log_start" \
+  "Layer event: keyboard=$KEYBOARD_ID layer=$LAYER pressed=true"
 "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$LAYER" --state release
-wait_for_log "$log_start" "hide size=1x1"
+wait_for_log \
+  "$log_start" \
+  "Layer event: keyboard=$KEYBOARD_ID layer=$LAYER pressed=false"
 printf 'PASS: live upgrade from %s\n' "$PREVIOUS_VERSION"
 
 make -C "$ROOT" test-release-acceptance-macos

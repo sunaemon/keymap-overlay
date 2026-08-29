@@ -6,13 +6,18 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 DRIVER="$ROOT/target/release/keymap-overlay-hil"
-UI_PROBE="$ROOT/target/hil/keymap-overlay-macos-hil-ui"
+UI_PROBE_APP="$ROOT/target/hil/KeymapOverlayHIL.app"
 KEYBOARD_ID="${KMO_HIL_KEYBOARD_ID:-1}"
 SECONDARY_KEYBOARD_ID="${KMO_HIL_SECONDARY_KEYBOARD_ID:-2}"
 PRIMARY_LAYER="${KMO_HIL_PRIMARY_LAYER:-1}"
 SECONDARY_LAYER="${KMO_HIL_SECONDARY_LAYER:-2}"
+ENCODER_KEYBOARD_ID="${KMO_HIL_ENCODER_KEYBOARD_ID:-2}"
+ENCODER_LAYER="${KMO_HIL_ENCODER_LAYER:-1}"
 LABEL_KEYCODE=0x0068
 LABEL=F13
+ENCODER_TEST_KEYCODES=(0x0004 0x0005 0x0006 0x0007 0x0008 0x0009)
+ENCODER_LABELS=A,B,C,D,E,F
+ENCODER_MAC_KEYCODES=0,11,8,2,14,3
 SERVICE_LABEL=com.sunaemon.keymap-overlay
 PLIST="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
 LOG="$HOME/.local/var/log/keymap-overlay/overlay.log"
@@ -23,6 +28,8 @@ original_keycode=""
 test_row=""
 test_column=""
 restore_required=false
+encoder_restore_required=false
+encoder_original_keycodes=()
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -40,17 +47,72 @@ stop_overlay() {
   esac
 }
 
+run_ui_probe() {
+  local expected=$1
+  local output error
+  shift
+  output="$(mktemp "$TRANSCRIPT_DIR/macos-ui-probe.out.XXXXXX")"
+  error="$(mktemp "$TRANSCRIPT_DIR/macos-ui-probe.err.XXXXXX")"
+  if ! open -W -n -o "$output" --stderr "$error" "$UI_PROBE_APP" --args "$@"; then
+    cat "$output" "$error"
+    fail "LaunchServices could not run the HIL UI app"
+  fi
+  cat "$output" "$error"
+  grep -Fqx "$expected" "$output" || \
+    fail "The HIL UI app did not report a successful result"
+}
+
 restore_live_keymap() {
   local status=$?
+  local restore_failed=false
   set +e
-  "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
-  "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$SECONDARY_LAYER" --state release
+  if ! "$DRIVER" layer \
+    --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release; then
+    restore_failed=true
+  fi
+  if ! "$DRIVER" layer \
+    --keyboard-id "$KEYBOARD_ID" --layer "$SECONDARY_LAYER" --state release; then
+    restore_failed=true
+  fi
+  if ! "$DRIVER" layer \
+    --keyboard-id "$SECONDARY_KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release; then
+    restore_failed=true
+  fi
   if $restore_required; then
-    stop_overlay
-    "$DRIVER" set-keycode \
+    if ! stop_overlay; then
+      restore_failed=true
+    fi
+    if ! "$DRIVER" set-keycode \
       --keyboard-id "$KEYBOARD_ID" --layer 0 --row "$test_row" \
-      --column "$test_column" --keycode "$original_keycode"
-    make -C "$ROOT" install-overlay
+      --column "$test_column" --keycode "$original_keycode"; then
+      restore_failed=true
+    fi
+  fi
+  if $encoder_restore_required; then
+    local binding=0
+    local index direction
+    if ! stop_overlay; then
+      restore_failed=true
+    fi
+    for index in 0 1 2; do
+      for direction in ccw cw; do
+        if ! "$DRIVER" set-encoder \
+          --keyboard-id "$ENCODER_KEYBOARD_ID" --layer 0 --index "$index" \
+          --direction "$direction" \
+          --keycode "${encoder_original_keycodes[$binding]}"; then
+          restore_failed=true
+        fi
+        binding=$((binding + 1))
+      done
+    done
+  fi
+  if $restore_required || $encoder_restore_required; then
+    if ! make -C "$ROOT" install-overlay; then
+      restore_failed=true
+    fi
+  fi
+  if $restore_failed && ((status == 0)); then
+    status=1
   fi
   exit "$status"
 }
@@ -65,7 +127,7 @@ trap restore_live_keymap EXIT
 
 printf 'Candidate: %s\n' "$(git -C "$ROOT" rev-parse HEAD)"
 make -C "$ROOT" build-hil-macos
-"$UI_PROBE" --check-accessibility
+run_ui_probe "Accessibility permission is available" --check-accessibility
 
 "$DRIVER" devices
 "$DRIVER" probe --keyboard-id "$KEYBOARD_ID"
@@ -84,6 +146,28 @@ stop_overlay
   --keyboard-id "$KEYBOARD_ID" --layer 0 --row "$test_row" \
   --column "$test_column" --keycode "$LABEL_KEYCODE"
 restore_required=true
+
+binding=0
+for index in 0 1 2; do
+  for direction in ccw cw; do
+    encoder_original_keycodes+=("$(
+      "$DRIVER" get-encoder \
+        --keyboard-id "$ENCODER_KEYBOARD_ID" --layer 0 --index "$index" \
+        --direction "$direction"
+    )")
+    binding=$((binding + 1))
+  done
+done
+encoder_restore_required=true
+binding=0
+for index in 0 1 2; do
+  for direction in ccw cw; do
+    "$DRIVER" set-encoder \
+      --keyboard-id "$ENCODER_KEYBOARD_ID" --layer 0 --index "$index" \
+      --direction "$direction" --keycode "${ENCODER_TEST_KEYCODES[$binding]}"
+    binding=$((binding + 1))
+  done
+done
 
 log_start=1
 if [[ -f "$LOG" ]]; then
@@ -107,28 +191,20 @@ if grep -Eqi 'failed to (open|read)|Vial.*error|model.*error|Raw HID.*error' <<<
   fail "The current overlay start logged a device/model error"
 fi
 
-"$UI_PROBE" \
+run_ui_probe "macOS Accessibility HIL checks passed" \
   --overlay-pid "$overlay_pid" \
   --driver "$DRIVER" \
   --keyboard-id "$KEYBOARD_ID" \
+  --secondary-keyboard-id "$SECONDARY_KEYBOARD_ID" \
   --layer "$PRIMARY_LAYER" \
   --secondary-layer "$SECONDARY_LAYER" \
-  --expected-label "$LABEL"
-
-log_start="$(( $(wc -l <"$LOG") + 1 ))"
-"$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state press
-"$DRIVER" layer --keyboard-id "$SECONDARY_KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state press
-sleep 0.25
-tail -n "+$log_start" "$LOG" | \
-  grep -Fq "show keyboard=$SECONDARY_KEYBOARD_ID layers=[$PRIMARY_LAYER]" || \
-  fail "The most recently used keyboard did not own the overlay"
-"$DRIVER" layer --keyboard-id "$SECONDARY_KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
-sleep 0.25
-tail -n "+$log_start" "$LOG" | \
-  grep -Fq "show keyboard=$KEYBOARD_ID layers=[$PRIMARY_LAYER]" || \
-  fail "Releasing the recent keyboard did not restore the still-held keyboard"
-"$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
+  --expected-label "$LABEL" \
+  --encoder-keyboard-id "$ENCODER_KEYBOARD_ID" \
+  --encoder-layer "$ENCODER_LAYER" \
+  --encoder-labels "$ENCODER_LABELS" \
+  --encoder-key-codes "$ENCODER_MAC_KEYCODES"
 
 printf 'PASS: macOS live startup, Vial reread, labels, layer transitions, focus, '\
-'click-through, topmost, attached-display placement, and simultaneous keyboards\n'
+'click-through, topmost, attached-display placement, simultaneous keyboards, '\
+'and synthetic encoder rotations through live firmware output\n'
 printf 'Transcript: %s\n' "$TRANSCRIPT"
