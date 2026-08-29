@@ -189,60 +189,75 @@ and verifies its expected ordered Raw HID press/release messages. The second
 uses deterministic messages emitted by the already-flashed real keyboard to
 exercise repeated show/hide, nested precedence, live Vial restart reads, and
 interactive AppKit window safety. Their exact-head transcripts jointly satisfy
-`MAC-03`; the second satisfies `MAC-04`, `MAC-07`, and `MAC-08`. No separate
+`MAC-08`; the second satisfies `MAC-02`, `MAC-03`, and `MAC-04`. No separate
 physical two-key chord is required after every participating switch has passed
 the first target. This exception applies only to macOS until another platform
 has an equivalent release-binary HIL procedure.
 
 Perform these checks on every row of the required platform matrix. Before and
 after the run, verify normal keyboard input and matching USB/`KEYBOARD_ID`
-identity for that platform's `*-01` check. The install-and-log inspection in
-section 2 supplies `*-02`. The prefixes are `MAC`, `KDE`, `GNOME`, `KDEA`,
+identity for that platform's `*-07` check. The install-and-log inspection in
+section 2 supplies `*-01`. The prefixes are `MAC`, `KDE`, `GNOME`, `KDEA`,
 `WIN`, and `WINA`.
 
-1. Except for the macOS split proof above, for `*-03`, with the keyboard connected before startup, hold every `MO` key. Verify the
-   correct live Vial layer appears immediately, remains visible while held, and
-   hides on release.
-2. For `*-05`, compare geometry, platform-specific labels, custom glyphs, transparent keys,
-   held-key highlighting, and encoder position with the live Vial layout.
-3. Except for the macOS split proof above, also for `*-03`, tap each `MO` key quickly, then show and hide it at least ten times. Verify
-   that no stale or stuck overlay remains.
-4. Except for the macOS split proof above, for `*-04`, hold two `MO` keys. Verify numeric layer precedence, release the higher one
+1. For `*-01`, run the platform install/start command and inspect the native
+   service, device-owned Vial model, service definition, and new log entries.
+   This is first because it needs no per-event human input and establishes a
+   clean runtime for every later check.
+2. Except for the macOS HIL proof above, for `*-02`, hold two `MO` keys. Verify
+   numeric layer precedence, release the higher one
    and confirm the lower layer returns, then release the last key and confirm
-   the overlay hides.
-5. Except for the automated macOS AppKit assertions above, for `*-08`, in a text editor, continue typing while repeatedly showing the overlay. Click
-   through the overlay as well. Every character and click must reach the editor;
-   focus and the caret must not move. Explicitly verify the second and later
-   show on Windows.
-6. For `*-09`, on each affected monitor and scale factor, verify centering, size, topmost
-   behavior, labels, and click-through behavior.
-7. For the release-wide `encoder-keyboard` coverage row, hold the relevant layer
-   on an encoder keyboard and rotate both directions, then push every encoder.
-   Verify that each physical control is detected and that every push label,
-   action, and position agrees. An exact-head encoder HIL transcript may replace
-   manual verification of the counter-clockwise and clockwise labels and mapped
-   host actions: it queues each direction through QMK's normal encoder path and
-   captures the resulting live Vial-mapped USB event. It does not prove the
-   shaft sensor, direction wiring, or push switch, so record those physical
-   observations separately.
-8. For `*-06`, while a layer is visible, unplug the keyboard. The overlay must hide. Plug
-   the same keyboard back in without restarting; because its model was loaded
-   at startup, layer events must resume.
-9. Also for `*-06`, stop the overlay, unplug the keyboard, and start the overlay without it.
-   Connecting it afterward must not display a model. Restart the overlay with
-   the keyboard connected; physical layer events must then work. This is the
-   intentional startup-read behavior.
-10. Except for the automated macOS live-Vial session above, for `*-07`, stop the overlay, make a visible key-binding change in Vial, close Vial,
-    and restart the overlay. The overlay must show the changed live binding.
-    Restore the binding and restart once more.
-11. For the release-wide `simultaneous-keyboards` coverage row, connect all
-    supported keyboards before startup. Verify that each uses its
-    own geometry and `KEYBOARD_ID`, and that the most recently used keyboard
-    owns the overlay. Duplicate IDs must fail instead of selecting the wrong
-    model.
-12. For `*-10`, sign out and back in with the keyboard connected. Without manually starting
-    anything, verify the service and renderer start and the first physical
-    layer press works.
+   the overlay hides. HIL may supply this deterministic report-ordering proof.
+3. Except for the automated macOS live-Vial session above, for `*-03`, stop the
+   overlay, make one visible key-binding change in Vial, close Vial, and restart
+   the overlay. Verify the changed live binding, restore it, and restart once
+   more. This proves the intentional startup-only reread.
+4. Except for the automated macOS AppKit assertions above, for `*-04`, continue
+   typing in a text editor while repeatedly showing the overlay, then click
+   through it. Every character and click must reach the editor; focus and the
+   caret must not move. Explicitly verify the second and later show on Windows.
+5. For `*-05`, compare geometry, platform-specific labels, custom glyphs,
+   transparent keys, held-key highlighting, and encoder position with the live
+   Vial layout. This remains visual because semantic assertions do not judge
+   every native rendering defect.
+6. For `*-06`, on each affected monitor and scale factor, verify centering,
+   size, topmost behavior, labels, and click-through behavior. Real compositor
+   topology and DPI behavior are outside fixed-scale CI.
+7. For `*-07`, record the initial physical typing/identity observation before
+   step 1, then type again here and confirm the same USB identity and
+   `KEYBOARD_ID`. This proves ordinary matrix input and end-to-end device
+   identity.
+8. Except for the macOS split proof above, for `*-08`, hold every `MO` key and
+   verify the correct live Vial layer appears while held and hides on release.
+   Tap each `MO` key quickly, then show and hide it at least ten times. Verify
+   that no stale or stuck overlay remains. The physical tap proves the
+   switch-to-firmware boundary; HIL may supply the deterministic repetitions.
+
+For the release-wide `encoder-keyboard` coverage row, hold the relevant layer
+on an encoder keyboard and rotate both directions, then push every encoder.
+Verify that each physical control is detected and that every push label,
+action, and position agrees. An exact-head encoder HIL transcript may replace
+manual verification of the counter-clockwise and clockwise labels and mapped
+host actions: it queues each direction through QMK's normal encoder path and
+captures the resulting live Vial-mapped USB event. It does not prove the
+shaft sensor, direction wiring, or push switch, so record those physical
+observations separately.
+
+For the release-wide `simultaneous-keyboards` coverage row, connect all
+supported keyboards before startup. Verify that each uses its
+own geometry and `KEYBOARD_ID`, and that the most recently used keyboard
+owns the overlay. Duplicate IDs must fail instead of selecting the wrong
+model.
+
+9. For `*-09`, while a layer is visible, unplug the keyboard. The overlay must
+   hide. Reconnect without restarting and verify events resume. Then stop the
+   overlay, disconnect the keyboard, and start without it. Connecting afterward
+   must not display a model until the overlay restarts with the keyboard
+   present. This stays late because it requires a real cable or switched port.
+10. For `*-10`, sign out and back in with the keyboard connected. Without
+    manually starting anything, verify the service and renderer start and the
+    first physical layer press works. This is last because authentication and
+    graphical-session creation are disruptive boundaries.
 
 Stop the overlay before opening Vial or starting the absent-at-startup test,
 then start it explicitly after closing Vial and reconnecting the keyboard:

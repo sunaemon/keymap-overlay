@@ -45,17 +45,17 @@ rows in the release gate.
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `GLOBAL-01` compile and flash          | Makefile and metadata-generation unit tests cover build inputs; release acceptance does not compile QMK        | QMK compilation, bootloader entry, deployment, return, and recovery                                | CI firmware compilation plus a flash rig with a USB relay and bootloader-volume/programmer control          |
 | `GLOBAL-02` EEPROM ownership           | Metadata generation is tested; no automated test executes the firmware EEPROM hooks                            | First-boot reset and later Vial persistence on real EEPROM                                         | HIL power-cycle and Vial read/write assertions across flash and reboot                                      |
-| Platform `*-01` typing and identity    | Compile-time ID validation and metadata tests                                                                  | Real USB identity and unchanged keyboard input on each host                                        | HIL keyboard plus host typing/input capture on every platform                                               |
-| Platform `*-02` live startup model     | Metadata serialization and pure model building have unit tests                                                 | Native service/renderer startup, HID enumeration, embedded definition, and clean logs on each host | A virtual Vial Raw HID device that answers the complete startup protocol on every host                      |
-| Platform `*-03` physical `MO` events   | Linux UHID proves one KMO pair; macOS HIL captures every physical pair and drives deterministic AppKit repeats | Equivalent switch report proof plus release-renderer scenarios remains on Linux and Windows        | Virtual Vial+KMO E2E on every OS, plus HIL firmware report verification                                     |
-| Platform `*-04` held-layer precedence  | Unit tests cover ordering; macOS HIL drives nested reports through the real keyboard and AppKit                | End-to-end release-renderer scenarios remain on Linux and Windows                                  | Multi-report E2E scenarios using release binaries on all frontends                                          |
+| Platform `*-01` live startup model     | Metadata serialization and pure model building have unit tests                                                 | Native service/renderer startup, HID enumeration, embedded definition, and clean logs on each host | A virtual Vial Raw HID device that answers the complete startup protocol on every host                      |
+| Platform `*-02` held-layer precedence  | Unit tests cover ordering; macOS HIL drives nested reports through the real keyboard and AppKit                | End-to-end release-renderer scenarios remain on Linux and Windows                                  | Multi-report E2E scenarios using release binaries on all frontends                                          |
+| Platform `*-03` Vial edit and restart  | Decoders have unit tests; macOS HIL edits real Vial EEPROM and asserts the changed model after process restart | The equivalent real-device restart sequence remains on Linux and Windows                           | Stateful virtual Vial device changed between real process starts; HIL persistence remains in `GLOBAL-02`    |
+| Platform `*-04` window safety          | macOS HIL asserts focus, typing, pointer pass-through, and window order on an interactive AppKit desktop       | Equivalent interactive coverage remains for GNOME, KDE, and both Windows architectures             | Interactive desktop E2E with a text editor, pointer injection, active-window assertions, and screen capture |
 | Platform `*-05` geometry and labels    | Generator unit tests cover geometry, platform labels, custom labels, and transparency; Qt has one golden image | Candidate firmware metadata and live Vial state render correctly on every frontend                 | Virtual Vial fixtures plus golden/semantic assertions for AppKit, GNOME, Qt, and WPF                        |
+| Platform `*-06` displays and scaling   | One fixed-scale Qt offscreen golden image                                                                      | Real compositor placement, DPI, multi-monitor, Wayland layer role, and X11 behavior                | Nested/virtual desktops with multiple displays and scale factors, plus geometry and screenshot assertions   |
+| Platform `*-07` typing and identity    | Compile-time ID validation and metadata tests                                                                  | Real USB identity and unchanged keyboard input on each host                                        | HIL keyboard plus host typing/input capture on every platform                                               |
+| Platform `*-08` physical `MO` events   | Linux UHID proves one KMO pair; macOS HIL captures every physical pair and drives deterministic AppKit repeats | Equivalent switch report proof plus release-renderer scenarios remains on Linux and Windows        | Virtual Vial+KMO E2E on every OS, plus HIL firmware report verification                                     |
 | `encoder-keyboard` coverage            | Generator tests cover placement; macOS HIL checks all live direction labels and mapped USB outputs             | Physical shaft/direction wiring, pushes, push labels/actions, and rendering on other frontends     | Encoder-rich virtual Vial fixtures on every frontend plus instrumented rotation/push input                  |
-| Platform `*-06` disconnect and arrival | Reducer disconnect and arrival-coalescing unit tests                                                           | OS arrival watchers, physical removal, and reconnect on macOS/Linux/Windows                        | Disconnectable virtual HID devices on each OS exercising the release process                                |
-| Platform `*-07` Vial edit and restart  | Decoders have unit tests; macOS HIL edits real Vial EEPROM and asserts the changed model after process restart | The equivalent real-device restart sequence remains on Linux and Windows                           | Stateful virtual Vial device changed between real process starts; HIL persistence remains in `GLOBAL-02`    |
 | `simultaneous-keyboards` coverage      | Reducer tests cover multiple IDs; duplicate-ID loading has no HID E2E                                          | Enumeration of simultaneous physical devices, duplicate-ID rejection, and correct model ownership  | Multiple virtual Vial devices, including duplicate-ID failure and recent-owner scenarios                    |
-| Platform `*-08` window safety          | macOS HIL asserts focus, typing, pointer pass-through, and window order on an interactive AppKit desktop       | Equivalent interactive coverage remains for GNOME, KDE, and both Windows architectures             | Interactive desktop E2E with a text editor, pointer injection, active-window assertions, and screen capture |
-| Platform `*-09` displays and scaling   | One fixed-scale Qt offscreen golden image                                                                      | Real compositor placement, DPI, multi-monitor, Wayland layer role, and X11 behavior                | Nested/virtual desktops with multiple displays and scale factors, plus geometry and screenshot assertions   |
+| Platform `*-09` disconnect and arrival | Reducer disconnect and arrival-coalescing unit tests                                                           | OS arrival watchers, physical removal, and reconnect on macOS/Linux/Windows                        | Disconnectable virtual HID devices on each OS exercising the release process                                |
 | Platform `*-10` login startup          | Installer tests validate generated registration data with stubs                                                | Real launchd/systemd/Run startup, desktop readiness, and first physical event                      | Self-hosted or VM runners that perform a real sign-out/sign-in cycle and assert the running overlay         |
 
 GNOME has no frontend E2E today. The extension is installed and its JavaScript
@@ -71,21 +71,21 @@ manual work:
 1. Extend the Linux `/dev/uhid` fixture into a stateful virtual Vial device. It
    should serve embedded `keymapOverlay` metadata, dynamic layers, custom
    keycodes, encoders, and KMO reports, and support removal/recreation. This can
-   automate most of platform checks `*-02` through `*-07` and both specialized
-   coverage rows for the shared pipeline.
+   automate the host-controlled portions of platform checks `*-01`, `*-02`,
+   `*-03`, `*-05`, `*-08`, and `*-09`, plus both specialized coverage rows.
 2. Reuse deterministic encoder-, transparency-, nested-layer-, and
    multi-keyboard fixtures in AppKit, Qt, and WPF E2E. Add a nested GNOME Shell
    test for the extension. This can retire frontend-content portions of
-   platform checks `*-04` and `*-05`, plus encoder and simultaneous-keyboard
+   platform checks `*-02` and `*-05`, plus encoder and simultaneous-keyboard
    coverage.
 3. Add interactive desktop runners that type into an editor, inject pointer
    input, inspect the active window, and capture multiple displays/scales. This
-   is required before retiring platform checks `*-08` or `*-09`.
+   is required before retiring platform checks `*-04` or `*-06`.
 4. Add real-session login tests for launchd, systemd plus GNOME/KDE, and the
    Windows Run key. This is required before retiring platform check `*-10`.
 5. Add a small HIL rack with both bundled keyboards and controlled USB power.
-   Only HIL can fully retire `GLOBAL-01`, `GLOBAL-02`, platform check `*-01`,
-   encoder sensor/push coverage, and the physical firmware portion of `*-03`.
+   Only HIL can fully retire `GLOBAL-01`, `GLOBAL-02`, platform check `*-07`,
+   encoder sensor/push coverage, and the physical firmware portion of `*-08`.
 
 An exact-head local HIL target may narrow the human actions inside a platform
 row when it runs the installed release binary, preserves any irreducibly
