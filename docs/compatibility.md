@@ -9,16 +9,19 @@ notes. Backward compatibility is a goal, not yet a guarantee.
 
 Release CI builds and tests these targets:
 
-| Platform | Release architecture    | Runtime expectation                                                |
-| -------- | ----------------------- | ------------------------------------------------------------------ |
-| macOS    | Apple silicon (`arm64`) | Current GitHub-hosted macOS runner and Input Monitoring permission |
-| Linux    | `x86_64`, `arm64`       | GNOME 45+ or Qt 6/LayerShellQt, with systemd user services         |
-| Windows  | `x86_64`, `arm64`       | Native Windows overlay installed from PowerShell                   |
+| Platform | Release architecture    | Runtime expectation                                        |
+| -------- | ----------------------- | ---------------------------------------------------------- |
+| macOS    | Apple silicon (`arm64`) | macOS 11+; current CI runner; Input Monitoring permission  |
+| Linux    | `x86_64`, `arm64`       | GNOME 45+ or Qt 6/LayerShellQt, with systemd user services |
+| Windows  | `x86_64`, `arm64`       | Native Windows overlay installed from PowerShell           |
 
 Firmware compilation and flashing are supported on macOS and Linux. On a
 Windows host, use WSL for firmware and layer-image work; the overlay itself is
 native Windows software. Other architectures and init systems are not currently
 release targets.
+
+The macOS renderer uses Liquid Glass on macOS 26 and newer, with the native
+visual-effect material available on macOS 11 through 25.
 
 ## Installed Layout
 

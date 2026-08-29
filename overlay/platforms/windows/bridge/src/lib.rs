@@ -2,8 +2,8 @@
 
 use keymap_overlay_runtime::{
     Arguments, LayerEvent, LayerEventSink, LayerEventSourceHandle, LogDestination, OverlayModel,
-    Parser, PendingTransition, SimulatedLayer, Transition, default_log_file, initialize_logging,
-    spawn_layer_event_source, startup_models,
+    Parser, PendingTransition, SimulatedLayer, StartupModels, StartupRawHidDevice, Transition,
+    default_log_file, initialize_logging, spawn_layer_event_source, startup_models,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
@@ -18,7 +18,12 @@ const TRANSITION_SHOW: u32 = 2 << 24;
 
 static STATE: OnceLock<Arc<SharedState>> = OnceLock::new();
 static LOGGING: OnceLock<Result<(), String>> = OnceLock::new();
-static MODELS_JSON: OnceLock<Vec<u8>> = OnceLock::new();
+static PREPARED_MODELS: OnceLock<PreparedModels> = OnceLock::new();
+
+struct PreparedModels {
+    json: Vec<u8>,
+    raw_hid_devices: Mutex<Vec<StartupRawHidDevice>>,
+}
 
 #[derive(Serialize)]
 struct KeyboardModels {
@@ -59,13 +64,17 @@ pub extern "system" fn keymap_overlay_prepare() -> i32 {
 /// Returns the byte length of the prepared in-memory model JSON.
 #[unsafe(no_mangle)]
 pub extern "system" fn keymap_overlay_models_json_length() -> usize {
-    MODELS_JSON.get().map_or(0, Vec::len)
+    PREPARED_MODELS
+        .get()
+        .map_or(0, |prepared| prepared.json.len())
 }
 
 /// Returns a stable pointer to the prepared in-memory model JSON.
 #[unsafe(no_mangle)]
 pub extern "system" fn keymap_overlay_models_json() -> *const u8 {
-    MODELS_JSON.get().map_or(std::ptr::null(), Vec::as_ptr)
+    PREPARED_MODELS
+        .get()
+        .map_or(std::ptr::null(), |prepared| prepared.json.as_ptr())
 }
 
 /// Starts the HID listener. Returns zero, or a negative value on failure.
@@ -115,11 +124,20 @@ fn start(wake: extern "system" fn(), simulated: Option<SimulatedLayer>) -> i32 {
     if STATE.set(Arc::clone(&shared)).is_err() {
         return -2;
     }
+    let startup_devices = PREPARED_MODELS.get().map_or_else(Vec::new, |prepared| {
+        std::mem::take(
+            &mut *prepared
+                .raw_hid_devices
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    });
     let listener = spawn_layer_event_source(
         BridgeSink {
             state: Arc::clone(&shared),
         },
         simulated,
+        startup_devices,
     );
     if shared.listener.set(listener).is_err() {
         return -2;
@@ -139,14 +157,21 @@ fn prepare() -> i32 {
             return -1;
         }
     };
-    let models = match startup_models(arguments.simulate).and_then(serialize_models) {
+    let models = match startup_models(arguments.simulate).and_then(prepare_models) {
         Ok(models) => models,
         Err(error) => {
             eprintln!("Failed to read connected keyboard models: {error:#}");
             return -1;
         }
     };
-    MODELS_JSON.set(models).map_or(-2, |()| 0)
+    PREPARED_MODELS.set(models).map_or(-2, |()| 0)
+}
+
+fn prepare_models(startup: StartupModels) -> anyhow::Result<PreparedModels> {
+    Ok(PreparedModels {
+        json: serialize_models(startup.models)?,
+        raw_hid_devices: Mutex::new(startup.raw_hid_devices),
+    })
 }
 
 fn serialize_models(models: HashMap<(u8, u8), OverlayModel>) -> anyhow::Result<Vec<u8>> {

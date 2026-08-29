@@ -11,7 +11,7 @@ use keymap_overlay_linux_protocol::{
 };
 use keymap_overlay_runtime::{
     LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, PendingTransition,
-    SimulatedLayer, Transition, compose_model, spawn_layer_event_source,
+    SimulatedLayer, StartupModels, Transition, compose_model, spawn_layer_event_source,
 };
 use log::{info, warn};
 use rustix::event::{PollFd, PollFlags, poll};
@@ -112,7 +112,11 @@ impl RendererState {
     }
 }
 
-pub(crate) fn run(models: ModelCache, simulated: Option<SimulatedLayer>) -> Result<()> {
+pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> Result<()> {
+    let StartupModels {
+        models,
+        raw_hid_devices,
+    } = startup;
     // Seed generations with wall time so a renderer can distinguish a daemon
     // restart from an old queued signal without any persistent state.
     let mut state = RendererState::for_process()?;
@@ -128,7 +132,7 @@ pub(crate) fn run(models: ModelCache, simulated: Option<SimulatedLayer>) -> Resu
         .context("Failed to own the keymap overlay D-Bus name")?;
 
     let (sender, receiver) = mpsc::channel();
-    let source = spawn_layer_event_source(ChannelSink(sender), simulated);
+    let source = spawn_layer_event_source(ChannelSink(sender), simulated, raw_hid_devices);
     if source.uses_raw_hid() {
         spawn_device_watcher(source);
     }

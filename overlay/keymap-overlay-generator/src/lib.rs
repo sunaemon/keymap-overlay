@@ -8,7 +8,8 @@ pub mod types;
 pub mod vial;
 
 use anyhow::{Context, Result};
-use hidapi::HidApi;
+use hidapi::{HidApi, HidDevice};
+use keymap_core::RawLayerEvent;
 use labels::Platform;
 use log::warn;
 use std::path::Path;
@@ -46,26 +47,43 @@ pub fn read_live_keyboard_models(
     )
 }
 
-/// Builds in-memory models for every connected self-describing Vial keyboard.
-pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<types::KeyboardModels>> {
+/// One accepted keyboard, including the open Raw HID session used to read it.
+pub struct ConnectedKeyboard {
+    pub models: types::KeyboardModels,
+    pub device: HidDevice,
+    pub path: String,
+    pub layer_events: Vec<RawLayerEvent>,
+}
+
+/// Builds models while retaining each accepted keyboard's open Raw HID session.
+pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<ConnectedKeyboard>> {
     let api = HidApi::new().context("Failed to initialize HID API")?;
     Ok(collect_connected_keyboard_models(
         api.device_list()
             .filter(|info| info.usage_page() == vial::USAGE_PAGE && info.usage() == vial::USAGE_ID),
         |info| {
+            let path = info.path().to_string_lossy().into_owned();
             let device = api
                 .open_path(info.path())
                 .with_context(|| format!("Failed to open Raw HID device {:?}", info.path()))?;
-            device::read_self_describing_keyboard_models(&device, platform)
-                .with_context(|| format!("Failed to read Vial device {:?}", info.path()))
+            let mut layer_events = Vec::new();
+            let models =
+                device::read_self_describing_keyboard_models(&device, platform, &mut layer_events)
+                    .with_context(|| format!("Failed to read Vial device {:?}", info.path()))?;
+            Ok(models.map(|models| ConnectedKeyboard {
+                models,
+                device,
+                path,
+                layer_events,
+            }))
         },
     ))
 }
 
-fn collect_connected_keyboard_models<T>(
+fn collect_connected_keyboard_models<T, U>(
     devices: impl IntoIterator<Item = T>,
-    mut read: impl FnMut(T) -> Result<Option<types::KeyboardModels>>,
-) -> Vec<types::KeyboardModels> {
+    mut read: impl FnMut(T) -> Result<Option<U>>,
+) -> Vec<U> {
     devices
         .into_iter()
         .filter_map(|device| match read(device) {
@@ -84,7 +102,7 @@ mod tests {
     use anyhow::bail;
 
     #[test]
-    fn one_unusable_device_does_not_discard_other_models() {
+    fn unusable_and_unsupported_devices_do_not_discard_accepted_models() {
         let models = collect_connected_keyboard_models([1, 2, 3], |device| match device {
             1 => Ok(Some(types::KeyboardModels {
                 keyboard_id: 1,

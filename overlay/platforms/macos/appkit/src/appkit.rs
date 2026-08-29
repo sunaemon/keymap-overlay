@@ -1,9 +1,9 @@
 //! Native macOS overlay.
 //!
-//! AppKit owns the complete view hierarchy. An `NSGlassEffectView` supplies
-//! the adaptive background and its content is built from native boxes and text
-//! fields described by the in-memory model. No key label is rasterized
-//! into an intermediate image.
+//! AppKit owns the complete view hierarchy. Liquid Glass supplies the adaptive
+//! background on macOS 26 and newer, with `NSVisualEffectView` on earlier
+//! releases. Content is built from native boxes and text fields described by
+//! the in-memory model. No key label is rasterized into an intermediate image.
 
 use anyhow::{Context, Result};
 use block2::StackBlock;
@@ -12,8 +12,8 @@ use iohidmanager::async_api::ManagerDeviceMatchingStream;
 use iohidmanager::{HidManager, HidUsage};
 use keymap_overlay_runtime::{
     DisplayEncoder, LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, OverlayModel,
-    PendingTransition, RAW_USAGE_ID, RAW_USAGE_PAGE, SimulatedLayer, Transition, compose_model,
-    spawn_layer_event_source,
+    PendingTransition, RAW_USAGE_ID, RAW_USAGE_PAGE, SimulatedLayer, StartupModels, Transition,
+    compose_model, spawn_layer_event_source,
 };
 use log::{info, warn};
 use objc2::rc::{Allocated, Retained};
@@ -22,9 +22,11 @@ use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
     NSAutoresizingMaskOptions, NSBackingStoreType, NSBox, NSBoxType, NSColor, NSEvent, NSFont,
     NSGlassEffectView, NSGlassEffectViewStyle, NSMainMenuWindowLevel, NSScreen, NSTextAlignment,
-    NSTextField, NSView, NSViewController, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSTextField, NSView, NSViewController, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
+    NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowCollectionBehavior,
+    NSWindowStyleMask,
 };
-use objc2_foundation::{NSPoint, NSPointInRect, NSRect, NSSize, NSString};
+use objc2_foundation::{NSPoint, NSPointInRect, NSProcessInfo, NSRect, NSSize, NSString};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -96,7 +98,7 @@ struct OverlayApp {
     visible_layer: Option<(u8, Vec<u8>)>,
     window: Retained<NSWindow>,
     appearance_root: Retained<NSView>,
-    glass: Retained<NSGlassEffectView>,
+    background: Retained<NSView>,
     content_host: Retained<NSView>,
     screen_frame: Option<NSRect>,
     e2e_state_file: Option<PathBuf>,
@@ -106,15 +108,19 @@ thread_local! {
     static OVERLAY_APP: RefCell<Option<OverlayApp>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn run(models: ModelCache, simulated: Option<SimulatedLayer>) -> Result<()> {
+pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> Result<()> {
+    let StartupModels {
+        models,
+        raw_hid_devices,
+    } = startup;
     let mtm = MainThreadMarker::new().context("AppKit must run on the main thread")?;
     let application = NSApplication::sharedApplication(mtm);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
     let appearance_root = appearance_view(idle_rect(), mtm);
     let content_host = NSView::initWithFrame(mtm.alloc(), idle_rect());
-    let glass = build_glass(idle_rect(), &content_host, mtm);
-    appearance_root.addSubview(&glass);
+    let background = build_background(idle_rect(), &content_host, mtm);
+    appearance_root.addSubview(&background);
 
     let controller = NSViewController::new(mtm);
     controller.setView(&appearance_root);
@@ -122,7 +128,7 @@ pub(crate) fn run(models: ModelCache, simulated: Option<SimulatedLayer>) -> Resu
     configure_window(&window);
 
     let (sender, receiver) = mpsc::channel();
-    let source = spawn_layer_event_source(ChannelSink(sender), simulated);
+    let source = spawn_layer_event_source(ChannelSink(sender), simulated, raw_hid_devices);
     if source.uses_raw_hid() {
         spawn_device_watcher(source);
     }
@@ -135,7 +141,7 @@ pub(crate) fn run(models: ModelCache, simulated: Option<SimulatedLayer>) -> Resu
         visible_layer: None,
         window,
         appearance_root,
-        glass,
+        background,
         content_host,
         screen_frame: current_screen_frame(),
         e2e_state_file: std::env::var_os("KEYMAP_OVERLAY_E2E_STATE_FILE").map(PathBuf::from),
@@ -239,6 +245,33 @@ fn appearance_view(frame: NSRect, mtm: MainThreadMarker) -> Retained<NSView> {
     AppearanceView::init_with_frame(mtm.alloc(), frame).into_super()
 }
 
+fn build_background(
+    frame: NSRect,
+    content_host: &NSView,
+    mtm: MainThreadMarker,
+) -> Retained<NSView> {
+    if supports_liquid_glass() {
+        return build_glass(frame, content_host, mtm).into_super();
+    }
+    build_visual_effect(frame, content_host, mtm).into_super()
+}
+
+fn supports_liquid_glass() -> bool {
+    if std::env::var_os("KEYMAP_OVERLAY_E2E_FORCE_VISUAL_EFFECT").is_some_and(|value| value == "1")
+    {
+        return false;
+    }
+    supports_liquid_glass_major_version(
+        NSProcessInfo::processInfo()
+            .operatingSystemVersion()
+            .majorVersion,
+    )
+}
+
+fn supports_liquid_glass_major_version(major_version: isize) -> bool {
+    major_version >= 26
+}
+
 fn build_glass(
     frame: NSRect,
     content_host: &NSView,
@@ -252,6 +285,26 @@ fn build_glass(
     );
     glass.setContentView(Some(content_host));
     glass
+}
+
+fn build_visual_effect(
+    frame: NSRect,
+    content_host: &NSView,
+    mtm: MainThreadMarker,
+) -> Retained<NSVisualEffectView> {
+    let background = NSVisualEffectView::initWithFrame(mtm.alloc(), frame);
+    background.setMaterial(NSVisualEffectMaterial::HUDWindow);
+    background.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+    background.setState(NSVisualEffectState::Active);
+    background.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+    content_host.setFrame(background.bounds());
+    content_host.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+    background.addSubview(content_host);
+    background
 }
 
 fn build_native_layer(
@@ -566,10 +619,10 @@ impl OverlayApp {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
-        let glass = build_glass(self.appearance_root.bounds(), &self.content_host, mtm);
-        self.glass.removeFromSuperview();
-        self.appearance_root.addSubview(&glass);
-        self.glass = glass;
+        let background = build_background(self.appearance_root.bounds(), &self.content_host, mtm);
+        self.background.removeFromSuperview();
+        self.appearance_root.addSubview(&background);
+        self.background = background;
     }
 
     fn detach_visible_layer(&self) {
@@ -682,5 +735,12 @@ mod tests {
             frame_containing_point(NSPoint::new(500.0, 400.0), [left, right]),
             Some(right)
         );
+    }
+
+    #[test]
+    fn liquid_glass_requires_macos_26() {
+        assert!(!supports_liquid_glass_major_version(25));
+        assert!(supports_liquid_glass_major_version(26));
+        assert!(supports_liquid_glass_major_version(27));
     }
 }

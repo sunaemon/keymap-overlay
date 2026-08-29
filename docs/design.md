@@ -30,7 +30,7 @@ QMK Raw HID report (KMO protocol)
 Rust HID listener (hidapi)
   ↓
 native transparent window
-  macOS: AppKit NSGlassEffectView + NSBox + NSTextField
+  macOS: AppKit NSGlassEffectView (macOS 26+) or NSVisualEffectView + NSBox + NSTextField
   Linux daemon: final model over session D-Bus
     ├─ GNOME Shell extension (Wayland or X11)
     └─ Qt Quick + KDE LayerShellQt (other desktops)
@@ -128,10 +128,10 @@ boundary. macOS owns an AppKit process, Windows owns a WPF process, and Linux
 separates its HID daemon from replaceable renderer clients.
 
 On **macOS** (`overlay/platforms/macos/appkit`) AppKit owns the
-complete view hierarchy. The
-undecorated, always-on-top, click-through window uses an `NSGlassEffectView` as
-its content. It composes the in-memory models as native `NSBox` and
-`NSTextField` views inside the glass view's `contentView`.
+complete view hierarchy. The undecorated, always-on-top, click-through window
+uses an `NSGlassEffectView` on macOS 26 and newer, with `NSVisualEffectView` as
+the adaptive fallback on earlier releases. It composes the in-memory models as
+native `NSBox` and `NSTextField` views inside that background.
 There is no rasterized key or label foreground on macOS. Hiding swaps in an
 empty content view and shrinks the still-mapped window to one pixel, avoiding
 native show animations on every layer-key press.
@@ -391,9 +391,15 @@ circular knob, places counter-clockwise and clockwise actions above it, and
 keeps its push action centred inside.
 
 All runtimes read connected keyboards from Vial into memory at startup. Layer
-events compose only those in-memory models. On Linux the daemon sends the composed model to
-renderer clients, so no renderer leaves the previous layer visible while disk
-I/O completes.
+events received between Vial responses are buffered and replayed through the
+normal reducer when the live listener starts. Each accepted keyboard's open HID
+handle and metadata keyboard ID transfer with its model into that listener, so
+reports queued after the final Vial response stay in the same session and an
+immediate disconnect can clear buffered state. Devices that do not produce a
+self-describing model contribute neither a startup handle nor accepted layer
+events. Events compose only accepted in-memory models. On Linux the daemon
+sends the composed model to renderer clients, so no renderer leaves the
+previous layer visible while disk I/O completes.
 
 Events already waiting when a UI loop wakes are reduced to their final active
 layer before the window changes. Intermediate restores and switches are not
