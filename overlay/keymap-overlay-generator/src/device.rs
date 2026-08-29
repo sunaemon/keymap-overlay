@@ -5,6 +5,7 @@ use crate::types::{KeyboardConfig, KeyboardJson, KeyboardModels, KeymapOverlayMe
 use crate::vial;
 use anyhow::{Context, Result, bail};
 use hidapi::{HidApi, HidDevice};
+use keymap_core::RawLayerEvent;
 use std::collections::HashMap;
 
 pub fn open_device(api: &HidApi, keyboard: &KeyboardJson) -> Result<HidDevice> {
@@ -65,17 +66,19 @@ pub fn read_keyboard_models(
 pub fn read_self_describing_keyboard_models(
     dev: &HidDevice,
     platform: Platform,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
 ) -> Result<Option<KeyboardModels>> {
-    let definition = vial::read_device_definition(dev)?;
+    let definition = vial::read_device_definition_recording_events(dev, on_layer_event)?;
     let Some(metadata) = definition.get("keymapOverlay").cloned() else {
         return Ok(None);
     };
     let metadata: KeymapOverlayMetadata = serde_json::from_value(metadata)
         .context("Invalid keymapOverlay metadata in the device's Vial definition")?;
-    let device_model = vial::read_device_model_with_definition(
+    let device_model = vial::read_device_model_with_definition_recording_events(
         dev,
         definition,
         metadata.keyboard.encoder_count(),
+        on_layer_event,
     )?;
     build_keyboard_models(
         device_model,
@@ -284,6 +287,14 @@ fn standard_keycode_name(raw: u16) -> String {
         0x00C0 => "KC_ASSISTANT".to_string(),
         0x00C1 => "KC_MISSION_CONTROL".to_string(),
         0x00C2 => "KC_LAUNCHPAD".to_string(),
+        0x00CD..=0x00D0 => {
+            ["MS_UP", "MS_DOWN", "MS_LEFT", "MS_RGHT"][(raw - 0x00CD) as usize].to_string()
+        }
+        0x00D1..=0x00D8 => format!("MS_BTN{}", raw - 0x00D0),
+        0x00D9..=0x00DC => {
+            ["MS_WHLU", "MS_WHLD", "MS_WHLL", "MS_WHLR"][(raw - 0x00D9) as usize].to_string()
+        }
+        0x00DD..=0x00DF => format!("MS_ACL{}", raw - 0x00DD),
         0x00E0 => "KC_LCTL".to_string(),
         0x00E1 => "KC_LSFT".to_string(),
         0x00E2 => "KC_LALT".to_string(),
@@ -431,6 +442,18 @@ mod tests {
         assert_eq!(resolve_keycode(0x0063, &[]), "KC_PDOT");
         assert_eq!(resolve_keycode(0x00AB, &[]), "KC_MNXT");
         assert_eq!(resolve_keycode(0x00AE, &[]), "KC_MPLY");
+    }
+
+    #[test]
+    fn mouse_keycodes_keep_their_qmk_names() {
+        assert_eq!(resolve_keycode(0x00CD, &[]), "MS_UP");
+        assert_eq!(resolve_keycode(0x00D0, &[]), "MS_RGHT");
+        assert_eq!(resolve_keycode(0x00D1, &[]), "MS_BTN1");
+        assert_eq!(resolve_keycode(0x00D8, &[]), "MS_BTN8");
+        assert_eq!(resolve_keycode(0x00D9, &[]), "MS_WHLU");
+        assert_eq!(resolve_keycode(0x00DC, &[]), "MS_WHLR");
+        assert_eq!(resolve_keycode(0x00DD, &[]), "MS_ACL0");
+        assert_eq!(resolve_keycode(0x00DF, &[]), "MS_ACL2");
     }
 
     #[test]

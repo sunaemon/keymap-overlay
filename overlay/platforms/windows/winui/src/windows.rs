@@ -6,8 +6,8 @@ mod native;
 use anyhow::{Context, Result};
 use keymap_overlay_runtime::{
     Arguments, LayerEvent, LayerEventSink, LogDestination, ModelCache, OverlayModel, Parser as _,
-    PendingTransition, SimulatedLayer, Transition, compose_model, default_log_file,
-    initialize_logging, load_live_models, spawn_layer_event_source, write_notice,
+    PendingTransition, SimulatedLayer, StartupRawHidDevice, Transition, compose_model,
+    default_log_file, initialize_logging, spawn_layer_event_source, startup_models, write_notice,
 };
 use std::sync::{Arc, Mutex};
 use windows_reactor::{
@@ -55,12 +55,18 @@ const OVERLAY_STROKE: Color = Color {
 
 pub(super) struct OverlayComponent {
     models: Arc<ModelCache>,
+    raw_hid_devices: Arc<Mutex<Vec<StartupRawHidDevice>>>,
     simulated: Option<SimulatedLayer>,
 }
 
 impl Component for OverlayComponent {
     fn render(&self, _props: &(), context: &mut RenderCx) -> Element {
-        render(context, Arc::clone(&self.models), self.simulated)
+        render(
+            context,
+            Arc::clone(&self.models),
+            Arc::clone(&self.raw_hid_devices),
+            self.simulated,
+        )
     }
 }
 
@@ -101,19 +107,28 @@ pub(crate) fn run() -> Result<()> {
         None => LogDestination::File(default_log_file()?),
     };
     initialize_logging(destination)?;
-    let models = Arc::new(load_live_models()?);
+    let startup = startup_models(simulated)?;
     windows_reactor::bootstrap().context("Failed to initialize the Windows App SDK runtime")?;
-    native::run(OverlayComponent { models, simulated }).context("The WinUI event loop failed")?;
+    native::run(OverlayComponent {
+        models: Arc::new(startup.models),
+        raw_hid_devices: Arc::new(Mutex::new(startup.raw_hid_devices)),
+        simulated,
+    })
+    .context("The WinUI event loop failed")?;
     Ok(())
 }
 
 fn render(
     context: &mut windows_reactor::RenderCx,
     models: Arc<ModelCache>,
+    raw_hid_devices: Arc<Mutex<Vec<StartupRawHidDevice>>>,
     simulated: Option<SimulatedLayer>,
 ) -> Element {
     let (transition, set_transition) = context.use_async_state(Transition::Hide);
-    context.use_effect((), move || start_listener(set_transition, simulated));
+    let listener_models = Arc::clone(&models);
+    context.use_effect((), move || {
+        start_listener(set_transition, simulated, raw_hid_devices, listener_models)
+    });
 
     let model = match &transition {
         Transition::Show {
@@ -145,13 +160,25 @@ fn render(
     model.map_or_else(hidden_canvas, model_canvas)
 }
 
-fn start_listener(set_transition: AsyncSetState<Transition>, simulated: Option<SimulatedLayer>) {
+fn start_listener(
+    set_transition: AsyncSetState<Transition>,
+    simulated: Option<SimulatedLayer>,
+    raw_hid_devices: Arc<Mutex<Vec<StartupRawHidDevice>>>,
+    models: Arc<ModelCache>,
+) {
+    let startup_devices = std::mem::take(
+        &mut *raw_hid_devices
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+    );
     let listener = spawn_layer_event_source(
         WinUiSink {
             pending: Arc::new(Mutex::new(PendingTransition::default())),
             set_transition,
         },
         simulated,
+        startup_devices,
+        models.keys().map(|(keyboard_id, _)| *keyboard_id),
     );
     native::install_listener(listener);
 }

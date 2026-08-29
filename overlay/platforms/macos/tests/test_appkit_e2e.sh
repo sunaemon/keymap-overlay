@@ -5,6 +5,8 @@ PROJECT_DIRECTORY=$(CDPATH='' cd -- "$(dirname "$0")/../../../.." && pwd)
 OVERLAY=${KEYMAP_OVERLAY_E2E_OVERLAY:-"$PROJECT_DIRECTORY/target/release/keymap-overlay"}
 TEST_DIRECTORY=$(mktemp -d)
 OVERLAY_PID=''
+STATE_FILE="$TEST_DIRECTORY/state"
+LOG_FILE="$TEST_DIRECTORY/overlay.log"
 
 cleanup() {
   if [ -n "$OVERLAY_PID" ]; then
@@ -17,13 +19,13 @@ trap cleanup EXIT HUP INT TERM
 
 fail() {
   printf 'AppKit E2E failure: %s\n' "$1" >&2
-  if [ -f "$TEST_DIRECTORY/overlay.log" ]; then
+  if [ -f "$LOG_FILE" ]; then
     printf '%s\n' 'Overlay log:' >&2
-    sed 's/^/  /' "$TEST_DIRECTORY/overlay.log" >&2
+    sed 's/^/  /' "$LOG_FILE" >&2
   fi
-  if [ -f "$TEST_DIRECTORY/state" ]; then
+  if [ -f "$STATE_FILE" ]; then
     printf '%s\n' 'Observed AppKit states:' >&2
-    sed 's/^/  /' "$TEST_DIRECTORY/state" >&2
+    sed 's/^/  /' "$STATE_FILE" >&2
   fi
   exit 1
 }
@@ -37,7 +39,7 @@ wait_for_state() {
     if ! kill -0 "$OVERLAY_PID" 2>/dev/null; then
       fail "overlay exited while waiting for $description"
     fi
-    matches=$(grep -F -c "$pattern" "$TEST_DIRECTORY/state" 2>/dev/null || true)
+    matches=$(grep -F -c "$pattern" "$STATE_FILE" 2>/dev/null || true)
     matches=${matches:-0}
     if [ "$matches" -ge "$count" ]; then
       return 0
@@ -48,20 +50,35 @@ wait_for_state() {
   fail "timed out waiting for $description"
 }
 
-KEYMAP_OVERLAY_E2E_STATE_FILE="$TEST_DIRECTORY/state" \
-  "$OVERLAY" --simulate 1:2 \
-  >"$TEST_DIRECTORY/overlay.log" 2>&1 &
-OVERLAY_PID=$!
+run_case() {
+  name=$1
+  force_visual_effect=$2
+  STATE_FILE="$TEST_DIRECTORY/$name.state"
+  LOG_FILE="$TEST_DIRECTORY/$name.log"
 
-wait_for_state 'the composed layer to be attached' \
-  'show keyboard=1 layers=[2] size=160x120 subviews=1 native_subviews=5'
-wait_for_state 'the simulated release to detach and hide the layer' \
-  'hide size=1x1 subviews=0'
-wait_for_state 'the next simulated press to attach the layer again' \
-  'show keyboard=1 layers=[2] size=160x120 subviews=1 native_subviews=5' 2
+  KEYMAP_OVERLAY_E2E_STATE_FILE="$STATE_FILE" \
+    KEYMAP_OVERLAY_E2E_FORCE_VISUAL_EFFECT="$force_visual_effect" \
+    "$OVERLAY" --simulate 1:2 \
+    >"$LOG_FILE" 2>&1 &
+  OVERLAY_PID=$!
 
-if ! kill -0 "$OVERLAY_PID" 2>/dev/null; then
-  fail 'overlay exited while processing AppKit state transitions'
-fi
+  wait_for_state 'the composed layer to be attached' \
+    'show keyboard=1 layers=[2] size=160x120 subviews=1 native_subviews=5'
+  wait_for_state 'the simulated release to detach and hide the layer' \
+    'hide size=1x1 subviews=0'
+  wait_for_state 'the next simulated press to attach the layer again' \
+    'show keyboard=1 layers=[2] size=160x120 subviews=1 native_subviews=5' 2
+
+  if ! kill -0 "$OVERLAY_PID" 2>/dev/null; then
+    fail "overlay exited while processing the $name AppKit state transitions"
+  fi
+
+  kill "$OVERLAY_PID"
+  wait "$OVERLAY_PID" 2>/dev/null || true
+  OVERLAY_PID=''
+}
+
+run_case native 0
+run_case visual-effect-fallback 1
 
 printf '%s\n' 'macOS AppKit E2E test passed'

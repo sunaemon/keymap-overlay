@@ -26,7 +26,7 @@ def test_generate_vial_embeds_custom_keycodes_from_keymap_c(tmp_path: Path) -> N
     keymap_c.write_text(
         """
         enum custom_keycodes {
-          KC_ALPHA = SAFE_RANGE, // α
+          KC_ALPHA = QK_KB_0,    // α
           KC_BETA,               // β
           EIZO_USB_C,            // USB-C
           KC_INTERNAL            // a longer explanation is not a label
@@ -43,6 +43,31 @@ def test_generate_vial_embeds_custom_keycodes_from_keymap_c(tmp_path: Path) -> N
         VialCustomKeycode(name="EIZO_USB_C", shortName="USB-C"),
         VialCustomKeycode(name="KC_INTERNAL", shortName=""),
     ]
+
+
+@pytest.mark.parametrize("base", ["SAFE_RANGE", "QK_USER_0"])
+def test_generate_vial_rejects_a_non_keyboard_custom_keycode_base(
+    tmp_path: Path, base: str
+) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        f"enum custom_keycodes {{ KC_ALPHA = {base} }};",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must start at QK_KB_0"):
+        generate_vial(DATA_DIR / "keyboard.json", "LAYOUT", keymap_c=keymap_c)
+
+
+def test_generate_vial_rejects_an_implicit_custom_keycode_base(tmp_path: Path) -> None:
+    keymap_c = tmp_path / "keymap.c"
+    keymap_c.write_text(
+        "enum custom_keycodes { KC_ALPHA };",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must start at QK_KB_0"):
+        generate_vial(DATA_DIR / "keyboard.json", "LAYOUT", keymap_c=keymap_c)
 
 
 def test_generate_vial_embeds_self_describing_overlay_metadata(tmp_path: Path) -> None:

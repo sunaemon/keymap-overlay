@@ -8,10 +8,9 @@ from pathlib import Path
 
 from model.src.types import KeyboardJson, LayoutKey, parse_json
 
-# Names an enum custom_keycodes entry may be explicitly assigned to reset the
-# numbering back to the keyboard's custom-keycode base, rather than continuing
-# the previous entry's value.
-CUSTOM_KEYCODE_BASE_NAMES = {"SAFE_RANGE", "QK_USER_0", "QK_KB_0"}
+# An enum custom_keycodes entry must start at the keyboard-specific range that
+# Vial uses when mapping embedded labels back to dynamic keycodes.
+CUSTOM_KEYCODE_BASE_NAME = "QK_KB_0"
 
 # Vial requires custom keycodes to be assigned starting at QK_KB_0; a device's
 # embedded definition carries no numeric base of its own to look up.
@@ -103,15 +102,19 @@ def parse_custom_keycode_names(keymap_c: Path) -> list[str]:
     for index, entry in enumerate(entries):
         if "=" in entry:
             name, value = (part.strip() for part in entry.split("=", 1))
-            if value not in CUSTOM_KEYCODE_BASE_NAMES:
+            if value != CUSTOM_KEYCODE_BASE_NAME:
                 raise ValueError(
-                    f"Explicit keycode assignment is not supported: {entry}"
+                    f"Custom keycodes must start at {CUSTOM_KEYCODE_BASE_NAME}: {entry}"
                 )
             if index != 0:
                 raise ValueError(
                     f"Custom keycode base may only be assigned to the first entry: {entry}"
                 )
         else:
+            if index == 0:
+                raise ValueError(
+                    f"Custom keycodes must start at {CUSTOM_KEYCODE_BASE_NAME}: {entry}"
+                )
             name = entry
         names.append(name)
     return names

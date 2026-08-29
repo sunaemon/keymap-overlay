@@ -8,6 +8,7 @@ use keymap_core::{
     parse_raw_layer_event,
 };
 pub use keymap_core::{LayerEvent, RawLayerEvent};
+use keymap_overlay_generator::StartupLayerEvent;
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -129,7 +130,7 @@ impl Arguments {
 
 /// Initializes the shared runtime and gives live in-memory models to a frontend.
 pub fn run_overlay(
-    frontend: impl FnOnce(ModelCache, Option<SimulatedLayer>) -> Result<()>,
+    frontend: impl FnOnce(StartupModels, Option<SimulatedLayer>) -> Result<()>,
 ) -> Result<()> {
     let arguments = Arguments::parse();
     if let Some(notice) = arguments.notice() {
@@ -151,10 +152,27 @@ pub fn run_overlay(
     Ok(())
 }
 
+/// Models and layer reports collected before a frontend starts its live listener.
+pub struct StartupModels {
+    pub models: ModelCache,
+    pub raw_hid_devices: Vec<StartupRawHidDevice>,
+}
+
+/// An already-open device the live listener adopts after startup model reads.
+pub struct StartupRawHidDevice {
+    device: HidDevice,
+    path: String,
+    keyboard_id: u8,
+    layer_events: Vec<StartupLayerEvent>,
+}
+
 /// Returns live Vial models, or an in-memory fixture for simulation mode.
-pub fn startup_models(simulated: Option<SimulatedLayer>) -> Result<ModelCache> {
+pub fn startup_models(simulated: Option<SimulatedLayer>) -> Result<StartupModels> {
     Ok(match simulated {
-        Some(simulated) => simulated_models(simulated),
+        Some(simulated) => StartupModels {
+            models: simulated_models(simulated),
+            raw_hid_devices: Vec::new(),
+        },
         None => load_live_models()?,
     })
 }
@@ -200,8 +218,8 @@ fn simulated_models(simulated: SimulatedLayer) -> ModelCache {
     models
 }
 
-/// Reads every connected self-describing Vial keyboard into memory.
-pub fn load_live_models() -> Result<ModelCache> {
+/// Reads every connected keyboard and retains layer reports interleaved with Vial responses.
+pub fn load_live_models() -> Result<StartupModels> {
     #[cfg(target_os = "macos")]
     let platform = keymap_overlay_generator::labels::Platform::Macos;
     #[cfg(target_os = "linux")]
@@ -210,7 +228,14 @@ pub fn load_live_models() -> Result<ModelCache> {
     let platform = keymap_overlay_generator::labels::Platform::Windows;
 
     let mut models = ModelCache::new();
-    for generated in keymap_overlay_generator::read_connected_keyboard_models(platform)? {
+    let mut raw_hid_devices = Vec::new();
+    for connected in keymap_overlay_generator::read_connected_keyboard_models(platform)? {
+        let keymap_overlay_generator::ConnectedKeyboard {
+            models: generated,
+            device,
+            path,
+            layer_events,
+        } = connected;
         let keyboard_id = generated.keyboard_id;
         if generated
             .layers
@@ -227,8 +252,17 @@ pub fn load_live_models() -> Result<ModelCache> {
                 .into_iter()
                 .map(|(layer, model)| ((keyboard_id, layer), model)),
         );
+        raw_hid_devices.push(StartupRawHidDevice {
+            device,
+            path,
+            keyboard_id,
+            layer_events,
+        });
     }
-    Ok(models)
+    Ok(StartupModels {
+        models,
+        raw_hid_devices,
+    })
 }
 
 /// Writes a notice to standard output, treating a closed pipe as success.
@@ -379,9 +413,15 @@ impl LayerEventSourceHandle {
 pub fn spawn_layer_event_source(
     sink: impl LayerEventSink + 'static,
     simulated: Option<SimulatedLayer>,
+    startup_devices: Vec<StartupRawHidDevice>,
+    modeled_keyboard_ids: impl IntoIterator<Item = u8>,
 ) -> LayerEventSourceHandle {
     let Some(simulated) = simulated else {
-        return LayerEventSourceHandle::RawHid(spawn_raw_hid_listener(sink));
+        return LayerEventSourceHandle::RawHid(spawn_raw_hid_listener(
+            sink,
+            startup_devices,
+            modeled_keyboard_ids.into_iter().collect(),
+        ));
     };
     thread::spawn(move || {
         info!(
@@ -410,6 +450,31 @@ pub fn spawn_layer_event_source(
     LayerEventSourceHandle::Simulated
 }
 
+fn replay_startup_layer_events(
+    sink: &impl LayerEventSink,
+    device_events: impl IntoIterator<Item = (u8, Vec<StartupLayerEvent>)>,
+) {
+    let mut events = device_events
+        .into_iter()
+        .flat_map(|(keyboard_id, events)| events.into_iter().map(move |event| (keyboard_id, event)))
+        .collect::<Vec<_>>();
+    events.sort_by_key(|(_, event)| event.sequence);
+
+    for (keyboard_id, startup_event) in events {
+        let event = startup_event.event;
+        if event.keyboard_id != keyboard_id {
+            warn!(
+                "Ignoring startup layer event for keyboard {} from device model {}",
+                event.keyboard_id, keyboard_id
+            );
+            continue;
+        }
+        if !sink.send(LayerEvent::Report(event)) {
+            return;
+        }
+    }
+}
+
 impl RawHidListenerHandle {
     /// Requests enumeration after an arrival, returning whether one was queued.
     pub fn device_arrived(&self) -> bool {
@@ -417,7 +482,12 @@ impl RawHidListenerHandle {
     }
 }
 
-pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) -> RawHidListenerHandle {
+pub fn spawn_raw_hid_listener(
+    sink: impl LayerEventSink + 'static,
+    startup_devices: Vec<StartupRawHidDevice>,
+    modeled_keyboard_ids: HashSet<u8>,
+) -> RawHidListenerHandle {
+    let modeled_keyboard_ids = Arc::new(modeled_keyboard_ids);
     let (wake, requests) = mpsc::channel();
     let requester = EnumerationRequester::new(wake);
     let handle = RawHidListenerHandle {
@@ -425,7 +495,14 @@ pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) -> RawHidList
     };
     thread::spawn(move || {
         let active_paths = Arc::new(Mutex::new(HashSet::new()));
-        enumerate_raw_hid_devices(&sink, &active_paths, &requester);
+        adopt_startup_raw_hid_devices(
+            startup_devices,
+            &sink,
+            &active_paths,
+            &modeled_keyboard_ids,
+            &requester,
+        );
+        enumerate_raw_hid_devices(&sink, &active_paths, &modeled_keyboard_ids, &requester);
         loop {
             if requests.recv().is_err() {
                 return;
@@ -434,7 +511,7 @@ pub fn spawn_raw_hid_listener(sink: impl LayerEventSink + 'static) -> RawHidList
             // readers remain alive and cannot lose releases during this grace.
             thread::sleep(RECONNECT_INTERVAL);
             requester.begin_enumeration();
-            enumerate_raw_hid_devices(&sink, &active_paths, &requester);
+            enumerate_raw_hid_devices(&sink, &active_paths, &modeled_keyboard_ids, &requester);
         }
     });
     handle
@@ -643,10 +720,50 @@ fn resolve_home_directory(
     home.or(user_profile)
 }
 
+fn adopt_startup_raw_hid_devices<S: LayerEventSink + 'static>(
+    mut startup_devices: Vec<StartupRawHidDevice>,
+    sink: &S,
+    active_paths: &Arc<Mutex<HashSet<String>>>,
+    modeled_keyboard_ids: &Arc<HashSet<u8>>,
+    requester: &EnumerationRequester,
+) {
+    for startup in &startup_devices {
+        active_paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(startup.path.clone());
+    }
+    replay_startup_layer_events(
+        sink,
+        startup_devices.iter_mut().map(|startup| {
+            (
+                startup.keyboard_id,
+                std::mem::take(&mut startup.layer_events),
+            )
+        }),
+    );
+    let opened = startup_devices.len();
+    for startup in startup_devices {
+        spawn_raw_hid_reader(
+            startup.device,
+            startup.path,
+            Some(startup.keyboard_id),
+            sink.clone(),
+            Arc::clone(active_paths),
+            Arc::clone(modeled_keyboard_ids),
+            requester.clone(),
+        );
+    }
+    if opened > 0 {
+        info!("Adopted {opened} startup Raw HID device(s)");
+    }
+}
+
 /// Opens newly discovered Raw HID devices without interrupting active readers.
 fn enumerate_raw_hid_devices<S: LayerEventSink + 'static>(
     sink: &S,
     active_paths: &Arc<Mutex<HashSet<String>>>,
+    modeled_keyboard_ids: &Arc<HashSet<u8>>,
     requester: &EnumerationRequester,
 ) {
     let api = match HidApi::new().context("Failed to enumerate HID devices") {
@@ -688,20 +805,15 @@ fn enumerate_raw_hid_devices<S: LayerEventSink + 'static>(
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(path.clone());
         opened += 1;
-        let sink = sink.clone();
-        let active_paths = Arc::clone(active_paths);
-        let requester = requester.clone();
-        // HidDevice is Send but not Sync, so each reader owns its device.
-        thread::spawn(move || {
-            if let Err(error) = receive_from_device(&device, &path, &sink) {
-                warn!("Raw HID reader stopped: {error:#}");
-            }
-            active_paths
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .remove(&path);
-            requester.request();
-        });
+        spawn_raw_hid_reader(
+            device,
+            path,
+            None,
+            sink.clone(),
+            Arc::clone(active_paths),
+            Arc::clone(modeled_keyboard_ids),
+            requester.clone(),
+        );
     }
     if opened > 0 {
         info!("Listening on {opened} new Raw HID device(s)");
@@ -711,9 +823,39 @@ fn enumerate_raw_hid_devices<S: LayerEventSink + 'static>(
     }
 }
 
-fn receive_from_device(device: &HidDevice, path: &str, sink: &impl LayerEventSink) -> Result<()> {
+fn spawn_raw_hid_reader(
+    device: HidDevice,
+    path: String,
+    keyboard_id: Option<u8>,
+    sink: impl LayerEventSink + 'static,
+    active_paths: Arc<Mutex<HashSet<String>>>,
+    modeled_keyboard_ids: Arc<HashSet<u8>>,
+    requester: EnumerationRequester,
+) {
+    // HidDevice is Send but not Sync, so each reader owns its device.
+    thread::spawn(move || {
+        if let Err(error) =
+            receive_from_device(&device, &path, keyboard_id, &modeled_keyboard_ids, &sink)
+        {
+            warn!("Raw HID reader stopped: {error:#}");
+        }
+        active_paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&path);
+        requester.request();
+    });
+}
+
+fn receive_from_device(
+    device: &HidDevice,
+    path: &str,
+    mut keyboard_id: Option<u8>,
+    modeled_keyboard_ids: &HashSet<u8>,
+    sink: &impl LayerEventSink,
+) -> Result<()> {
     let mut report = [0_u8; 33];
-    let mut keyboard_id = None;
+    let mut warned_keyboard_ids = HashSet::new();
     loop {
         let length = match device.read_timeout(&mut report, READ_TIMEOUT) {
             Ok(length) => length,
@@ -735,6 +877,15 @@ fn receive_from_device(device: &HidDevice, path: &str, sink: &impl LayerEventSin
             }
             continue;
         };
+        if !layer_event_matches_startup(modeled_keyboard_ids, keyboard_id, event.keyboard_id) {
+            if warned_keyboard_ids.insert(event.keyboard_id) {
+                warn!(
+                    "Ignoring layer events for keyboard {} because this HID device has no matching startup model",
+                    event.keyboard_id
+                );
+            }
+            continue;
+        }
         info!(
             "Layer event: keyboard={} layer={} pressed={}",
             event.keyboard_id, event.layer, event.pressed
@@ -744,6 +895,15 @@ fn receive_from_device(device: &HidDevice, path: &str, sink: &impl LayerEventSin
             return Ok(());
         }
     }
+}
+
+fn layer_event_matches_startup(
+    modeled_keyboard_ids: &HashSet<u8>,
+    keyboard_id: Option<u8>,
+    event_keyboard_id: u8,
+) -> bool {
+    modeled_keyboard_ids.contains(&event_keyboard_id)
+        && keyboard_id.is_none_or(|expected| expected == event_keyboard_id)
 }
 
 struct RotatingLogWriter {
@@ -919,6 +1079,8 @@ mod tests {
                 keyboard_id: 12,
                 layer: 3,
             }),
+            Vec::new(),
+            std::iter::empty(),
         );
 
         assert!(!source.uses_raw_hid());
@@ -930,6 +1092,116 @@ mod tests {
                 pressed: true,
             }))
         );
+    }
+
+    #[test]
+    fn startup_layer_events_are_replayed_in_cross_device_order() {
+        let (sender, receiver) = mpsc::channel();
+        let first_device_event = RawLayerEvent {
+            keyboard_id: 2,
+            layer: 3,
+            pressed: true,
+        };
+        let second_device_event = RawLayerEvent {
+            keyboard_id: 9,
+            layer: 2,
+            pressed: true,
+        };
+        let device_events = vec![
+            (
+                2,
+                vec![
+                    StartupLayerEvent {
+                        sequence: 2,
+                        event: first_device_event,
+                    },
+                    StartupLayerEvent {
+                        sequence: 3,
+                        event: RawLayerEvent {
+                            keyboard_id: 9,
+                            layer: 4,
+                            pressed: true,
+                        },
+                    },
+                ],
+            ),
+            (
+                9,
+                vec![StartupLayerEvent {
+                    sequence: 1,
+                    event: second_device_event,
+                }],
+            ),
+        ];
+
+        replay_startup_layer_events(&ChannelSink(sender), device_events);
+
+        assert_eq!(
+            receiver.try_iter().collect::<Vec<_>>(),
+            vec![
+                LayerEvent::Report(second_device_event),
+                LayerEvent::Report(first_device_event),
+            ]
+        );
+    }
+
+    #[test]
+    fn startup_layer_events_keep_each_devices_internal_order() {
+        let (sender, receiver) = mpsc::channel();
+        let events = vec![
+            RawLayerEvent {
+                keyboard_id: 2,
+                layer: 1,
+                pressed: true,
+            },
+            RawLayerEvent {
+                keyboard_id: 2,
+                layer: 3,
+                pressed: true,
+            },
+        ];
+
+        replay_startup_layer_events(
+            &ChannelSink(sender),
+            [(
+                2,
+                events
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(sequence, event)| StartupLayerEvent {
+                        sequence: sequence as u64,
+                        event,
+                    })
+                    .collect(),
+            )],
+        );
+
+        assert_eq!(
+            receiver.try_iter().collect::<Vec<_>>(),
+            events
+                .into_iter()
+                .map(LayerEvent::Report)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn live_layer_events_require_a_matching_startup_model_and_device() {
+        let modeled_keyboard_ids = HashSet::from([2, 3]);
+
+        assert!(layer_event_matches_startup(&modeled_keyboard_ids, None, 2));
+        assert!(layer_event_matches_startup(
+            &modeled_keyboard_ids,
+            Some(2),
+            2
+        ));
+        assert!(!layer_event_matches_startup(&modeled_keyboard_ids, None, 9));
+        assert!(!layer_event_matches_startup(
+            &modeled_keyboard_ids,
+            Some(2),
+            3
+        ));
     }
 
     #[test]

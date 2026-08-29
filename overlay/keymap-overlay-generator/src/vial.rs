@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, bail};
 use hidapi::HidDevice;
-use keymap_core::RAW_HID_REPORT_MAGIC;
+use keymap_core::{RAW_HID_REPORT_MAGIC, RawLayerEvent, parse_raw_layer_event};
 use lzma_rust2::XzReader;
 use serde_json::Value;
 use std::cmp::min;
@@ -13,6 +13,7 @@ pub const USAGE_PAGE: u16 = 0xFF60;
 pub const USAGE_ID: u16 = 0x61;
 
 const MESSAGE_LENGTH: usize = 32;
+const MAX_INPUT_MESSAGE_LENGTH: usize = MESSAGE_LENGTH + 1;
 const VIA_UNHANDLED: u8 = 0xFF;
 const CMD_VIA_GET_PROTOCOL_VERSION: u8 = 0x01;
 const CMD_VIA_VIAL_PREFIX: u8 = 0xFE;
@@ -41,23 +42,12 @@ pub struct DeviceModel {
 
 /// Reads one device's Vial metadata, dynamic keymap and encoder bindings.
 pub fn read_device_model(device: &HidDevice, encoder_count: usize) -> Result<DeviceModel> {
-    let definition = read_device_definition(device)?;
-    read_device_model_with_definition(device, definition, encoder_count)
+    read_device_model_recording_events(device, encoder_count, &mut |_| {})
 }
 
 /// Reads and validates the Vial definition embedded in one device.
 pub fn read_device_definition(device: &HidDevice) -> Result<Value> {
-    let via_request = [CMD_VIA_GET_PROTOCOL_VERSION];
-    let via_version = send_recv(device, &via_request)?;
-    if is_unhandled_response(&via_version, &via_request) {
-        bail!("Connected device does not implement the VIA protocol");
-    }
-    let keyboard_id_request = [CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_KEYBOARD_ID];
-    let keyboard_id = send_recv(device, &keyboard_id_request)?;
-    if is_unhandled_response(&keyboard_id, &keyboard_id_request) {
-        bail!("Connected device does not implement the Vial protocol");
-    }
-    read_definition(device)
+    read_device_definition_recording_events(device, &mut |_| {})
 }
 
 /// Reads dynamic Vial state using an already-fetched embedded definition.
@@ -66,8 +56,39 @@ pub fn read_device_model_with_definition(
     definition: Value,
     encoder_count: usize,
 ) -> Result<DeviceModel> {
+    read_device_model_with_definition_recording_events(
+        device,
+        definition,
+        encoder_count,
+        &mut |_| {},
+    )
+}
+
+pub(crate) fn read_device_definition_recording_events(
+    device: &HidDevice,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+) -> Result<Value> {
+    let via_request = [CMD_VIA_GET_PROTOCOL_VERSION];
+    let via_version = send_recv(device, &via_request, on_layer_event)?;
+    if is_unhandled_response(&via_version, &via_request) {
+        bail!("Connected device does not implement the VIA protocol");
+    }
+    let keyboard_id_request = [CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_KEYBOARD_ID];
+    let keyboard_id = send_recv(device, &keyboard_id_request, on_layer_event)?;
+    if is_unhandled_response(&keyboard_id, &keyboard_id_request) {
+        bail!("Connected device does not implement the Vial protocol");
+    }
+    read_definition(device, on_layer_event)
+}
+
+pub(crate) fn read_device_model_with_definition_recording_events(
+    device: &HidDevice,
+    definition: Value,
+    encoder_count: usize,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+) -> Result<DeviceModel> {
     let layer_count_request = [CMD_VIA_GET_LAYER_COUNT];
-    let layer_count_response = send_recv(device, &layer_count_request)?;
+    let layer_count_response = send_recv(device, &layer_count_request, on_layer_event)?;
     if is_unhandled_response(&layer_count_response, &layer_count_request) {
         bail!("Device does not expose a Vial layer count");
     }
@@ -83,9 +104,15 @@ pub fn read_device_model_with_definition(
     if encoder_count > usize::from(u8::MAX) + 1 {
         bail!("Device configuration has too many encoders for the Vial protocol");
     }
-    let keycodes = read_keycodes(device, layer_count, matrix_rows, matrix_cols)?;
+    let keycodes = read_keycodes(
+        device,
+        layer_count,
+        matrix_rows,
+        matrix_cols,
+        on_layer_event,
+    )?;
     let encoders = (0..layer_count)
-        .map(|layer| read_encoders(device, layer, encoder_count))
+        .map(|layer| read_encoders(device, layer, encoder_count, on_layer_event))
         .collect::<Result<_>>()?;
 
     Ok(DeviceModel {
@@ -98,6 +125,20 @@ pub fn read_device_model_with_definition(
     })
 }
 
+fn read_device_model_recording_events(
+    device: &HidDevice,
+    encoder_count: usize,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+) -> Result<DeviceModel> {
+    let definition = read_device_definition_recording_events(device, on_layer_event)?;
+    read_device_model_with_definition_recording_events(
+        device,
+        definition,
+        encoder_count,
+        on_layer_event,
+    )
+}
+
 fn matrix_dimension(matrix: &Value, name: &str) -> Result<u8> {
     let dimension = matrix[name]
         .as_u64()
@@ -105,11 +146,18 @@ fn matrix_dimension(matrix: &Value, name: &str) -> Result<u8> {
     u8::try_from(dimension).with_context(|| format!("matrix/{name} exceeds Vial's supported range"))
 }
 
-fn read_definition(device: &HidDevice) -> Result<Value> {
+fn read_definition(
+    device: &HidDevice,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+) -> Result<Value> {
     // This Vial command returns a raw little-endian size with no status byte.
     // A valid size can therefore begin with 0xFF; the keyboard-id handshake
     // above is what establishes that the device supports Vial.
-    let size_response = send_recv(device, &[CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_SIZE])?;
+    let size_response = send_recv(
+        device,
+        &[CMD_VIA_VIAL_PREFIX, CMD_VIAL_GET_SIZE],
+        on_layer_event,
+    )?;
     let size = definition_size(&size_response);
     if size == 0 {
         bail!("Device reports an empty Vial definition");
@@ -131,6 +179,7 @@ fn read_definition(device: &HidDevice) -> Result<Value> {
                 (block >> 16) as u8,
                 (block >> 24) as u8,
             ],
+            on_layer_event,
         )?;
         let remaining = size.saturating_sub(compressed.len());
         compressed.extend_from_slice(&response[..min(remaining, MESSAGE_LENGTH)]);
@@ -150,7 +199,13 @@ fn read_definition(device: &HidDevice) -> Result<Value> {
     serde_json::from_slice(&decoded).context("Failed to parse the device's Vial definition")
 }
 
-fn read_keycodes(device: &HidDevice, layers: u8, rows: u8, cols: u8) -> Result<Vec<u16>> {
+fn read_keycodes(
+    device: &HidDevice,
+    layers: u8,
+    rows: u8,
+    cols: u8,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+) -> Result<Vec<u16>> {
     let size = keymap_byte_len(layers, rows, cols)?;
     let mut bytes = Vec::with_capacity(size);
     let mut offset = 0_usize;
@@ -162,7 +217,7 @@ fn read_keycodes(device: &HidDevice, layers: u8, rows: u8, cols: u8) -> Result<V
             offset as u8,
             chunk as u8,
         ];
-        let response = send_recv(device, &request)?;
+        let response = send_recv(device, &request, on_layer_event)?;
         if is_unhandled_response(&response, &request) {
             bail!("Device rejected Vial keymap read at byte offset {offset}");
         }
@@ -187,7 +242,12 @@ fn keymap_byte_len(layers: u8, rows: u8, cols: u8) -> Result<usize> {
     Ok(byte_len)
 }
 
-fn read_encoders(device: &HidDevice, layer: u8, count: usize) -> Result<Vec<[u16; 2]>> {
+fn read_encoders(
+    device: &HidDevice,
+    layer: u8,
+    count: usize,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+) -> Result<Vec<[u16; 2]>> {
     (0..count)
         .map(|index| {
             let request = [
@@ -196,7 +256,7 @@ fn read_encoders(device: &HidDevice, layer: u8, count: usize) -> Result<Vec<[u16
                 layer,
                 index as u8,
             ];
-            let response = send_recv(device, &request)?;
+            let response = send_recv(device, &request, on_layer_event)?;
             if is_unhandled_response(&response, &request)
                 || response_matches_request(&response, &request)
             {
@@ -228,7 +288,11 @@ fn response_matches_request(response: &[u8; MESSAGE_LENGTH], request: &[u8]) -> 
     response[..request.len()] == *request && response[request.len()..].iter().all(|byte| *byte == 0)
 }
 
-fn send_recv(device: &HidDevice, request: &[u8]) -> Result<[u8; MESSAGE_LENGTH]> {
+fn send_recv(
+    device: &HidDevice,
+    request: &[u8],
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+) -> Result<[u8; MESSAGE_LENGTH]> {
     if request.len() > MESSAGE_LENGTH {
         bail!("Vial request exceeds the {MESSAGE_LENGTH}-byte HID report size");
     }
@@ -245,39 +309,92 @@ fn send_recv(device: &HidDevice, request: &[u8]) -> Result<[u8; MESSAGE_LENGTH]>
             bail!("Timed out waiting for a Vial response");
         }
         let timeout_ms = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
-        let mut response = [0; MESSAGE_LENGTH];
+        let mut response = [0; MAX_INPUT_MESSAGE_LENGTH];
         let response_len = device
             .read_timeout(&mut response, timeout_ms)
             .context("Failed while waiting for a Vial response")?;
-        if let Some(response) = classify_vial_response(response, response_len)? {
+        if let Some(response) =
+            classify_vial_response(response, response_len, on_layer_event, || {
+                hid_device_identity(device)
+            })?
+        {
             return Ok(response);
         }
     }
 }
 
 fn classify_vial_response(
-    response: [u8; MESSAGE_LENGTH],
+    response: [u8; MAX_INPUT_MESSAGE_LENGTH],
     response_len: usize,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+    device_identity: impl FnOnce() -> String,
 ) -> Result<Option<[u8; MESSAGE_LENGTH]>> {
     if response_len == 0 {
         bail!("Timed out waiting for a Vial response");
     }
-    if response_len != MESSAGE_LENGTH {
-        bail!("Incomplete Vial response: expected {MESSAGE_LENGTH} bytes, received {response_len}");
-    }
+    let response = normalize_input_report(response, response_len).with_context(|| {
+        format!(
+            "Failed to normalize a Vial response from {}",
+            device_identity()
+        )
+    })?;
     if response.starts_with(&RAW_HID_REPORT_MAGIC)
         && matches!(response[6], 0 | 1)
         && response[7..].iter().all(|byte| *byte == 0)
     {
+        if let Some(event) = parse_raw_layer_event(&response) {
+            on_layer_event(event);
+        }
         return Ok(None);
     }
     Ok(Some(response))
+}
+
+fn hid_device_identity(device: &HidDevice) -> String {
+    match device.get_device_info() {
+        Ok(info) => format!(
+            "HID device {:04x}:{:04x} at {:?}",
+            info.vendor_id(),
+            info.product_id(),
+            info.path()
+        ),
+        Err(error) => format!("HID device with unavailable identity ({error})"),
+    }
+}
+
+fn normalize_input_report(
+    report: [u8; MAX_INPUT_MESSAGE_LENGTH],
+    report_len: usize,
+) -> Result<[u8; MESSAGE_LENGTH]> {
+    let payload = match report_len {
+        MESSAGE_LENGTH => &report[..MESSAGE_LENGTH],
+        MAX_INPUT_MESSAGE_LENGTH => &report[1..MAX_INPUT_MESSAGE_LENGTH],
+        _ => {
+            bail!(
+                "Incomplete Vial response: expected {MESSAGE_LENGTH} or {MAX_INPUT_MESSAGE_LENGTH} bytes, received {report_len}"
+            )
+        }
+    };
+    let mut normalized = [0; MESSAGE_LENGTH];
+    normalized.copy_from_slice(payload);
+    Ok(normalized)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn classify_test_response(
+        response: [u8; MAX_INPUT_MESSAGE_LENGTH],
+        response_len: usize,
+        layer_events: &mut Vec<RawLayerEvent>,
+    ) -> Result<Option<[u8; MESSAGE_LENGTH]>> {
+        let mut record_event = |event| layer_events.push(event);
+        classify_vial_response(response, response_len, &mut record_event, || {
+            "HID device 0000:0000 at test-path".to_owned()
+        })
+    }
 
     #[test]
     fn decodes_vial_keymap_bytes_as_big_endian_keycodes() {
@@ -338,31 +455,87 @@ mod tests {
     }
 
     #[test]
-    fn ignores_unsolicited_layer_events_while_waiting_for_vial() {
-        let mut layer_event = [0; MESSAGE_LENGTH];
+    fn preserves_unsolicited_layer_events_while_waiting_for_vial() {
+        let mut layer_event = [0; MAX_INPUT_MESSAGE_LENGTH];
         layer_event[..7].copy_from_slice(&[b'K', b'M', b'O', 1, 2, 3, 1]);
+        let mut layer_events = Vec::new();
 
         assert_eq!(
-            classify_vial_response(layer_event, MESSAGE_LENGTH).unwrap(),
+            classify_test_response(layer_event, MESSAGE_LENGTH, &mut layer_events).unwrap(),
             None
+        );
+        assert_eq!(
+            layer_events,
+            vec![RawLayerEvent {
+                keyboard_id: 2,
+                layer: 3,
+                pressed: true,
+            }]
+        );
+    }
+
+    #[test]
+    fn preserves_report_id_prefixed_layer_events_while_waiting_for_vial() {
+        let mut layer_event = [0; MAX_INPUT_MESSAGE_LENGTH];
+        layer_event[1..8].copy_from_slice(&[b'K', b'M', b'O', 1, 2, 3, 0]);
+        let mut layer_events = Vec::new();
+
+        assert_eq!(
+            classify_test_response(layer_event, MAX_INPUT_MESSAGE_LENGTH, &mut layer_events)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            layer_events,
+            vec![RawLayerEvent {
+                keyboard_id: 2,
+                layer: 3,
+                pressed: false,
+            }]
         );
     }
 
     #[test]
     fn accepts_complete_non_layer_reports_as_vial_responses() {
-        let mut response = [0; MESSAGE_LENGTH];
+        let mut response = [0; MAX_INPUT_MESSAGE_LENGTH];
         response[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+        let mut layer_events = Vec::new();
+        let mut expected = [0; MESSAGE_LENGTH];
+        expected[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
 
         assert_eq!(
-            classify_vial_response(response, MESSAGE_LENGTH).unwrap(),
-            Some(response)
+            classify_test_response(response, MESSAGE_LENGTH, &mut layer_events).unwrap(),
+            Some(expected)
         );
+        assert!(layer_events.is_empty());
+    }
+
+    #[test]
+    fn accepts_report_id_prefixed_vial_responses() {
+        let mut response = [0; MAX_INPUT_MESSAGE_LENGTH];
+        response[1..4].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+        let mut expected = [0; MESSAGE_LENGTH];
+        expected[..3].copy_from_slice(&[CMD_VIA_GET_PROTOCOL_VERSION, 0, 9]);
+        let mut layer_events = Vec::new();
+
+        assert_eq!(
+            classify_test_response(response, MAX_INPUT_MESSAGE_LENGTH, &mut layer_events).unwrap(),
+            Some(expected)
+        );
+        assert!(layer_events.is_empty());
     }
 
     #[test]
     fn rejects_incomplete_reports_while_waiting_for_vial() {
-        let error = classify_vial_response([0; MESSAGE_LENGTH], MESSAGE_LENGTH - 1).unwrap_err();
+        let error = classify_test_response(
+            [0; MAX_INPUT_MESSAGE_LENGTH],
+            MESSAGE_LENGTH - 1,
+            &mut Vec::new(),
+        )
+        .unwrap_err();
 
-        assert!(error.to_string().contains("Incomplete Vial response"));
+        let message = format!("{error:#}");
+        assert!(message.contains("Incomplete Vial response"));
+        assert!(message.contains("HID device 0000:0000 at test-path"));
     }
 }
