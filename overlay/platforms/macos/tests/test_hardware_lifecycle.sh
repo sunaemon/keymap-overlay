@@ -81,9 +81,13 @@ candidate_installed=true
 launchctl print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null
 log_start="$(( $(wc -l <"$LOG") + 1 ))"
 "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$LAYER" --state press
-wait_for_log "$log_start" "show keyboard=$KEYBOARD_ID layers=[$LAYER]"
+wait_for_log \
+  "$log_start" \
+  "Layer event: keyboard=$KEYBOARD_ID layer=$LAYER pressed=true"
 "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$LAYER" --state release
-wait_for_log "$log_start" "hide size=1x1"
+wait_for_log \
+  "$log_start" \
+  "Layer event: keyboard=$KEYBOARD_ID layer=$LAYER pressed=false"
 printf 'PASS: live upgrade from %s\n' "$PREVIOUS_VERSION"
 
 make -C "$ROOT" test-release-acceptance-macos
