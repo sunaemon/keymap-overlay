@@ -10,7 +10,7 @@ OVERLAY_LABEL=com.sunaemon.keymap-overlay
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 TEMPLATE="$ROOT/overlay/platforms/macos/tests/login_hil.plist"
 DRIVER="$ROOT/target/release/keymap-overlay-hil"
-UI_PROBE="$ROOT/target/hil/keymap-overlay-macos-hil-ui"
+UI_PROBE_APP="$ROOT/target/hil/KeymapOverlayHIL.app"
 HIL_LOG_DIR="${KMO_HIL_LOG_DIR:-$HOME/.local/var/log/keymap-overlay/hil}"
 RESULT="$HIL_LOG_DIR/macos-login-result.txt"
 STDOUT_LOG="$HIL_LOG_DIR/macos-login.out.log"
@@ -24,6 +24,21 @@ fail() {
   exit 1
 }
 
+run_ui_probe() {
+  local expected=$1
+  local output error
+  shift
+  output="$(mktemp "$HIL_LOG_DIR/macos-login-ui.XXXXXX.out")"
+  error="$(mktemp "$HIL_LOG_DIR/macos-login-ui.XXXXXX.err")"
+  if ! open -W -n -o "$output" --stderr "$error" "$UI_PROBE_APP" --args "$@"; then
+    cat "$output" "$error"
+    fail "LaunchServices could not run the HIL UI app"
+  fi
+  cat "$output" "$error"
+  grep -Fqx "$expected" "$output" || \
+    fail "The HIL UI app did not report a successful result"
+}
+
 prepare() {
   local request_logout=${1:-}
   [[ "$(uname -s)" == Darwin ]] || fail "This test requires macOS"
@@ -32,7 +47,7 @@ prepare() {
 
   mkdir -p "$HIL_LOG_DIR" "$ROOT/target/hil" "$HOME/Library/LaunchAgents"
   make -C "$ROOT" build-hil-macos
-  "$UI_PROBE" --check-accessibility
+  run_ui_probe "Accessibility permission is available" --check-accessibility
   "$DRIVER" probe --keyboard-id "$KEYBOARD_ID"
   make -C "$ROOT" install-overlay
 
@@ -84,7 +99,7 @@ after_login() {
   done
   [[ "${overlay_pid:-}" =~ ^[0-9]+$ ]] || fail "Overlay did not start after sign-in"
 
-  "$UI_PROBE" \
+  run_ui_probe "macOS Accessibility HIL checks passed" \
     --overlay-pid "$overlay_pid" \
     --driver "$DRIVER" \
     --keyboard-id "$keyboard_id" \

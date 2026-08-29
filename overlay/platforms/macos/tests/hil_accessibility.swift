@@ -5,6 +5,8 @@ import AppKit
 import ApplicationServices
 import Foundation
 
+private let idleWindowServerSize = 10.0
+
 private struct Configuration {
     let overlayPID: pid_t
     let driver: String
@@ -87,7 +89,7 @@ private final class Runner {
         }
         window = ProbeWindow(
             contentRect: screen.frame,
-            styleMask: [.borderless],
+            styleMask: [.titled, .resizable],
             backing: .buffered,
             defer: false)
         window.level = .normal
@@ -104,10 +106,30 @@ private final class Runner {
             throw Failure(
                 "Accessibility permission is required for the stable HIL UI binary")
         }
-        window.makeKeyAndOrderFront(nil)
+        guard CGPreflightPostEventAccess() else {
+            throw Failure("Accessibility permission does not allow posting pointer events")
+        }
+        guard NSApp.activationPolicy() == .regular else {
+            throw Failure("The focus probe could not adopt a regular activation policy")
+        }
         NSApp.activate(ignoringOtherApps: true)
+        pumpRunLoop(for: 0.1)
+        window.makeKeyAndOrderFront(nil)
+        window.makeKey()
         window.makeFirstResponder(textField)
-        pumpRunLoop(for: 0.5)
+        let focusDeadline = Date().addingTimeInterval(2)
+        repeat {
+            pumpRunLoop(for: 0.1)
+        } while (!window.isKeyWindow || window.firstResponder !== textField.currentEditor())
+            && Date() < focusDeadline
+        guard window.isKeyWindow, window.firstResponder === textField.currentEditor() else {
+            throw Failure(
+                "The focus probe could not establish its initial field focus "
+                    + "(frontmost=\(String(describing: NSWorkspace.shared.frontmostApplication?.processIdentifier)), "
+                    + "pid=\(getpid()), key=\(window.isKeyWindow), "
+                    + "responder=\(String(describing: window.firstResponder)), "
+                    + "editor=\(String(describing: textField.currentEditor())))")
+        }
 
         try sendLayer(state: "press")
         let overlay = try waitForOverlay(visible: true)
@@ -142,15 +164,23 @@ private final class Runner {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid() else {
             throw Failure("The overlay took application focus")
         }
-        guard window.isKeyWindow, window.firstResponder === textField.currentEditor() else {
-            throw Failure("The overlay moved focus away from the text field")
+        let editor = textField.currentEditor()
+        guard window.isKeyWindow, window.firstResponder === editor else {
+            throw Failure(
+                "The overlay moved focus away from the text field "
+                    + "(key=\(window.isKeyWindow), responder=\(String(describing: window.firstResponder)), "
+                    + "editor=\(String(describing: editor)))")
         }
 
-        let marker = "focus-through-overlay"
-        postText(marker)
+        let marker = "a"
+        postText(marker, windowNumber: window.windowNumber)
         pumpRunLoop(for: 0.25)
         guard textField.stringValue == marker else {
-            throw Failure("Injected typing did not remain in the focused text field")
+            throw Failure(
+                "Posted typing did not remain in the focused text field "
+                    + "(active=\(NSApp.isActive), key=\(window.isKeyWindow), "
+                    + "frontmost=\(String(describing: NSWorkspace.shared.frontmostApplication?.processIdentifier)), "
+                    + "value=\(textField.stringValue))")
         }
     }
 
@@ -247,11 +277,19 @@ private final class Runner {
     private func waitForOverlay(visible: Bool) throws -> WindowRecord {
         let deadline = Date().addingTimeInterval(5)
         repeat {
-            if let record = windowList().first(where: { $0.pid == configuration.overlayPID }) {
-                let isVisible = record.bounds.width > 1 && record.bounds.height > 1
+            let record = windowList().first(where: { $0.pid == configuration.overlayPID })
+            if let record {
+                let isVisible =
+                    record.bounds.width > idleWindowServerSize
+                    || record.bounds.height > idleWindowServerSize
                 if isVisible == visible {
                     return record
                 }
+            } else if !visible {
+                return WindowRecord(
+                    pid: configuration.overlayPID,
+                    number: 0,
+                    bounds: .zero)
             }
             pumpRunLoop(for: 0.05)
         } while Date() < deadline
@@ -311,18 +349,24 @@ private func accessibilityStrings(in element: AXUIElement, depth: Int) -> [Strin
     return strings
 }
 
-private func postText(_ text: String) {
-    let characters = Array(text.utf16)
-    characters.withUnsafeBufferPointer { buffer in
-        for keyDown in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: keyDown) else {
-                continue
-            }
-            event.keyboardSetUnicodeString(
-                stringLength: characters.count,
-                unicodeString: buffer.baseAddress)
-            event.post(tap: .cghidEventTap)
+private func postText(_ text: String, windowNumber: Int) {
+    for type in [NSEvent.EventType.keyDown, NSEvent.EventType.keyUp] {
+        guard
+            let event = NSEvent.keyEvent(
+                with: type,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: text,
+                charactersIgnoringModifiers: text,
+                isARepeat: false,
+                keyCode: 0)
+        else {
+            continue
         }
+        NSApp.postEvent(event, atStart: false)
     }
 }
 
@@ -337,7 +381,19 @@ private func postMouseClick(at point: CGPoint) {
 }
 
 private func pumpRunLoop(for seconds: TimeInterval) {
-    RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    let deadline = Date().addingTimeInterval(seconds)
+    repeat {
+        guard
+            let event = NSApp.nextEvent(
+                matching: .any,
+                until: deadline,
+                inMode: .default,
+                dequeue: true)
+        else {
+            continue
+        }
+        NSApp.sendEvent(event)
+    } while Date() < deadline
 }
 
 private func fail(_ error: Error) -> Never {

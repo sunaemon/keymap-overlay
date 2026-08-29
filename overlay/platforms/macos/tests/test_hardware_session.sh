@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 DRIVER="$ROOT/target/release/keymap-overlay-hil"
-UI_PROBE="$ROOT/target/hil/keymap-overlay-macos-hil-ui"
+UI_PROBE_APP="$ROOT/target/hil/KeymapOverlayHIL.app"
 KEYBOARD_ID="${KMO_HIL_KEYBOARD_ID:-1}"
 SECONDARY_KEYBOARD_ID="${KMO_HIL_SECONDARY_KEYBOARD_ID:-2}"
 PRIMARY_LAYER="${KMO_HIL_PRIMARY_LAYER:-1}"
@@ -40,6 +40,21 @@ stop_overlay() {
   esac
 }
 
+run_ui_probe() {
+  local expected=$1
+  local output error
+  shift
+  output="$(mktemp "$TRANSCRIPT_DIR/macos-ui-probe.XXXXXX.out")"
+  error="$(mktemp "$TRANSCRIPT_DIR/macos-ui-probe.XXXXXX.err")"
+  if ! open -W -n -o "$output" --stderr "$error" "$UI_PROBE_APP" --args "$@"; then
+    cat "$output" "$error"
+    fail "LaunchServices could not run the HIL UI app"
+  fi
+  cat "$output" "$error"
+  grep -Fqx "$expected" "$output" || \
+    fail "The HIL UI app did not report a successful result"
+}
+
 restore_live_keymap() {
   local status=$?
   set +e
@@ -65,7 +80,7 @@ trap restore_live_keymap EXIT
 
 printf 'Candidate: %s\n' "$(git -C "$ROOT" rev-parse HEAD)"
 make -C "$ROOT" build-hil-macos
-"$UI_PROBE" --check-accessibility
+run_ui_probe "Accessibility permission is available" --check-accessibility
 
 "$DRIVER" devices
 "$DRIVER" probe --keyboard-id "$KEYBOARD_ID"
@@ -107,7 +122,7 @@ if grep -Eqi 'failed to (open|read)|Vial.*error|model.*error|Raw HID.*error' <<<
   fail "The current overlay start logged a device/model error"
 fi
 
-"$UI_PROBE" \
+run_ui_probe "macOS Accessibility HIL checks passed" \
   --overlay-pid "$overlay_pid" \
   --driver "$DRIVER" \
   --keyboard-id "$KEYBOARD_ID" \
