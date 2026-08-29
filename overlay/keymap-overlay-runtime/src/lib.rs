@@ -9,8 +9,8 @@ use keymap_core::{
 };
 pub use keymap_core::{LayerEvent, RawLayerEvent};
 use keymap_overlay_generator::StartupLayerEvent;
+pub use keymap_overlay_generator::types::{DisplayEncoder, DisplayKey, OverlayModel};
 use log::{error, info, warn};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
@@ -219,7 +219,7 @@ fn simulated_models(simulated: SimulatedLayer) -> ModelCache {
 }
 
 /// Reads every connected keyboard and retains layer reports interleaved with Vial responses.
-pub fn load_live_models() -> Result<StartupModels> {
+fn load_live_models() -> Result<StartupModels> {
     #[cfg(target_os = "macos")]
     let platform = keymap_overlay_generator::labels::Platform::Macos;
     #[cfg(target_os = "linux")]
@@ -244,10 +244,8 @@ pub fn load_live_models() -> Result<StartupModels> {
         {
             anyhow::bail!("More than one connected keyboard uses KEYBOARD_ID {keyboard_id}");
         }
-        let serialized = serde_json::to_value(generated)?;
-        let keyboard_models: KeyboardModels = serde_json::from_value(serialized)?;
         models.extend(
-            keyboard_models
+            generated
                 .layers
                 .into_iter()
                 .map(|(layer, model)| ((keyboard_id, layer), model)),
@@ -294,61 +292,7 @@ pub trait LayerEventSink: Clone + Send {
     fn send(&self, event: LayerEvent) -> bool;
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct OverlayModel {
-    pub version: u8,
-    pub layer: u8,
-    pub width: u32,
-    pub height: u32,
-    pub header_font_size: f64,
-    pub key_font_size: f64,
-    pub encoder_font_size: f64,
-    pub keys: Vec<DisplayKey>,
-    pub encoders: Vec<DisplayEncoder>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct DisplayKey {
-    pub x: u32,
-    pub y: u32,
-    pub width: u32,
-    pub height: u32,
-    pub label: Vec<String>,
-    pub held: bool,
-    #[serde(default)]
-    pub transparent: bool,
-    #[serde(default)]
-    pub momentary_layer: Option<u8>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct DisplayEncoder {
-    pub x: u32,
-    pub y: u32,
-    pub size: u32,
-    pub counter_clockwise: Vec<String>,
-    pub clockwise: Vec<String>,
-    pub press: String,
-    pub held: bool,
-    #[serde(default)]
-    pub counter_clockwise_transparent: bool,
-    #[serde(default)]
-    pub clockwise_transparent: bool,
-    #[serde(default)]
-    pub press_transparent: bool,
-    #[serde(default)]
-    pub momentary_layer: Option<u8>,
-}
-
 pub type ModelCache = HashMap<(u8, u8), OverlayModel>;
-
-/// One keyboard's installed `<keyboard_id>.json`: every layer in one file, since
-/// a keyboard's layers are generated, installed, and read together.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct KeyboardModels {
-    keyboard_id: u8,
-    layers: HashMap<u8, OverlayModel>,
-}
 
 /// Coalesces platform arrival notifications into listener enumerations.
 #[derive(Clone)]
@@ -1068,6 +1012,24 @@ mod tests {
 
         assert!(requester.request());
         assert_eq!(receiver.try_recv(), Ok(()));
+    }
+
+    #[test]
+    fn simulated_startup_uses_only_in_memory_models() {
+        let simulated = SimulatedLayer {
+            keyboard_id: 12,
+            layer: 3,
+        };
+
+        let startup = startup_models(Some(simulated)).expect("simulation startup succeeds");
+
+        assert!(startup.raw_hid_devices.is_empty());
+        assert_eq!(
+            startup.models.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([(12, 0), (12, 3)])
+        );
+        assert_eq!(startup.models[&(12, 0)].keys[0].label, ["BASE"]);
+        assert_eq!(startup.models[&(12, 3)].keys[0].label, ["E2E"]);
     }
 
     #[test]

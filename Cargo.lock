@@ -774,7 +774,6 @@ dependencies = [
  "keymap-core",
  "log",
  "lzma-rust2",
- "regex",
  "serde",
  "serde_json",
  "tempfile",
@@ -840,8 +839,6 @@ dependencies = [
  "keymap-core",
  "keymap-overlay-generator",
  "log",
- "serde",
- "serde_json",
  "tempfile",
 ]
 

@@ -14,7 +14,6 @@ from model.src.types import (
     KleLayout,
     KleRow,
     LayoutKey,
-    VialCustomKeycode,
     VialJson,
     VialLayouts,
     VialMatrix,
@@ -23,8 +22,7 @@ from model.src.types import (
 )
 from model.src.util import (
     initialize_logging,
-    parse_custom_keycode_names,
-    parse_custom_keycode_short_names,
+    parse_custom_keycodes,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,9 +100,9 @@ def generate_vial(
         productId=product_id,
         matrix=VialMatrix(rows=matrix_rows, cols=matrix_cols),
         layouts=VialLayouts(keymap=kle_rows),
-        customKeycodes=(
-            _build_custom_keycodes(keymap_c) if keymap_c is not None else None
-        ),
+        customKeycodes=parse_custom_keycodes(keymap_c)
+        if keymap_c is not None
+        else None,
         keymapOverlay=(
             KeymapOverlayMetadata(
                 keyboardId=keyboard_id,
@@ -117,15 +115,6 @@ def generate_vial(
             else None
         ),
     )
-
-
-def _build_custom_keycodes(keymap_c: Path) -> list[VialCustomKeycode]:
-    """Embed each custom keycode's identity so the device is self-describing."""
-    short_names = parse_custom_keycode_short_names(keymap_c)
-    return [
-        VialCustomKeycode(name=name, shortName=short_names.get(name, ""))
-        for name in parse_custom_keycode_names(keymap_c)
-    ]
 
 
 def _group_layout_rows(layout_data: list[LayoutKey]) -> dict[float, list[LayoutKey]]:

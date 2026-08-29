@@ -463,11 +463,35 @@ mod tests {
     }
 
     #[test]
-    fn full_vial_definition_preserves_custom_keycode_names() {
-        let definition = serde_json::json!({
-            "customKeycodes": [{ "name": "KC_ALPHA", "shortName": "α" }]
-        });
-        let custom_keycodes = parse_custom_keycodes(&definition).expect("valid Vial metadata");
-        assert_eq!(resolve_keycode(0x7E00, &custom_keycodes), "KC_ALPHA");
+    fn python_generated_vial_contract_builds_expected_labels() {
+        let definition: serde_json::Value =
+            serde_json::from_str(include_str!("../../../model/tests/data/vial-contract.json"))
+                .expect("Python-generated Vial contract fixture");
+        let metadata: KeymapOverlayMetadata =
+            serde_json::from_value(definition["keymapOverlay"].clone())
+                .expect("self-describing overlay metadata");
+        let device_model = vial::DeviceModel {
+            layer_count: 1,
+            matrix_rows: 2,
+            matrix_cols: 2,
+            vial_definition: definition,
+            keycodes: vec![0x7E00, 0x7E01, 0x0000, 0x0000],
+            encoders: vec![vec![]],
+        };
+
+        let models = build_keyboard_models(
+            device_model,
+            &metadata.keyboard,
+            &metadata.config,
+            &metadata.layout_name,
+            metadata.keyboard_id,
+            Platform::Macos,
+            metadata.pixels_per_unit,
+        )
+        .expect("models from the Python-generated contract");
+
+        assert_eq!(models.keyboard_id, 7);
+        assert_eq!(models.layers[&0].keys[0].label, ["α"]);
+        assert_eq!(models.layers[&0].keys[1].label, ["β"]);
     }
 }
