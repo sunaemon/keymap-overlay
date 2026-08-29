@@ -16,6 +16,7 @@ RESULT="$HIL_LOG_DIR/macos-login-result.txt"
 STDOUT_LOG="$HIL_LOG_DIR/macos-login.out.log"
 STDERR_LOG="$HIL_LOG_DIR/macos-login.err.log"
 KEYBOARD_ID="${KMO_HIL_KEYBOARD_ID:-1}"
+SECONDARY_KEYBOARD_ID="${KMO_HIL_SECONDARY_KEYBOARD_ID:-2}"
 PRIMARY_LAYER="${KMO_HIL_PRIMARY_LAYER:-1}"
 SECONDARY_LAYER="${KMO_HIL_SECONDARY_LAYER:-2}"
 
@@ -49,6 +50,7 @@ prepare() {
   make -C "$ROOT" build-hil-macos
   run_ui_probe "Accessibility permission is available" --check-accessibility
   "$DRIVER" probe --keyboard-id "$KEYBOARD_ID"
+  "$DRIVER" probe --keyboard-id "$SECONDARY_KEYBOARD_ID"
   make -C "$ROOT" install-overlay
 
   rm -f "$RESULT" "$STDOUT_LOG" "$STDERR_LOG"
@@ -57,8 +59,9 @@ prepare() {
   plutil -insert ProgramArguments.1 -string after-login "$PLIST"
   plutil -insert ProgramArguments.2 -string "$(git -C "$ROOT" rev-parse HEAD)" "$PLIST"
   plutil -insert ProgramArguments.3 -string "$KEYBOARD_ID" "$PLIST"
-  plutil -insert ProgramArguments.4 -string "$PRIMARY_LAYER" "$PLIST"
-  plutil -insert ProgramArguments.5 -string "$SECONDARY_LAYER" "$PLIST"
+  plutil -insert ProgramArguments.4 -string "$SECONDARY_KEYBOARD_ID" "$PLIST"
+  plutil -insert ProgramArguments.5 -string "$PRIMARY_LAYER" "$PLIST"
+  plutil -insert ProgramArguments.6 -string "$SECONDARY_LAYER" "$PLIST"
   plutil -replace StandardOutPath -string "$STDOUT_LOG" "$PLIST"
   plutil -replace StandardErrorPath -string "$STDERR_LOG" "$PLIST"
   plutil -lint "$PLIST"
@@ -75,17 +78,19 @@ prepare() {
 after_login() {
   local candidate=$1
   local keyboard_id=$2
-  local primary_layer=$3
-  local secondary_layer=$4
+  local secondary_keyboard_id=$3
+  local primary_layer=$4
+  local secondary_layer=$5
   local deadline=$((SECONDS + 90))
 
   while (( SECONDS < deadline )); do
-    if "$DRIVER" probe --keyboard-id "$keyboard_id" >/dev/null 2>&1; then
+    if "$DRIVER" probe --keyboard-id "$keyboard_id" >/dev/null 2>&1 && \
+      "$DRIVER" probe --keyboard-id "$secondary_keyboard_id" >/dev/null 2>&1; then
       break
     fi
     sleep 1
   done
-  (( SECONDS < deadline )) || fail "Keyboard did not become ready after sign-in"
+  (( SECONDS < deadline )) || fail "Keyboards did not become ready after sign-in"
 
   local service_state overlay_pid
   while (( SECONDS < deadline )); do
@@ -103,6 +108,7 @@ after_login() {
     --overlay-pid "$overlay_pid" \
     --driver "$DRIVER" \
     --keyboard-id "$keyboard_id" \
+    --secondary-keyboard-id "$secondary_keyboard_id" \
     --layer "$primary_layer" \
     --secondary-layer "$secondary_layer" \
     --expected-label "L$primary_layer"
@@ -127,7 +133,7 @@ verify() {
 
 case "${1:-prepare}" in
   prepare) prepare "${2:-}" ;;
-  after-login) after_login "$2" "$3" "$4" "$5" ;;
+  after-login) after_login "$2" "$3" "$4" "$5" "$6" ;;
   verify) verify ;;
   *) fail "Expected prepare [--logout], after-login, or verify" ;;
 esac

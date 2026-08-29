@@ -60,6 +60,8 @@ restore_live_keymap() {
   set +e
   "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
   "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$SECONDARY_LAYER" --state release
+  "$DRIVER" layer \
+    --keyboard-id "$SECONDARY_KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
   if $restore_required; then
     stop_overlay
     "$DRIVER" set-keycode \
@@ -126,23 +128,10 @@ run_ui_probe "macOS Accessibility HIL checks passed" \
   --overlay-pid "$overlay_pid" \
   --driver "$DRIVER" \
   --keyboard-id "$KEYBOARD_ID" \
+  --secondary-keyboard-id "$SECONDARY_KEYBOARD_ID" \
   --layer "$PRIMARY_LAYER" \
   --secondary-layer "$SECONDARY_LAYER" \
   --expected-label "$LABEL"
-
-log_start="$(( $(wc -l <"$LOG") + 1 ))"
-"$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state press
-"$DRIVER" layer --keyboard-id "$SECONDARY_KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state press
-sleep 0.25
-tail -n "+$log_start" "$LOG" | \
-  grep -Fq "show keyboard=$SECONDARY_KEYBOARD_ID layers=[$PRIMARY_LAYER]" || \
-  fail "The most recently used keyboard did not own the overlay"
-"$DRIVER" layer --keyboard-id "$SECONDARY_KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
-sleep 0.25
-tail -n "+$log_start" "$LOG" | \
-  grep -Fq "show keyboard=$KEYBOARD_ID layers=[$PRIMARY_LAYER]" || \
-  fail "Releasing the recent keyboard did not restore the still-held keyboard"
-"$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
 
 printf 'PASS: macOS live startup, Vial reread, labels, layer transitions, focus, '\
 'click-through, topmost, attached-display placement, and simultaneous keyboards\n'
