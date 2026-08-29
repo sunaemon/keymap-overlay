@@ -111,7 +111,8 @@ after_login() {
     --secondary-keyboard-id "$secondary_keyboard_id" \
     --layer "$primary_layer" \
     --secondary-layer "$secondary_layer" \
-    --expected-label "L$primary_layer"
+    --expected-label "L$primary_layer" \
+    --skip-encoder-checks true
   printf 'PASS candidate=%s signed_in_at=%s\n' \
     "$candidate" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$RESULT"
 }

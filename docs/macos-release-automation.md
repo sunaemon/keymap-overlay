@@ -25,9 +25,10 @@ corresponding macOS checklist item. Each operation is saved under
 The firmware accepts one versioned VIA custom command. It can emit a KMO layer
 press or release report, or queue a configured encoder index and direction.
 The encoder action resolves the current live Vial binding through QMK's normal
-encoder queue; the request cannot name an arbitrary keycode. It cannot alter
-QMK's active layer, reset EEPROM, enter the bootloader, or detach USB. The
-normal physical `MO` and encoder-driver paths remain unchanged.
+encoder queue; the request cannot directly name an arbitrary keycode. It
+rejects an encoder action whose effective live binding is `QK_BOOT`, so it
+cannot alter QMK's active layer, reset EEPROM, enter the bootloader, or detach
+USB. The normal physical `MO` and encoder-driver paths remain unchanged.
 
 The host driver also exposes the existing Vial get, set, and reset operations
 needed to verify startup rereads and EEPROM persistence. Destructive reset and

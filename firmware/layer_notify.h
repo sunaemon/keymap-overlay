@@ -10,6 +10,12 @@
 #include "encoder.h"
 #endif
 
+#if defined(ENCODER_ENABLE) && defined(ENCODER_MAP_ENABLE)
+#include "action_layer.h"
+#include "keyboard.h"
+#include "keymap_common.h"
+#endif
+
 #ifndef KEYMAP_EEPROM_EPOCH
 #define KEYMAP_EEPROM_EPOCH 0
 #endif
@@ -80,8 +86,9 @@ static inline void keymap_overlay_notify_momentary_layer(uint16_t keycode,
 #ifdef KEYMAP_OVERLAY_HIL_ENABLE
 // Accepts deterministic overlay-report requests and, on encoder keyboards,
 // encoder indices that enter the same bounded queue as physical rotation. It
-// cannot choose an arbitrary keycode, change the active QMK layer, write
-// EEPROM, or enter the bootloader.
+// cannot choose an arbitrary keycode, change the active QMK layer, or write
+// EEPROM. Reject the effective QK_BOOT binding before queueing an encoder
+// event, so this command cannot enter the bootloader through the live keymap.
 void raw_hid_receive_kb(uint8_t *data, uint8_t length) {
   if (length != KEYMAP_OVERLAY_REPORT_SIZE ||
       data[0] != KEYMAP_OVERLAY_HIL_COMMAND_ID ||
@@ -115,6 +122,15 @@ void raw_hid_receive_kb(uint8_t *data, uint8_t length) {
   const bool encoder_action = action == KEYMAP_OVERLAY_HIL_ENCODER_CCW ||
                               action == KEYMAP_OVERLAY_HIL_ENCODER_CW;
   if (encoder_action && value < NUM_ENCODERS) {
+    const bool clockwise = action == KEYMAP_OVERLAY_HIL_ENCODER_CW;
+    const keypos_t key = {.row = clockwise ? KEYLOC_ENCODER_CW
+                                           : KEYLOC_ENCODER_CCW,
+                          .col = value};
+    const uint8_t layer = layer_switch_get_layer(key);
+    if (keymap_key_to_keycode(layer, key) == QK_BOOT) {
+      data[8] = 1;
+      return;
+    }
     keymap_overlay_hil_pending_action = action;
     keymap_overlay_hil_pending_value = value;
     keymap_overlay_hil_event_pending = true;

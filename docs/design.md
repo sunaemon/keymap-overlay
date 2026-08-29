@@ -99,10 +99,12 @@ layers from `1` to `DYNAMIC_KEYMAP_LAYER_COUNT - 1` and configured encoder
 indices are accepted. A report action emits the same overlay report as the
 physical notification path. An encoder action enters QMK's normal bounded
 encoder queue, so it resolves and emits the current live Vial encoder binding;
-the request cannot choose an arbitrary keycode. The interface cannot change
-QMK's active layer, write EEPROM, detach USB, or enter the bootloader. It
-therefore supplies deterministic frontend and mapped-output coverage without
-being mistaken for matrix-switch, encoder-sensor, or push-switch evidence.
+the request cannot directly choose an arbitrary keycode. Firmware rejects an
+encoder action when that direction's effective live binding is `QK_BOOT`, so
+the interface cannot change QMK's active layer, write EEPROM, detach USB, or
+enter the bootloader. It therefore supplies deterministic frontend and
+mapped-output coverage without being mistaken for matrix-switch,
+encoder-sensor, or push-switch evidence.
 
 Device arrival notifications request another enumeration without interrupting
 healthy readers, so a release cannot be lost while the new device becomes

@@ -7,6 +7,13 @@ import Foundation
 
 private let idleWindowServerSize = 10.0
 
+private struct EncoderConfiguration {
+    let keyboardID: UInt8
+    let layer: UInt8
+    let labels: [String]
+    let keyCodes: [UInt16]
+}
+
 private struct Configuration {
     let overlayPID: pid_t
     let driver: String
@@ -15,10 +22,7 @@ private struct Configuration {
     let layer: UInt8
     let secondaryLayer: UInt8
     let expectedLabel: String
-    let encoderKeyboardID: UInt8
-    let encoderLayer: UInt8
-    let encoderLabels: [String]
-    let encoderKeyCodes: [UInt16]
+    let encoder: EncoderConfiguration?
 
     static func parse() throws -> Configuration {
         var values: [String: String] = [:]
@@ -43,35 +47,57 @@ private struct Configuration {
             let layer = UInt8(layerText),
             let secondaryLayerText = values["--secondary-layer"],
             let secondaryLayer = UInt8(secondaryLayerText),
-            let expectedLabel = values["--expected-label"],
-            let encoderKeyboardText = values["--encoder-keyboard-id"],
-            let encoderKeyboardID = UInt8(encoderKeyboardText),
-            let encoderLayerText = values["--encoder-layer"],
-            let encoderLayer = UInt8(encoderLayerText),
-            let encoderLabelsText = values["--encoder-labels"],
-            let encoderKeyCodesText = values["--encoder-key-codes"]
+            let expectedLabel = values["--expected-label"]
         else {
             throw Failure(
                 "Required: --overlay-pid PID --driver PATH --keyboard-id ID "
                     + "--secondary-keyboard-id ID --layer LAYER "
-                    + "--secondary-layer LAYER --expected-label LABEL "
-                    + "--encoder-keyboard-id ID --encoder-layer LAYER "
-                    + "--encoder-labels CSV --encoder-key-codes CSV")
+                    + "--secondary-layer LAYER --expected-label LABEL")
         }
         guard secondaryLayer > layer else {
             throw Failure("--secondary-layer must be numerically above --layer")
         }
-        let encoderLabels = encoderLabelsText.split(separator: ",").map(String.init)
-        let encoderKeyCodes = encoderKeyCodesText.split(separator: ",").compactMap {
-            UInt16($0)
-        }
-        guard
-            !encoderLabels.isEmpty,
-            encoderLabels.count.isMultiple(of: 2),
-            encoderKeyCodes.count == encoderLabels.count
-        else {
-            throw Failure(
-                "Encoder labels and key codes must be equal-length, non-empty direction pairs")
+
+        let encoder: EncoderConfiguration?
+        if let skipEncoderChecks = values["--skip-encoder-checks"] {
+            guard skipEncoderChecks == "true" else {
+                throw Failure("--skip-encoder-checks accepts only true")
+            }
+            encoder = nil
+        } else {
+            guard
+                let encoderKeyboardText = values["--encoder-keyboard-id"],
+                let encoderKeyboardID = UInt8(encoderKeyboardText),
+                let encoderLayerText = values["--encoder-layer"],
+                let encoderLayer = UInt8(encoderLayerText),
+                let encoderLabelsText = values["--encoder-labels"],
+                let encoderKeyCodesText = values["--encoder-key-codes"]
+            else {
+                throw Failure(
+                    "Required encoder options: --encoder-keyboard-id ID "
+                        + "--encoder-layer LAYER --encoder-labels CSV "
+                        + "--encoder-key-codes CSV; or --skip-encoder-checks true")
+            }
+            let encoderLabels = encoderLabelsText.split(separator: ",").map(String.init)
+            let encoderKeyCodes = try encoderKeyCodesText.split(separator: ",").map {
+                guard let keyCode = UInt16($0) else {
+                    throw Failure("Encoder key codes must be unsigned 16-bit integers")
+                }
+                return keyCode
+            }
+            guard
+                !encoderLabels.isEmpty,
+                encoderLabels.count.isMultiple(of: 2),
+                encoderKeyCodes.count == encoderLabels.count
+            else {
+                throw Failure(
+                    "Encoder labels and key codes must be equal-length, non-empty direction pairs")
+            }
+            encoder = EncoderConfiguration(
+                keyboardID: encoderKeyboardID,
+                layer: encoderLayer,
+                labels: encoderLabels,
+                keyCodes: encoderKeyCodes)
         }
         return Configuration(
             overlayPID: overlayPID,
@@ -81,10 +107,7 @@ private struct Configuration {
             layer: layer,
             secondaryLayer: secondaryLayer,
             expectedLabel: expectedLabel,
-            encoderKeyboardID: encoderKeyboardID,
-            encoderLayer: encoderLayer,
-            encoderLabels: encoderLabels,
-            encoderKeyCodes: encoderKeyCodes)
+            encoder: encoder)
     }
 }
 
@@ -187,26 +210,10 @@ private final class Runner {
         try assertRepeatedHolds()
         try assertLayerPrecedence()
         try assertKeyboardOwnership()
-        try assertEncoderRotations()
-        print("macOS Accessibility HIL checks passed")
-    }
-
-    private func sendEncoder(index: Int, direction: String) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: configuration.driver)
-        process.arguments = [
-            "rotate",
-            "--keyboard-id", String(configuration.encoderKeyboardID),
-            "--index", String(index),
-            "--direction", direction,
-        ]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw Failure(
-                "HIL driver failed while rotating encoder \(index) \(direction)")
+        if let encoder = configuration.encoder {
+            try assertEncoderRotations(encoder)
         }
-        pumpRunLoop(for: 0.25)
+        print("macOS Accessibility HIL checks passed")
     }
 
     private func sendLayer(
@@ -226,6 +233,28 @@ private final class Runner {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw Failure("HIL driver failed while sending layer (state)")
+        }
+        pumpRunLoop(for: 0.25)
+    }
+
+    private func sendEncoder(
+        index: Int,
+        direction: String,
+        encoder: EncoderConfiguration
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: configuration.driver)
+        process.arguments = [
+            "rotate",
+            "--keyboard-id", String(encoder.keyboardID),
+            "--index", String(index),
+            "--direction", direction,
+        ]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw Failure(
+                "HIL driver failed while rotating encoder \(index) \(direction)")
         }
         pumpRunLoop(for: 0.25)
     }
@@ -338,31 +367,31 @@ private final class Runner {
         _ = try waitForOverlay(visible: false)
     }
 
-    private func assertEncoderRotations() throws {
+    private func assertEncoderRotations(_ encoder: EncoderConfiguration) throws {
         try sendLayer(
             state: "press",
-            layer: configuration.encoderLayer,
-            keyboardID: configuration.encoderKeyboardID)
+            layer: encoder.layer,
+            keyboardID: encoder.keyboardID)
         _ = try waitForOverlay(visible: true)
-        for label in configuration.encoderLabels {
+        for label in encoder.labels {
             try assertLabel(label)
         }
 
         observedKeyCodes.removeAll()
-        for index in 0..<(configuration.encoderLabels.count / 2) {
-            try sendEncoder(index: index, direction: "ccw")
-            try sendEncoder(index: index, direction: "cw")
+        for index in 0..<(encoder.labels.count / 2) {
+            try sendEncoder(index: index, direction: "ccw", encoder: encoder)
+            try sendEncoder(index: index, direction: "cw", encoder: encoder)
         }
-        guard observedKeyCodes == configuration.encoderKeyCodes else {
+        guard observedKeyCodes == encoder.keyCodes else {
             throw Failure(
                 "Synthetic encoder rotations produced key codes \(observedKeyCodes); "
-                    + "expected \(configuration.encoderKeyCodes)")
+                    + "expected \(encoder.keyCodes)")
         }
 
         try sendLayer(
             state: "release",
-            layer: configuration.encoderLayer,
-            keyboardID: configuration.encoderKeyboardID)
+            layer: encoder.layer,
+            keyboardID: encoder.keyboardID)
         _ = try waitForOverlay(visible: false)
     }
 

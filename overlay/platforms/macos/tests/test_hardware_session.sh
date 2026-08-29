@@ -64,32 +64,55 @@ run_ui_probe() {
 
 restore_live_keymap() {
   local status=$?
+  local restore_failed=false
   set +e
-  "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
-  "$DRIVER" layer --keyboard-id "$KEYBOARD_ID" --layer "$SECONDARY_LAYER" --state release
-  "$DRIVER" layer \
-    --keyboard-id "$SECONDARY_KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release
+  if ! "$DRIVER" layer \
+    --keyboard-id "$KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release; then
+    restore_failed=true
+  fi
+  if ! "$DRIVER" layer \
+    --keyboard-id "$KEYBOARD_ID" --layer "$SECONDARY_LAYER" --state release; then
+    restore_failed=true
+  fi
+  if ! "$DRIVER" layer \
+    --keyboard-id "$SECONDARY_KEYBOARD_ID" --layer "$PRIMARY_LAYER" --state release; then
+    restore_failed=true
+  fi
   if $restore_required; then
-    stop_overlay
-    "$DRIVER" set-keycode \
+    if ! stop_overlay; then
+      restore_failed=true
+    fi
+    if ! "$DRIVER" set-keycode \
       --keyboard-id "$KEYBOARD_ID" --layer 0 --row "$test_row" \
-      --column "$test_column" --keycode "$original_keycode"
+      --column "$test_column" --keycode "$original_keycode"; then
+      restore_failed=true
+    fi
   fi
   if $encoder_restore_required; then
     local binding=0
     local index direction
-    stop_overlay
+    if ! stop_overlay; then
+      restore_failed=true
+    fi
     for index in 0 1 2; do
       for direction in ccw cw; do
-        "$DRIVER" set-encoder \
+        if ! "$DRIVER" set-encoder \
           --keyboard-id "$ENCODER_KEYBOARD_ID" --layer 0 --index "$index" \
-          --direction "$direction" --keycode "${encoder_original_keycodes[$binding]}"
+          --direction "$direction" \
+          --keycode "${encoder_original_keycodes[$binding]}"; then
+          restore_failed=true
+        fi
         binding=$((binding + 1))
       done
     done
   fi
   if $restore_required || $encoder_restore_required; then
-    make -C "$ROOT" install-overlay
+    if ! make -C "$ROOT" install-overlay; then
+      restore_failed=true
+    fi
+  fi
+  if $restore_failed && ((status == 0)); then
+    status=1
   fi
   exit "$status"
 }
