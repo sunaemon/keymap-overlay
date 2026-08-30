@@ -1,3 +1,4 @@
+#include <QAccessible>
 #include <QByteArray>
 #include <QColor>
 #include <QCursor>
@@ -65,11 +66,16 @@ Window {
     // LAYER_SHELL_PROPERTIES
 
     Rectangle {
+        id: panel
+        objectName: "keymapOverlayPanel"
         anchors.fill: parent
         radius: 22
         color: Qt.rgba(systemPalette.window.r, systemPalette.window.g, systemPalette.window.b, 0.90)
         border.width: 1
         border.color: systemPalette.mid
+        Accessible.role: Accessible.Grouping
+        Accessible.name: "Keymap Overlay L" + (root.overlayModel.layer ?? "")
+        Accessible.focusable: false
     }
 
     Text {
@@ -78,6 +84,9 @@ Window {
         text: "L" + (root.overlayModel.layer ?? "")
         color: systemPalette.windowText
         font.pixelSize: root.overlayModel.header_font_size || 14
+        Accessible.role: Accessible.StaticText
+        Accessible.name: text
+        Accessible.focusable: false
     }
 
     Repeater {
@@ -102,6 +111,9 @@ Window {
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 wrapMode: Text.Wrap
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+                Accessible.focusable: false
             }
         }
     }
@@ -128,6 +140,9 @@ Window {
                 text: modelData.press ? "P " + modelData.press : ""
                 color: modelData.held ? systemPalette.highlightedText : systemPalette.buttonText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+                Accessible.focusable: false
             }
 
             Text {
@@ -139,6 +154,9 @@ Window {
                 color: systemPalette.windowText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
                 horizontalAlignment: Text.AlignRight
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+                Accessible.focusable: false
             }
 
             Text {
@@ -149,6 +167,9 @@ Window {
                       ? modelData.clockwise.join(" ") + " →" : ""
                 color: systemPalette.windowText
                 font.pixelSize: root.overlayModel.encoder_font_size || 10
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+                Accessible.focusable: false
             }
         }
     }
@@ -359,6 +380,8 @@ int main(int argc, char *argv[]) {
   }
 
   QGuiApplication application(argc, argv);
+  QGuiApplication::setApplicationName(QStringLiteral("keymap-overlay-qt"));
+  QAccessible::setActive(true);
   configure_golden_rendering(application);
 
   try {

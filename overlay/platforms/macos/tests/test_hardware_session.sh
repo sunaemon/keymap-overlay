@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 DRIVER="$ROOT/target/release/keymap-overlay-hil"
 UI_PROBE_APP="$ROOT/target/hil/KeymapOverlayHIL.app"
+UI_PROBE="$UI_PROBE_APP/Contents/MacOS/keymap-overlay-macos-hil-ui"
 KEYBOARD_ID="${KMO_HIL_KEYBOARD_ID:-1}"
 SECONDARY_KEYBOARD_ID="${KMO_HIL_SECONDARY_KEYBOARD_ID:-2}"
 PRIMARY_LAYER="${KMO_HIL_PRIMARY_LAYER:-1}"
@@ -16,7 +17,7 @@ ENCODER_LAYER="${KMO_HIL_ENCODER_LAYER:-1}"
 LABEL_KEYCODE=0x0068
 LABEL=F13
 ENCODER_TEST_KEYCODES=(0x0004 0x0005 0x0006 0x0007 0x0008 0x0009)
-ENCODER_LABELS=A,B,C,D,E,F
+ENCODER_LABELS="← A,B →,← C,D →,← E,F →"
 ENCODER_MAC_KEYCODES=0,11,8,2,14,3
 SERVICE_LABEL=com.sunaemon.keymap-overlay
 PLIST="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
@@ -53,9 +54,9 @@ run_ui_probe() {
   shift
   output="$(mktemp "$TRANSCRIPT_DIR/macos-ui-probe.out.XXXXXX")"
   error="$(mktemp "$TRANSCRIPT_DIR/macos-ui-probe.err.XXXXXX")"
-  if ! open -W -n -o "$output" --stderr "$error" "$UI_PROBE_APP" --args "$@"; then
+  if ! "$UI_PROBE" "$@" >"$output" 2>"$error"; then
     cat "$output" "$error"
-    fail "LaunchServices could not run the HIL UI app"
+    fail "The HIL UI app failed"
   fi
   cat "$output" "$error"
   grep -Fqx "$expected" "$output" || \

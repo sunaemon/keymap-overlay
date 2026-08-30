@@ -81,10 +81,10 @@ QMK_TOOLCHAIN_PACKAGES := osx-cross/arm/arm-none-eabi-gcc@8 osx-cross/avr/avr-gc
 
 # The same set per distribution, plus libudev for Raw HID and the Qt 6 /
 # LayerShellQt stack used by the native KDE Plasma overlay.
-LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs cmake qt6-base qt6-declarative layer-shell-qt ttf-liberation
-LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev cmake qt6-base-dev qt6-declarative-dev qt6-wayland qml6-module-qtqml-workerscript qml6-module-qtquick qml6-module-qtquick-window fonts-liberation
+LINUX_TOOLCHAIN_PACKAGES_PACMAN := arm-none-eabi-gcc arm-none-eabi-binutils arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-libs at-spi2-core xz cmake qt6-base qt6-declarative layer-shell-qt ttf-liberation
+LINUX_TOOLCHAIN_PACKAGES_APT := gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi gcc-avr avr-libc avrdude dfu-programmer dfu-util libudev-dev libatspi2.0-dev liblzma-dev cmake qt6-base-dev qt6-declarative-dev qt6-wayland qml6-module-qtqml-workerscript qml6-module-qtquick qml6-module-qtquick-window fonts-liberation
 LINUX_LAYERSHELL_QML_APT := qml6-module-org-kde-layershell
-LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel cmake qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtwayland layer-shell-qt liberation-mono-fonts
+LINUX_TOOLCHAIN_PACKAGES_DNF := arm-none-eabi-gcc-cs arm-none-eabi-newlib avr-gcc avr-libc avrdude dfu-programmer dfu-util systemd-devel at-spi2-core-devel xz-devel cmake qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtwayland layer-shell-qt liberation-mono-fonts
 
 # Escape XML character data so that a HOME containing & or < still produces a
 # valid plist. Ampersands must be substituted first.
@@ -538,12 +538,28 @@ else
 	$(error test-hardware-session-macos is only available on macOS)
 endif
 
+.PHONY: test-hardware-session-linux
+test-hardware-session-linux:
+ifeq ($(OS_FAMILY),linux)
+	./overlay/platforms/linux/tests/test_hardware_session.sh
+else
+	$(error test-hardware-session-linux is only available on Linux)
+endif
+
 .PHONY: test-hardware-physical-reports-macos
 test-hardware-physical-reports-macos:
 ifeq ($(OS_FAMILY),macos)
 	./overlay/platforms/macos/tests/test_hardware_physical_reports.sh
 else
 	$(error test-hardware-physical-reports-macos is only available on macOS)
+endif
+
+.PHONY: test-hardware-physical-reports-linux
+test-hardware-physical-reports-linux:
+ifeq ($(OS_FAMILY),linux)
+	./overlay/platforms/linux/tests/test_hardware_physical_reports.sh
+else
+	$(error test-hardware-physical-reports-linux is only available on Linux)
 endif
 
 .PHONY: build-hil-driver-macos
@@ -625,7 +641,7 @@ test-hid-to-dbus-e2e-linux: build-overlay
 ifeq ($(OS_FAMILY),linux)
 	$(CC) -o target/virtual-raw-hid \
 		-std=c11 -Wall -Wextra -Wpedantic -Werror \
-		overlay/platforms/linux/tests/virtual_raw_hid.c
+		overlay/platforms/linux/tests/virtual_raw_hid.c -llzma
 	dbus-run-session -- ./overlay/platforms/linux/tests/test_hid_to_dbus_e2e.sh
 else
 	$(error test-hid-to-dbus-e2e-linux is only available on Linux)
@@ -893,6 +909,7 @@ install-udev-rules:
 ifneq ($(OS_FAMILY),linux)
 	$(error install-udev-rules is Linux-only; macOS grants Raw HID access through Input Monitoring, and Windows needs no grant)
 endif
+
 	@mkdir -p build
 	@{ \
 		printf '%s\n' \
@@ -908,6 +925,28 @@ endif
 	$(SUDO) udevadm control --reload
 	$(SUDO) udevadm trigger --subsystem-match=hidraw
 	@echo "✔ Rules installed at $(KEYMAP_OVERLAY_UDEV_RULES); replug a keyboard if the overlay still cannot open it"
+
+.PHONY: install-uhid-test-rule
+install-uhid-test-rule:
+ifeq ($(OS_FAMILY),linux)
+	$(SUDO) install -m 0644 \
+		overlay/platforms/linux/tests/99-keymap-overlay-e2e.rules \
+		/etc/udev/rules.d/99-keymap-overlay-e2e.rules
+	$(SUDO) udevadm control --reload
+	@echo "✔ Virtual HID test rule installed; existing devices need to be recreated."
+else
+	$(error install-uhid-test-rule is only available on Linux)
+endif
+
+.PHONY: uninstall-uhid-test-rule
+uninstall-uhid-test-rule:
+ifeq ($(OS_FAMILY),linux)
+	$(SUDO) rm -f /etc/udev/rules.d/99-keymap-overlay-e2e.rules
+	$(SUDO) udevadm control --reload
+	@echo "✔ Virtual HID test rule removed."
+else
+	$(error uninstall-uhid-test-rule is only available on Linux)
+endif
 
 .PHONY: uninstall-udev-rules
 uninstall-udev-rules:

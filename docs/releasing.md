@@ -48,7 +48,7 @@ Releases are beta until the project explicitly declares 1.0 stability.
    commit, and record the result of every item. Editing the PR reruns
    `hardware-release-gate`; it must pass before merge. Record upgrade, local
    simulated-service-failure rollback acceptance, and live uninstall as three
-   explicit `PASS` results for each platform in the template's lifecycle table,
+   explicit `PASS` results for each required platform in the template's lifecycle table,
    with a terminal transcript or PR comment named in its evidence cell. Login
    startup is recorded by each platform's `*-10` check rather than duplicated
    in that table.
@@ -57,8 +57,9 @@ Releases are beta until the project explicitly declares 1.0 stability.
    Release workflow verifies that the tested commit came from a merged PR and
    changed the version, then creates both the `vMAJOR.MINOR.PATCH` tag and
    GitHub release on that exact commit.
-6. Confirm the automated Release workflow publishes all five platform archives
-   (Linux x64, Linux ARM64, macOS, Windows x64, and Windows ARM64),
+6. Confirm the automated Release workflow publishes the three supported
+   platform archives (Linux x64, macOS, and Windows x64), the experimental
+   Linux ARM64 and Windows ARM64 archives,
    `install.sh`, `install.ps1`, `SHA256SUMS`, the MIT license and third-party
    notices, and GitHub artifact attestations.
 7. Download each archive, verify its SHA-256 checksum and attestation, inspect
@@ -77,9 +78,9 @@ The [release gate coverage map](release-test-coverage.md) explains why each
 manual item still exists and what automation can eventually replace it.
 
 Record the PR head commit, operating system, CPU architecture, desktop and
-session, keyboard, `KEYBOARD_ID`, and firmware revision for each run. Every
-shipped OS/architecture pair requires physical evidence; CI and simulation do
-not substitute for an ARM64 run. Any behavior-affecting change after testing
+session, keyboard, `KEYBOARD_ID`, and firmware revision for each run. Linux
+ARM64 and Windows ARM64 are experimental release artifacts and do not require
+physical hardware-gate evidence. Any behavior-affecting change after testing
 invalidates the affected results: wait for CI on the new PR head and repeat
 those hardware checks before merging. The required coverage matrix,
 preparation commands, platform commands, and physical actions are in
@@ -96,9 +97,10 @@ The template deliberately separates three kinds of evidence:
    physical shaft/direction-wiring and push-switch observations. Exact-head HIL
    may supply the direction-label and mapped-output evidence; the simultaneous
    row includes model identity and most-recent-keyboard ownership.
-3. Each required platform and architecture has its own ten checks. The stable
-   prefixes are `MAC`, `KDE`, `GNOME`, `KDEA`, `WIN`, and `WINA`; a result from
-   one prefix never satisfies another.
+3. macOS and Windows x86_64 retain ten checks. Linux records daemon, HID,
+   model, and physical-device checks under `LX`, then records renderer/session
+   checks independently under `KDE` or `GNOME`. A renderer result never
+   satisfies another renderer.
 
 The ten platform checks have the same meaning on every backend. Their numeric
 suffixes follow increasing human interaction:
@@ -123,11 +125,18 @@ their exact-head HIL session assertions. The checklist results remain required;
 this split reduces repeated human input and does not turn requested reports
 into physical-switch evidence.
 
+On Linux, `test-hardware-session-linux` uses a self-describing virtual Vial HID
+device in the real KDE session to exercise the installed daemon, D-Bus state,
+Qt renderer accessibility labels, focus retention, and deterministic layer
+ordering. `test-hardware-physical-reports-linux` retains one guided physical
+tap per `MO` switch. Virtual HID does not replace USB identity, encoder wiring,
+unplug/replug, display inspection, pointer click-through, or login evidence.
+
 The person merging the release preparation PR owns the gate. It passes only
 when every required coverage row is recorded, every applicable item passes,
 every not-applicable global item has a reason, and the recorded PR head still
 matches the candidate. CI validates the candidate SHA, both global checks, all
-sixty platform checks, coverage, and lifecycle evidence before merge. The
+shared and renderer-specific checks, coverage, and lifecycle evidence before merge. The
 Release workflow validates the same PR evidence again before publishing and
 requires the tested PR head and published merge commit to have identical Git
 trees. A missing or failed applicable result is a no-go. Exclude hardware or a

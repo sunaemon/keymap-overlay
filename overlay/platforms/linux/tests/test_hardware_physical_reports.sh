@@ -5,13 +5,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
-SERVICE_LABEL=com.sunaemon.keymap-overlay
-LOG="$HOME/.local/var/log/keymap-overlay/overlay.log"
 EXPECTED_REPORTS_TEXT="${KMO_HIL_PHYSICAL_REPORTS:-1:1 1:2 2:3}"
 KEYBOARD_COUNT="${KMO_HIL_KEYBOARD_COUNT:-2}"
 TIMEOUT_SECONDS="${KMO_HIL_PHYSICAL_TIMEOUT_SECONDS:-180}"
 TRANSCRIPT_DIR="${KMO_HIL_LOG_DIR:-$HOME/.local/var/log/keymap-overlay/hil}"
-TRANSCRIPT="$TRANSCRIPT_DIR/macos-physical-reports-$(date '+%Y%m%d-%H%M%S').log"
+TRANSCRIPT="$TRANSCRIPT_DIR/linux-physical-reports-$(date '+%Y%m%d-%H%M%S').log"
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -27,25 +25,34 @@ physical_key_label() {
   esac
 }
 
-wait_for_log() {
-  local start_line=$1
-  local pattern=$2
-  local deadline=$((SECONDS + TIMEOUT_SECONDS))
-  while (( SECONDS < deadline )); do
-    if [[ -f "$LOG" ]] && tail -n "+$start_line" "$LOG" | grep -Fq "$pattern"; then
+journal_cursor() {
+  journalctl --user -u keymap-overlay.service -n 0 --show-cursor --no-pager | \
+    sed -n 's/^-- cursor: //p'
+}
+
+wait_for_startup_devices() {
+  local deadline
+  deadline=$((SECONDS + TIMEOUT_SECONDS))
+
+  while ((SECONDS < deadline)); do
+    if journalctl --user -u keymap-overlay.service --since '1 minute ago' \
+      --no-pager | grep -F "Adopted $KEYBOARD_COUNT startup Raw HID device(s)" \
+      >/dev/null; then
       return
     fi
     sleep 0.1
   done
-  fail "Timed out waiting for log entry: $pattern"
+
+  fail "The daemon did not adopt $KEYBOARD_COUNT startup devices"
 }
 
 observe_physical_tap() {
   local keyboard_id=$1
   local layer=$2
-  local label start_line pattern deadline events states state_count
+  local label cursor pattern deadline events states state_count
   label="$(physical_key_label "$keyboard_id" "$layer")"
-  start_line="$(( $(wc -l <"$LOG") + 1 ))"
+  cursor="$(journal_cursor)"
+  [[ -n "$cursor" ]] || fail "Could not capture the overlay journal cursor"
   pattern="Layer event: keyboard=$keyboard_id layer=$layer pressed="
   deadline=$((SECONDS + TIMEOUT_SECONDS))
 
@@ -55,12 +62,13 @@ observe_physical_tap() {
 
   states=""
   events=""
-  while (( SECONDS < deadline )); do
-    events="$(tail -n "+$start_line" "$LOG" | grep -F "$pattern" || true)"
+  while ((SECONDS < deadline)); do
+    events="$(journalctl --user -u keymap-overlay.service \
+      --after-cursor "$cursor" --no-pager | grep -F "$pattern" || true)"
     states="$(printf '%s\n' "$events" | sed -En \
       "s/.*Layer event: keyboard=$keyboard_id layer=$layer pressed=(true|false).*/\1/p")"
     state_count="$(printf '%s\n' "$states" | sed '/^$/d' | wc -l | tr -d ' ')"
-    (( state_count >= 2 )) && break
+    ((state_count >= 2)) && break
     sleep 0.1
   done
 
@@ -76,8 +84,7 @@ observe_physical_tap() {
 mkdir -p "$TRANSCRIPT_DIR"
 exec > >(tee "$TRANSCRIPT") 2>&1
 
-[[ "$(uname -s)" == Darwin ]] || fail "This test requires macOS"
-[[ "$(uname -m)" == arm64 ]] || fail "This release row requires macOS arm64"
+[[ "$(uname -s)" == Linux ]] || fail "This test requires Linux"
 [[ -z "$(git -C "$ROOT" status --short)" ]] || fail "Candidate worktree is not clean"
 [[ "$KEYBOARD_COUNT" =~ ^[1-9][0-9]*$ ]] || fail "KMO_HIL_KEYBOARD_COUNT must be positive"
 [[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || \
@@ -92,20 +99,14 @@ done
 
 printf 'Candidate: %s\n' "$(git -C "$ROOT" rev-parse HEAD)"
 printf 'Physical reports: %s\n' "$EXPECTED_REPORTS_TEXT"
-
-log_start=1
-if [[ -f "$LOG" ]]; then
-  log_start="$(( $(wc -l <"$LOG") + 1 ))"
-fi
 make -C "$ROOT" install-overlay
-launchctl print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null
-wait_for_log "$log_start" "Adopted $KEYBOARD_COUNT startup Raw HID device(s)"
+systemctl --user --quiet is-active keymap-overlay.service || \
+  fail "The installed overlay daemon is not active"
+wait_for_startup_devices
 
 for report in "${expected_reports[@]}"; do
   observe_physical_tap "${report%%:*}" "${report#*:}"
 done
 
 printf '\nPASS: every configured physical MO key emitted ordered press/release Raw HID reports\n'
-printf 'Reports were observed by the already-authorized installed overlay.\n'
-printf 'No deterministic HIL layer command was used by this test.\n'
 printf 'Transcript: %s\n' "$TRANSCRIPT"

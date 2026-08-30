@@ -1,5 +1,5 @@
-#[cfg(target_os = "macos")]
-mod macos {
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod platform {
     use anyhow::{Context, Result, bail};
     use clap::{Parser, Subcommand, ValueEnum};
     use hidapi::{HidApi, HidDevice};
@@ -25,7 +25,7 @@ mod macos {
     #[derive(Debug, Parser)]
     #[command(
         name = "keymap-overlay-hil",
-        about = "Drives the macOS keymap-overlay hardware-in-the-loop protocol"
+        about = "Drives the keymap-overlay hardware-in-the-loop protocol"
     )]
     struct Arguments {
         #[command(subcommand)]
@@ -487,13 +487,13 @@ mod macos {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn main() -> anyhow::Result<()> {
-    macos::main()
+    platform::main()
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn main() {
-    eprintln!("keymap-overlay-hil is currently available only on macOS");
+    eprintln!("keymap-overlay-hil is currently available only on Linux and macOS");
     std::process::exit(1);
 }

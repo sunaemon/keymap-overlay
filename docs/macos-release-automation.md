@@ -162,9 +162,12 @@ Prepare a one-shot login continuation:
 make prepare-hardware-login-macos
 ```
 
-Sign out and sign in normally. The continuation waits for the keyboard and
-LaunchAgent, then runs the first layer event and Accessibility checks. Verify
-and remove the continuation afterward:
+Sign out and sign in normally. The continuation waits for the keyboards and
+LaunchAgent, then records their readiness. Make the first physical layer press
+after the desktop appears. Verify from the signed-in interactive terminal; the
+verification runs the layer-event and Accessibility checks there because macOS
+does not grant Accessibility automation to the background login LaunchAgent.
+It also removes the continuation afterward:
 
 ```bash
 make verify-hardware-login-macos

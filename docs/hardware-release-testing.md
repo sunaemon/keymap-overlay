@@ -11,6 +11,9 @@ The macOS HIL procedure deliberately splits switch-to-report firmware evidence
 from report-to-overlay host evidence. This keeps the physical action small
 without treating requested reports as physical switch evidence; see
 [macOS Release-Gate Automation](macos-release-automation.md).
+Linux similarly separates architecture-shared daemon/HID/device checks from
+renderer/session checks. Its virtual Vial integration covers deterministic
+software behavior; guided physical checks retain the hardware boundaries.
 
 ## Required Test Matrix
 
@@ -23,22 +26,20 @@ baseline release matrix is therefore:
 | `macos-arm64-appkit`         | arm64        | AppKit on macOS                           | One supported keyboard     |
 | `linux-x86_64-kde-wayland`   | x86_64       | KDE Plasma on Wayland, Qt/LayerShellQt    | One supported keyboard     |
 | `linux-x86_64-gnome-wayland` | x86_64       | GNOME 45 or newer on Wayland, GNOME Shell | One supported keyboard     |
-| `linux-arm64-kde-wayland`    | arm64        | KDE Plasma on Wayland, Qt/LayerShellQt    | One supported keyboard     |
 | `windows-x86_64-wpf`         | x86_64       | WPF on Windows 11                         | One supported keyboard     |
-| `windows-arm64-wpf`          | arm64        | WPF on Windows 11                         | One supported keyboard     |
 
-Each row has its own ten-item checklist; never use one row's result to complete
-another row. Across those runs, test every bundled keyboard at least once, test
-an encoder keyboard at least once, and test all keyboards together once. These
+Linux daemon and physical-device checks are shared on x86_64; KDE and GNOME
+keep independent renderer/session checks. macOS and Windows keep their
+ten-item platform sections. Across those runs, test every bundled
+keyboard at least once, test an encoder keyboard at least once, and test all
+keyboards together once. These
 three release-wide requirements go in Keyboard coverage, not in every platform
-checklist. This is not a full keyboard-by-platform Cartesian product. Every
-shipped OS/architecture pair requires its own physical row and checklist;
-never use CI, simulation, or an x86_64 run as ARM64 evidence. Renderer coverage
-is orthogonal: KDE and GNOME are both required on Linux x86_64, while the
-Linux ARM64 row uses KDE to exercise the native daemon, Qt renderer, and
-LayerShellQt release binaries. Add KDE/X11 when Qt/X11 behavior changed. Record
-any omitted renderer or session as an explicit release exclusion, but do not
-exclude a shipped architecture.
+checklist. This is not a full keyboard-by-platform Cartesian product. Linux
+ARM64 and Windows ARM64 builds are experimental: CI and release packaging cover
+them, but they do not require physical hardware-gate or lifecycle rows. KDE and
+GNOME are both required on Linux x86_64. Add KDE/X11 when Qt/X11 behavior
+changed. Record any omitted required renderer or session as an explicit release
+exclusion.
 
 ## Runtime Model Preconditions
 
@@ -112,9 +113,9 @@ result. The log must contain no HID-open or Vial-model error from this start.
 
 ### Linux with KDE Plasma
 
-Run this subsection separately on x86_64 and ARM64. Confirm the desktop really
-is KDE Wayland, install the Raw HID rule, then physically unplug and reconnect
-the keyboard before installing:
+Run this subsection on x86_64. Confirm the desktop really is KDE Wayland,
+install the Raw HID rule, then physically unplug and reconnect the keyboard
+before installing:
 
 ```bash
 printf 'Desktop: %s\nSession: %s\n' "$XDG_CURRENT_DESKTOP" "$XDG_SESSION_TYPE"
@@ -152,8 +153,8 @@ must not draw a second overlay. Repeat the common physical checks below.
 
 ### Windows
 
-Run this subsection separately on x86_64 and ARM64, using the
-architecture-matching MSYS2 UCRT64 shell described in the README:
+Run this subsection on x86_64, using the MSYS2 UCRT64 shell described in the
+README:
 
 ```bash
 make install-overlay
@@ -191,14 +192,31 @@ exercise repeated show/hide, nested precedence, live Vial restart reads, and
 interactive AppKit window safety. Their exact-head transcripts jointly satisfy
 `MAC-08`; the second satisfies `MAC-02`, `MAC-03`, and `MAC-04`. No separate
 physical two-key chord is required after every participating switch has passed
-the first target. This exception applies only to macOS until another platform
-has an equivalent release-binary HIL procedure.
+the first target.
 
-Perform these checks on every row of the required platform matrix. Before and
-after the run, verify normal keyboard input and matching USB/`KEYBOARD_ID`
-identity for that platform's `*-07` check. The install-and-log inspection in
-section 2 supplies `*-01`. The prefixes are `MAC`, `KDE`, `GNOME`, `KDEA`,
-`WIN`, and `WINA`.
+On Linux KDE, run the deterministic real-session integration and the guided
+physical report boundary:
+
+```bash
+sudo modprobe uhid
+sudo setfacl -m "u:$(id -un):rw" /dev/uhid
+make install-uhid-test-rule
+make test-hardware-session-linux
+make test-hardware-physical-reports-linux
+```
+
+The first target uses a self-describing virtual Vial HID device with the
+installed daemon and Qt renderer. It proves startup model transport, layer
+precedence/restoration, repeated transitions, AT-SPI labels, absence of overlay
+focus, and focus retention. The second asks for one physical tap of every configured
+`MO` key. Neither target replaces visual comparison, monitor/scale inspection,
+pointer click-through, USB identity, unplug/replug, or sign-in evidence.
+
+Perform shared Linux checks once on x86_64 (`LX`). Perform renderer checks in
+both listed sessions (`KDE` and `GNOME`). Before and after the shared run,
+verify normal keyboard input and matching USB/`KEYBOARD_ID` identity for
+`LX-07`. macOS and Windows continue to use their complete `MAC` and `WIN`
+sections.
 
 1. For `*-01`, run the platform install/start command and inspect the native
    service, device-owned Vial model, service definition, and new log entries.
@@ -287,10 +305,11 @@ Start-Process $KmoExe
 
 ## 4. Verify Installer Lifecycles
 
-Run these operations locally on every platform row and keep the terminal
-transcript or a PR comment containing the command results. The lifecycle table
-requires a separate `PASS` for upgrade, rollback, and uninstall on each stable
-platform ID. CI results are not lifecycle evidence for this table.
+Run these operations locally once per installed OS/architecture and keep the
+terminal transcript or a PR comment containing the command results. Linux KDE
+and GNOME share one lifecycle row per architecture because the installer ships
+the daemon and both renderer assets together; their login/session checks remain
+independent. CI results are not lifecycle evidence for this table.
 
 First verify a real upgrade from the previous release. Start from a clean
 candidate worktree, install v0.0.7, then return to the exact candidate and
@@ -320,10 +339,10 @@ and user files are restored; it does not alter the live installation:
 # macOS
 make test-release-acceptance-macos
 
-# Linux, on both KDE architecture rows and the GNOME x86_64 row
+# Linux x86_64
 make test-release-acceptance-linux
 
-# Windows, from each architecture-matching MSYS2 UCRT64 shell
+# Windows x86_64, from MSYS2 UCRT64
 make test-release-acceptance-windows
 ```
 
@@ -373,9 +392,9 @@ Fill the release PR template without changing its stable row IDs or headers:
   comma-separated values.
 - `GLOBAL-01` and `GLOBAL-02` are checked with `PASS`, or a reasoned `N/A` when
   firmware and embedded metadata did not change.
-- Every `MAC`, `KDE`, `GNOME`, `KDEA`, `WIN`, and `WINA` check is completed
-  independently with `PASS`; no architecture or platform result can be copied
-  to another row.
+- Every `MAC`, `LX`, `KDE`, `GNOME`, and `WIN` check is completed with `PASS`;
+  shared Linux results stay within their architecture, and renderer results
+  cannot be copied to another renderer.
 - Every lifecycle row records `PASS` for upgrade, rollback, and uninstall and
   identifies its local transcript or PR comment in the evidence cell.
 

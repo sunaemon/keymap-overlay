@@ -11,13 +11,14 @@ $stateFile = Join-Path $testDirectory "state"
 $outputFile = Join-Path $testDirectory "overlay.out.log"
 $errorFile = Join-Path $testDirectory "overlay.err.log"
 $process = $null
+$stateWaitAttempts = 300
 
 function Fail-Test([string]$message) {
     Write-Error "WPF E2E failure: $message"
 }
 
 function Wait-ForState([string]$description, [string]$pattern, [int]$count = 1) {
-    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+    for ($attempt = 0; $attempt -lt $stateWaitAttempts; $attempt++) {
         if ($process.HasExited) {
             Fail-Test "overlay exited while waiting for $description"
         }

@@ -453,10 +453,16 @@ internal sealed class OverlayWindow : Window
         var centerX = EncoderCenterX(encoder);
         var labelWidth = EncoderLabelWidth(encoder);
         var labelTop = encoder.Y - EncoderLabelVerticalOffset;
-        AddText(canvas, string.Join(' ', encoder.CounterClockwise), centerX - labelWidth - EncoderLabelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
-        AddText(canvas, string.Join(' ', encoder.Clockwise), centerX + EncoderLabelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
+        AddText(canvas, EncoderCounterClockwiseText(encoder), centerX - labelWidth - EncoderLabelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
+        AddText(canvas, EncoderClockwiseText(encoder), centerX + EncoderLabelGap / 2, labelTop, labelWidth, 26, fontSize, TextAlignment.Center);
         AddText(canvas, string.IsNullOrEmpty(encoder.Press) ? "" : $"P {encoder.Press}", encoder.X, encoder.Y, encoder.Size, encoder.Size, fontSize, TextAlignment.Center);
     }
+
+    private static string EncoderCounterClockwiseText(DisplayEncoder encoder) =>
+        encoder.CounterClockwise.Count == 0 ? "" : $"← {string.Join(' ', encoder.CounterClockwise)}";
+
+    private static string EncoderClockwiseText(DisplayEncoder encoder) =>
+        encoder.Clockwise.Count == 0 ? "" : $"{string.Join(' ', encoder.Clockwise)} →";
 
     private static void AddText(Canvas canvas, string text, double x, double y, double width, double height, double fontSize, TextAlignment alignment)
     {
