@@ -56,10 +56,16 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          # PR caches are isolated to that PR. Restore main's cache everywhere,
+          # but save the reusable copy only after a change reaches main.
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       # Must follow mise, which is what puts rustc on PATH for the cache key.
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Lint
         run: mise run lint
@@ -136,9 +142,13 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Tests
         run: make test
@@ -205,9 +215,13 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Tests
         run: make test
@@ -270,6 +284,8 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Audit Rust dependencies
         run: make audit
