@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "layer": 1,
+  "width": 180,
+  "height": 140,
+  "header_font_size": 14.0,
+  "key_font_size": 10.0,
+  "encoder_font_size": 9.0,
+  "keys": [],
+  "encoders": [
+    {
+      "x": 50,
+      "y": 60,
+      "size": 50,
+      "counter_clockwise": ["VOL", "DOWN"],
+      "clockwise": ["VOL", "UP"],
+      "press": "MUTE",
+      "held": true,
+      "counter_clockwise_transparent": false,
+      "clockwise_transparent": true,
+      "press_transparent": false,
+      "momentary_layer": 1
+    }
+  ]
+}

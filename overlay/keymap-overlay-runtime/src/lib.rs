@@ -8,8 +8,8 @@ use keymap_core::{
     parse_raw_layer_event,
 };
 pub use keymap_core::{LayerEvent, RawLayerEvent};
-use keymap_overlay_generator::StartupLayerEvent;
 pub use keymap_overlay_generator::types::{DisplayEncoder, DisplayKey, OverlayModel};
+use keymap_overlay_generator::{StartupLayerEvent, contract::simulation_models};
 use log::{error, info, warn};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -170,52 +170,11 @@ pub struct StartupRawHidDevice {
 pub fn startup_models(simulated: Option<SimulatedLayer>) -> Result<StartupModels> {
     Ok(match simulated {
         Some(simulated) => StartupModels {
-            models: simulated_models(simulated),
+            models: simulation_models(simulated.keyboard_id, simulated.layer)?,
             raw_hid_devices: Vec::new(),
         },
         None => load_live_models()?,
     })
-}
-
-fn simulated_models(simulated: SimulatedLayer) -> ModelCache {
-    let model = |layer, label: &str| OverlayModel {
-        version: 2,
-        layer,
-        width: 160,
-        height: 120,
-        header_font_size: 14.0,
-        key_font_size: 10.0,
-        encoder_font_size: 9.0,
-        keys: vec![
-            DisplayKey {
-                x: 20,
-                y: 50,
-                width: 60,
-                height: 50,
-                label: vec![label.to_owned()],
-                held: false,
-                transparent: false,
-                momentary_layer: Some(simulated.layer),
-            },
-            DisplayKey {
-                x: 90,
-                y: 50,
-                width: 50,
-                height: 50,
-                label: vec!["ENTER".to_owned()],
-                held: false,
-                transparent: false,
-                momentary_layer: None,
-            },
-        ],
-        encoders: vec![],
-    };
-    let mut models = ModelCache::from([((simulated.keyboard_id, 0), model(0, "BASE"))]);
-    models.insert(
-        (simulated.keyboard_id, simulated.layer),
-        model(simulated.layer, "E2E"),
-    );
-    models
 }
 
 /// Reads every connected keyboard and retains layer reports interleaved with Vial responses.

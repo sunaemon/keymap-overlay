@@ -13,6 +13,27 @@ if (make := shutil.which("make")) is None:
 MAKE: str = make
 
 
+def test_makefile_keeps_one_public_entry_point_with_concern_fragments() -> None:
+    """Keep make public while loading each implementation concern once."""
+    root = Path(__file__).parents[2]
+    fragments = [
+        "config",
+        "development",
+        "verification",
+        "release",
+        "overlay",
+        "install",
+        "firmware",
+    ]
+
+    makefile = (root / "Makefile").read_text(encoding="utf-8")
+
+    assert makefile.count("include mk/") == len(fragments)
+    for fragment in fragments:
+        assert f"include mk/{fragment}.mk\n" in makefile
+        assert (root / "mk" / f"{fragment}.mk").is_file()
+
+
 def test_firmware_setup_initializes_only_required_qmk_submodules() -> None:
     """Resolve nested firmware dependencies from the configured keyboards."""
     result = subprocess.run(

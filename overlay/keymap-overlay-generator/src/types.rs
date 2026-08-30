@@ -98,8 +98,10 @@ impl EncoderPlacement {
     }
 }
 
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OverlayModel {
+    #[cfg_attr(feature = "contract-schema", schemars(range(min = 2, max = 2)))]
     pub version: u8,
     pub layer: u8,
     pub width: u32,
@@ -111,6 +113,7 @@ pub struct OverlayModel {
     pub encoders: Vec<DisplayEncoder>,
 }
 
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DisplayKey {
     pub x: u32,
@@ -125,6 +128,7 @@ pub struct DisplayKey {
     pub momentary_layer: Option<u8>,
 }
 
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DisplayEncoder {
     pub x: u32,
@@ -183,5 +187,85 @@ mod tests {
         assert!(!encoder.clockwise_transparent);
         assert!(!encoder.press_transparent);
         assert_eq!(encoder.momentary_layer, None);
+    }
+
+    #[test]
+    fn encoder_placement_rejects_mixed_position_sources() {
+        let placement = EncoderPlacement {
+            matrix: Some((0, 1)),
+            x: Some(2.0),
+            y: None,
+        };
+
+        assert_eq!(
+            placement
+                .validate()
+                .expect_err("mixed placement")
+                .to_string(),
+            "encoder placement cannot mix matrix and coordinates"
+        );
+    }
+
+    #[test]
+    fn encoder_placement_requires_a_complete_position() {
+        let placement = EncoderPlacement {
+            matrix: None,
+            x: Some(2.0),
+            y: None,
+        };
+
+        assert_eq!(
+            placement
+                .validate()
+                .expect_err("incomplete placement")
+                .to_string(),
+            "encoder placement requires matrix or both x and y"
+        );
+    }
+
+    #[test]
+    fn layout_sizes_and_valid_encoder_positions_use_their_defaults() {
+        let key: LayoutKey = serde_json::from_value(json!({
+            "x": 0.0,
+            "y": 1.0,
+            "matrix": [2, 3]
+        }))
+        .expect("layout key with default size");
+        let matrix_placement = EncoderPlacement {
+            matrix: Some((2, 3)),
+            x: None,
+            y: None,
+        };
+        let coordinate_placement = EncoderPlacement {
+            matrix: None,
+            x: Some(0.0),
+            y: Some(1.0),
+        };
+
+        assert_eq!((key.w, key.h), (1.0, 1.0));
+        matrix_placement.validate().expect("matrix placement");
+        coordinate_placement
+            .validate()
+            .expect("coordinate placement");
+    }
+
+    #[test]
+    fn missing_layout_names_report_the_requested_name() {
+        let keyboard = KeyboardJson {
+            layouts: HashMap::new(),
+            usb: UsbConfig {
+                vid: "0x1234".to_owned(),
+                pid: "0x5678".to_owned(),
+            },
+            encoder: None,
+        };
+
+        assert_eq!(
+            keyboard
+                .layout_keys("LAYOUT_missing")
+                .expect_err("missing layout")
+                .to_string(),
+            "Layout LAYOUT_missing not found in keyboard.json"
+        );
     }
 }

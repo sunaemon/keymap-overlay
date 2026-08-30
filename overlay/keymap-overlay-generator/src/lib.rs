@@ -1,3 +1,4 @@
+pub mod contract;
 pub mod custom_keycodes;
 pub mod device;
 pub mod labels;

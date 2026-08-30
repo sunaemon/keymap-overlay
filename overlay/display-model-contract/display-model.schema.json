@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OverlayModel",
+  "type": "object",
+  "properties": {
+    "encoder_font_size": {
+      "type": "number",
+      "format": "double"
+    },
+    "encoders": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DisplayEncoder"
+      }
+    },
+    "header_font_size": {
+      "type": "number",
+      "format": "double"
+    },
+    "height": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "key_font_size": {
+      "type": "number",
+      "format": "double"
+    },
+    "keys": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DisplayKey"
+      }
+    },
+    "layer": {
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 2,
+      "minimum": 2
+    },
+    "width": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "version",
+    "layer",
+    "width",
+    "height",
+    "header_font_size",
+    "key_font_size",
+    "encoder_font_size",
+    "keys",
+    "encoders"
+  ],
+  "$defs": {
+    "DisplayEncoder": {
+      "type": "object",
+      "properties": {
+        "clockwise": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "clockwise_transparent": {
+          "type": "boolean",
+          "default": false
+        },
+        "counter_clockwise": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "counter_clockwise_transparent": {
+          "type": "boolean",
+          "default": false
+        },
+        "held": {
+          "type": "boolean"
+        },
+        "momentary_layer": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "default": null,
+          "maximum": 255,
+          "minimum": 0
+        },
+        "press": {
+          "type": "string"
+        },
+        "press_transparent": {
+          "type": "boolean",
+          "default": false
+        },
+        "size": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "x": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "y": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "size",
+        "counter_clockwise",
+        "clockwise",
+        "press",
+        "held"
+      ]
+    },
+    "DisplayKey": {
+      "type": "object",
+      "properties": {
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "held": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "momentary_layer": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "default": null,
+          "maximum": 255,
+          "minimum": 0
+        },
+        "transparent": {
+          "type": "boolean",
+          "default": false
+        },
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "x": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "y": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height",
+        "label",
+        "held"
+      ]
+    }
+  }
+}
