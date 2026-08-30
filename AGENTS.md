@@ -271,8 +271,13 @@ before adding another one. Dependabot proposes updates for `cargo`, `uv`, and
 GitHub Actions weekly; the tool versions pinned in `mise.toml` and
 `mise.dev.toml` are not covered by it and still need bumping by hand.
 
-When Codex invokes the GitHub CLI (`gh`), run it outside the sandbox so it can
-access the user's GitHub authentication and network connection.
+GitHub CLI (`gh`) is installed and authenticated for repository operations;
+prefer it to browser automation for pull requests, checks, releases, and other
+GitHub state. Run it outside the sandbox so it can access the user's
+authentication and network connection. On this Windows host it is provided by
+the README's MSYS2 UCRT64 environment at
+`C:\msys64\ucrt64\bin\gh.exe`; use that absolute path when the calling
+PowerShell process does not have UCRT64 on `PATH`.
 
 `make install-overlay` still cannot be exercised in CI, because `launchctl
 bootstrap` and `systemctl --user` need a real login session, and the layer-shell
