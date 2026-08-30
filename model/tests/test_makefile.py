@@ -108,15 +108,17 @@ def test_macos_source_install_retries_transient_launchctl_bootstrap() -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")
-def test_live_asset_target_runs_the_native_generator() -> None:
-    """Keep the default Vial draw path usable as an explicit development task."""
+@pytest.mark.parametrize("pixels_per_unit", [64, 80])
+def test_live_asset_target_runs_the_native_generator(pixels_per_unit: int) -> None:
+    """Key generated models by scale and invoke the native Vial reader."""
     result = subprocess.run(
         [
             MAKE,
             "-Bn",
-            "build/1/assets/macos/1.json",
+            f"build/1/assets/macos/{pixels_per_unit}/1.json",
             "KEYBOARD_ID=1",
             "OVERLAY_PLATFORM=macos",
+            f"PIXELS_PER_UNIT={pixels_per_unit}",
             "CARGO=cargo",
         ],
         check=True,
@@ -128,6 +130,7 @@ def test_live_asset_target_runs_the_native_generator() -> None:
     assert "cargo run --quiet --package keymap-overlay-generator" in result.stdout
     assert '--keyboard-id "1"' in result.stdout
     assert '--platform "macos"' in result.stdout
+    assert f'--pixels-per-unit "{pixels_per_unit}"' in result.stdout
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Makefile paths use POSIX syntax")

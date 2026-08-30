@@ -161,6 +161,31 @@ Describe 'install.ps1' {
         { Stop-Overlay } | Should -Throw '*did not stop within 10 seconds*'
     }
 
+    It 'restarts a previous installation only when it was running' {
+        $backupDirectory = Join-Path $TestDrive 'running-backup'
+        Set-Content -LiteralPath $binaryPath -Value 'old binary'
+        Mock Get-ItemPropertyValue { $null }
+        Mock Get-Process { @([pscustomobject]@{ Id = 1234 }) } -ParameterFilter { $Name -eq 'keymap-overlay' }
+        Mock Start-Process
+
+        Backup-Installation -BackupDirectory $backupDirectory
+        Restart-PreviousInstallation -BackupDirectory $backupDirectory
+
+        (Join-Path $backupDirectory 'was-running') | Should -Exist
+        Should -Invoke Start-Process -Times 1 -ParameterFilter { $FilePath -eq $binaryPath }
+    }
+
+    It 'keeps a previous installation stopped during rollback' {
+        $backupDirectory = Join-Path $TestDrive 'stopped-backup'
+        Set-Content -LiteralPath $binaryPath -Value 'old binary'
+        New-Item -ItemType Directory -Path $backupDirectory | Out-Null
+        Mock Start-Process
+
+        Restart-PreviousInstallation -BackupDirectory $backupDirectory
+
+        Should -Invoke Start-Process -Times 0
+    }
+
     It 'restores an existing installation when autostart setup fails' {
         Set-Content -LiteralPath (Join-Path $assetDirectory '1.json') -Value '{}'
         Set-Content -LiteralPath $binaryPath -Value 'old binary'

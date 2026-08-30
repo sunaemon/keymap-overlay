@@ -41,7 +41,7 @@ function Install-Release {
 
             try { Stop-Overlay } catch { $rollbackErrors += "stopping the overlay: $($_.Exception.Message)" }
             try { Restore-Installation -BackupDirectory $backupDirectory } catch { $rollbackErrors += "restoring files: $($_.Exception.Message)" }
-            try { Restart-PreviousInstallation } catch { $rollbackErrors += "restarting the previous installation: $($_.Exception.Message)" }
+            try { Restart-PreviousInstallation -BackupDirectory $backupDirectory } catch { $rollbackErrors += "restarting the previous installation: $($_.Exception.Message)" }
 
             if ($rollbackErrors.Count -gt 0) {
                 throw "Installation failed: $installationError. Rollback also failed while $($rollbackErrors -join '; ')."
@@ -199,6 +199,9 @@ function Backup-Installation {
     if ($null -ne $runCommand) {
         Set-Content -LiteralPath (Join-Path $BackupDirectory 'run-command.txt') -Value $runCommand
     }
+    if (@(Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue).Count -gt 0) {
+        New-Item -ItemType File -Path (Join-Path $BackupDirectory 'was-running') | Out-Null
+    }
 }
 
 function Stop-Overlay {
@@ -263,7 +266,10 @@ function Restore-Installation {
 }
 
 function Restart-PreviousInstallation {
-    if (Test-Path -LiteralPath $binaryPath -PathType Leaf) {
+    param([string]$BackupDirectory)
+
+    $wasRunning = Test-Path -LiteralPath (Join-Path $BackupDirectory 'was-running') -PathType Leaf
+    if ($wasRunning -and (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
         Start-Process -FilePath $binaryPath
     }
 }

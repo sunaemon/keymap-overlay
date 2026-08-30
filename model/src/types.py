@@ -268,9 +268,20 @@ class KeymapOverlayMetadata(BaseModel):
 
     keyboardId: Annotated[int, Field(ge=0, le=255)]
     layoutName: str
-    pixelsPerUnit: int
+    pixelsPerUnit: Annotated[int, Field(gt=0)]
     keyboard: KeyboardJson
     config: KeyboardConfig
+
+    @model_validator(mode="after")
+    def _validate_encoder_count(self) -> "KeymapOverlayMetadata":
+        expected = self.keyboard.encoder_count()
+        actual = len(self.config.encoders)
+        if actual != expected:
+            raise ValueError(
+                f"config defines {actual} encoder placements, "
+                f"keyboard defines {expected}"
+            )
+        return self
 
 
 class VialJson(BaseModelAllow):
