@@ -1,6 +1,7 @@
 # QMK Keymap Overlay
 
 [![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml?query=branch%3Amain)
+[![Codecov](https://codecov.io/gh/sunaemon/keymap-overlay/branch/main/graph/badge.svg)](https://app.codecov.io/gh/sunaemon/keymap-overlay)
 [![Tools: MIT](https://img.shields.io/badge/Tools-MIT-green.svg)](LICENSE.md#tools-and-application-mit)
 [![Firmware: GPL-2.0-or-later](https://img.shields.io/badge/Firmware-GPL--2.0--or--later-blue.svg)](LICENSE.md#firmware-and-qmk-keymap-files-gpl-20-or-later)
 [![Platform: macOS | Linux | Windows](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)
@@ -480,7 +481,16 @@ Develop the native Windows overlay in MSYS2 UCRT64, not WSL. In PowerShell:
 ```powershell
 winget install --id MSYS2.MSYS2 -e --source winget
 winget install --id jdx.mise -e --source winget
+winget install --id GitHub.cli -e --source winget
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --includeRecommended"
+```
+
+Open a new terminal after WinGet finishes, then authenticate GitHub CLI for
+pull requests, checks, releases, and artifact attestation verification:
+
+```powershell
+gh auth login
+gh auth status
 ```
 
 WinGet normally exposes `mise.exe` through

@@ -196,6 +196,7 @@ make format       # Format everything (ruff, cargo fmt, mbake, prettier, taplo, 
 make lint         # ruff check, ty, cargo clippy -D warnings
 make test         # pytest
 make test-rust    # cargo test --workspace
+make coverage     # Run both suites and report Python and Rust line coverage
 make test-installer-sh # release installer integration tests with stubbed services
 make build-overlay # build the release overlay for the current platform
 make test-release-acceptance-macos # macOS release gate: installer rollback + AppKit E2E
@@ -243,14 +244,17 @@ anything that depends on `build/`.
 CI has `linux-x86_64` and `linux-arm64` jobs, each running `lint`, `format`,
 `test`, `test-rust`, `check-licenses`, and `test-release-acceptance-linux`
 (installer rollback plus both E2E halves against the release overlay), then
-failing if formatting or linting produced a diff. The `mac-arm64` job runs `test`,
-`test-rust`, and `test-release-acceptance-macos` (installer rollback plus the
-simulated AppKit E2E test). On Windows it runs `test`, the `install.ps1` Pester
-suite, `test-rust` and `build-overlay`; the other Windows steps set
-`shell: bash` so the Makefile runs under Git Bash. Each job builds only its own
-native backend, so `ui/appkit.rs` is compiled by the macOS job, WPF and its Rust
-bridge by the Windows job, and the D-Bus daemon and Qt renderer by the Linux
-job. A fourth job runs `make audit`.
+failing if formatting or linting produced a diff. The x86_64 Linux job runs
+those test suites through `coverage` and uploads the Python and Rust reports to
+Codecov; its project and patch checks are initially informational. The
+`mac-arm64` job runs `test`, `test-rust`, and
+`test-release-acceptance-macos` (installer rollback plus the simulated AppKit
+E2E test). On Windows it runs `test`, the `install.ps1` Pester suite,
+`test-rust` and `build-overlay`; the other Windows steps set `shell: bash` so
+the Makefile runs under Git Bash. Each job builds only its own native backend,
+so `ui/appkit.rs` is compiled by the macOS job, WPF and its Rust bridge by the
+Windows job, and the D-Bus daemon and Qt renderer by the Linux job. A fourth
+job runs `make audit`.
 
 Linux ARM64 and Windows ARM64 are experimental release targets. CI still builds
 and tests their archives, but the hardware release gate and lifecycle checklist
@@ -267,8 +271,12 @@ before adding another one. Dependabot proposes updates for `cargo`, `uv`, and
 GitHub Actions weekly; the tool versions pinned in `mise.toml` and
 `mise.dev.toml` are not covered by it and still need bumping by hand.
 
-When Codex invokes the GitHub CLI (`gh`), run it outside the sandbox so it can
-access the user's GitHub authentication and network connection.
+GitHub CLI (`gh`) is installed and authenticated for repository operations;
+prefer it to browser automation for pull requests, checks, releases, and other
+GitHub state. Run it outside the sandbox so it can access the user's
+authentication and network connection. The README's Windows development setup
+installs it normally with WinGet and documents authentication; do not encode a
+machine-specific executable path as repository guidance.
 
 `make install-overlay` still cannot be exercised in CI, because `launchctl
 bootstrap` and `systemctl --user` need a real login session, and the layer-shell
