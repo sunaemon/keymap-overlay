@@ -952,6 +952,95 @@ mod tests {
     }
 
     #[test]
+    fn oversized_scale_is_rejected_at_the_canvas_boundary() {
+        let keyboard = keyboard(
+            r#"{
+                "usb": {"vid": "0x0001", "pid": "0x0002"},
+                "layouts": {"LAYOUT": {"layout": [
+                    {"x": 0, "y": 0, "matrix": [0, 0]}
+                ]}}
+            }"#,
+        );
+        let base = layer(&["KC_A"], &[]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config("{}"),
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            i64::MAX,
+        )
+        .expect_err("unrepresentable canvas scale");
+
+        assert!(error.to_string().contains("canvas width"));
+    }
+
+    #[test]
+    fn key_pixel_conversion_errors_are_propagated() {
+        let layout = [
+            LayoutKey {
+                x: 0.0,
+                y: 0.0,
+                matrix: (0, 0),
+                w: 1.0,
+                h: 1.0,
+                r: 0.0,
+            },
+            LayoutKey {
+                x: f64::NAN,
+                y: 0.0,
+                matrix: (0, 1),
+                w: 1.0,
+                h: 1.0,
+                r: 0.0,
+            },
+        ];
+        let keys = ["KC_A".to_string(), "KC_B".to_string()];
+
+        let error = build_model(
+            &layout,
+            &keys,
+            &keys,
+            &[],
+            &[],
+            &[],
+            &HashMap::new(),
+            &keycode_labels(),
+            0,
+            64,
+        )
+        .expect_err("invalid internal key coordinate");
+
+        assert!(error.to_string().contains("x coordinate"));
+    }
+
+    #[test]
+    fn oversized_scale_is_rejected_when_sizing_encoder_labels() {
+        let keyboard = two_key_keyboard_with_encoder();
+        let config = config(r#"{"encoders": [{"matrix": [0, 1]}]}"#);
+        let base = layer(&["KC_A", "KC_B"], &[["KC_VOLD", "KC_VOLU"]]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config,
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            i64::MAX,
+        )
+        .expect_err("unrepresentable encoder label scale");
+
+        assert!(error.to_string().contains("encoder label extent"));
+    }
+
+    #[test]
     fn large_finite_layout_coordinates_are_rejected() {
         let keyboard = keyboard(
             r#"{
