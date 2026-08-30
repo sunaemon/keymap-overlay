@@ -112,19 +112,33 @@ pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<Connecte
                         &mut record_event,
                     )
                     .with_context(|| format!("Failed to read Vial device {path:?}"));
-                    let _ = reader_ready_tx.send(());
+                    let models = match models {
+                        Ok(Some(models)) => {
+                            // Committing this reader to one drain before signaling
+                            // closes the final-reader scheduling race.
+                            vial::record_layer_events_until(
+                                &device,
+                                || {
+                                    let _ = reader_ready_tx.send(());
+                                },
+                                || !finish_startup_handoff.load(Ordering::Acquire),
+                                &mut record_event,
+                            )
+                            .with_context(|| {
+                                format!("Failed to finish startup handoff for Vial device {path:?}")
+                            })?;
+                            Some(models)
+                        }
+                        Ok(None) => {
+                            let _ = reader_ready_tx.send(());
+                            None
+                        }
+                        Err(error) => {
+                            let _ = reader_ready_tx.send(());
+                            return Err(error);
+                        }
+                    };
                     drop(reader_ready_tx);
-                    let models = models?;
-                    if models.is_some() {
-                        vial::record_layer_events_until(
-                            &device,
-                            || !finish_startup_handoff.load(Ordering::Acquire),
-                            &mut record_event,
-                        )
-                        .with_context(|| {
-                            format!("Failed to finish startup handoff for Vial device {path:?}")
-                        })?;
-                    }
                     Ok(models.map(|models| ConnectedKeyboard {
                         models,
                         device,
@@ -222,5 +236,16 @@ mod tests {
                 .expect("handoff completes after every reader");
             assert!(finish_startup_handoff.load(Ordering::Acquire));
         });
+    }
+
+    #[test]
+    fn startup_handoff_finishes_if_a_reader_disconnects() {
+        let finish_startup_handoff = AtomicBool::new(false);
+        let (reader_ready_tx, reader_ready_rx) = mpsc::channel();
+        drop(reader_ready_tx);
+
+        coordinate_startup_handoff(reader_ready_rx, 1, &finish_startup_handoff);
+
+        assert!(finish_startup_handoff.load(Ordering::Acquire));
     }
 }

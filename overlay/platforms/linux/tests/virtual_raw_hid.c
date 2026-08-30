@@ -35,6 +35,10 @@ struct self_describing_device {
   uint8_t *definition;
   size_t definition_size;
   unsigned sequence_step;
+  useconds_t response_delay_us;
+  bool fail_first_vial_request;
+  bool fail_during_handoff;
+  bool emit_layer_sequence;
 };
 
 static volatile sig_atomic_t running = 1;
@@ -106,12 +110,23 @@ static void wait_until_opened(int descriptor) {
   }
 }
 
-static void send_report(int descriptor, const uint8_t data[report_size]) {
+static void send_report_with_size(int descriptor,
+                                  const uint8_t data[report_size],
+                                  size_t size) {
   struct uhid_event event = {0};
   event.type = UHID_INPUT2;
-  event.u.input2.size = report_size;
-  memcpy(event.u.input2.data, data, report_size);
+  event.u.input2.size = (__u16)size;
+  memcpy(event.u.input2.data, data, size);
   write_event(descriptor, &event);
+}
+
+static void send_report(int descriptor, const uint8_t data[report_size]) {
+  send_report_with_size(descriptor, data, report_size);
+}
+
+static void send_incomplete_report(int descriptor) {
+  const uint8_t data[report_size] = {0};
+  send_report_with_size(descriptor, data, 1);
 }
 
 static void send_layer_event(int descriptor, uint8_t keyboard_id, uint8_t layer,
@@ -176,12 +191,20 @@ static const uint8_t *output_payload(const struct uhid_output_req *output) {
 }
 
 static void send_vial_response(int descriptor,
-                               const struct self_describing_device *device,
+                               struct self_describing_device *device,
                                const uint8_t request[report_size]) {
   static const uint8_t keymap[] = {
       0x00, 0x04, 0x52, 0x21, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, 0x00, 0x07,
       0x00, 0x01, 0x00, 0x08, 0x00, 0x01, 0x00, 0x09, 0x00, 0x01, 0x00, 0x0a,
   };
+  if (device->fail_first_vial_request) {
+    device->fail_first_vial_request = false;
+    send_incomplete_report(descriptor);
+    return;
+  }
+  if (device->response_delay_us > 0) {
+    usleep(device->response_delay_us);
+  }
   uint8_t response[report_size] = {0};
   switch (request[0]) {
   case 0x01:
@@ -248,7 +271,8 @@ static void run_self_describing(int descriptor,
                                 struct self_describing_device *device) {
   while (running) {
     struct pollfd poll_descriptor = {.fd = descriptor, .events = POLLIN};
-    const int result = poll(&poll_descriptor, 1, 2000);
+    const int poll_timeout_ms = device->fail_during_handoff ? 100 : 2000;
+    const int result = poll(&poll_descriptor, 1, poll_timeout_ms);
     if (result < 0 && errno == EINTR) {
       continue;
     }
@@ -272,6 +296,20 @@ static void run_self_describing(int descriptor,
           send_vial_response(descriptor, device, request);
         }
       }
+      continue;
+    }
+
+    if (device->fail_during_handoff) {
+      if (device->sequence_step++ == 0) {
+        send_layer_event(descriptor, virtual_keyboard_id, 1, true);
+      } else {
+        send_incomplete_report(descriptor);
+        device->fail_during_handoff = false;
+      }
+      continue;
+    }
+
+    if (!device->emit_layer_sequence) {
       continue;
     }
 
@@ -306,15 +344,31 @@ static void run_event_only(int descriptor) {
 
 int main(int argc, char **argv) {
   const bool self_describing =
-      argc == 3 && strcmp(argv[1], "--definition") == 0;
+      argc == 3 && (strcmp(argv[1], "--definition") == 0 ||
+                    strcmp(argv[1], "--definition-slow") == 0 ||
+                    strcmp(argv[1], "--definition-unsupported") == 0 ||
+                    strcmp(argv[1], "--definition-invalid") == 0 ||
+                    strcmp(argv[1], "--definition-invalid-handoff") == 0);
   if (argc != 1 && !self_describing) {
-    fprintf(stderr, "Usage: %s [--definition VIAL_JSON]\n", argv[0]);
+    fprintf(stderr,
+            "Usage: %s [--definition|--definition-slow|"
+            "--definition-unsupported|--definition-invalid|"
+            "--definition-invalid-handoff VIAL_JSON]\n",
+            argv[0]);
     return EXIT_FAILURE;
   }
 
   struct self_describing_device device = {0};
   if (self_describing) {
     device.definition = read_definition(argv[2], &device.definition_size);
+    device.response_delay_us =
+        strcmp(argv[1], "--definition-slow") == 0 ? 100000 : 0;
+    device.fail_first_vial_request =
+        strcmp(argv[1], "--definition-invalid") == 0;
+    device.fail_during_handoff =
+        strcmp(argv[1], "--definition-invalid-handoff") == 0;
+    device.emit_layer_sequence = strcmp(argv[1], "--definition") == 0 ||
+                                 strcmp(argv[1], "--definition-slow") == 0;
   }
 
   install_signal_handlers();

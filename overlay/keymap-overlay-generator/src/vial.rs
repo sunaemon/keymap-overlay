@@ -126,25 +126,39 @@ pub(crate) fn read_device_model_with_definition_recording_events(
     })
 }
 
-/// Keeps observing unsolicited layer reports until every startup reader is ready.
+/// Keeps observing unsolicited reports through the coordinated startup handoff.
 pub(crate) fn record_layer_events_until(
     device: &HidDevice,
-    mut continue_reading: impl FnMut() -> bool,
+    handoff_committed: impl FnOnce(),
+    continue_reading: impl FnMut() -> bool,
     on_layer_event: &mut dyn FnMut(RawLayerEvent),
 ) -> Result<()> {
-    while continue_reading() {
+    drain_until_handoff(handoff_committed, continue_reading, || {
         let mut response = [0; MAX_INPUT_MESSAGE_LENGTH];
         let response_len = device
             .read_timeout(&mut response, STARTUP_HANDOFF_READ_TIMEOUT_MS)
             .context("Failed while preserving layer events during startup handoff")?;
-        if response_len == 0 {
-            continue;
+        if response_len != 0 {
+            let _ = classify_vial_response(response, response_len, on_layer_event, || {
+                hid_device_identity(device)
+            })?;
         }
-        let _ = classify_vial_response(response, response_len, on_layer_event, || {
-            hid_device_identity(device)
-        })?;
+        Ok(())
+    })
+}
+
+fn drain_until_handoff(
+    handoff_committed: impl FnOnce(),
+    mut continue_reading: impl FnMut() -> bool,
+    mut drain_once: impl FnMut() -> Result<()>,
+) -> Result<()> {
+    handoff_committed();
+    loop {
+        drain_once()?;
+        if !continue_reading() {
+            return Ok(());
+        }
     }
-    Ok(())
 }
 
 fn read_device_model_recording_events(
@@ -406,6 +420,13 @@ fn normalize_input_report(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc,
+    };
+    use std::thread;
+    use std::time::Duration;
 
     fn classify_test_response(
         response: [u8; MAX_INPUT_MESSAGE_LENGTH],
@@ -559,5 +580,49 @@ mod tests {
         let message = format!("{error:#}");
         assert!(message.contains("Incomplete Vial response"));
         assert!(message.contains("HID device 0000:0000 at test-path"));
+    }
+
+    #[test]
+    fn final_reader_drains_after_the_coordinator_finishes() {
+        let finish_handoff = AtomicBool::new(false);
+        let next_sequence = AtomicU64::new(0);
+        let observations = Mutex::new(vec![(
+            next_sequence.fetch_add(1, Ordering::Relaxed),
+            "earlier reader",
+        )]);
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (coordinated_tx, coordinated_rx) = mpsc::channel();
+
+        thread::scope(|scope| {
+            let coordinator_finish_handoff = &finish_handoff;
+            scope.spawn(move || {
+                ready_rx.recv().expect("final reader commits to draining");
+                coordinator_finish_handoff.store(true, Ordering::Release);
+                coordinated_tx
+                    .send(())
+                    .expect("release the descheduled final reader");
+            });
+
+            drain_until_handoff(
+                || ready_tx.send(()).expect("signal final reader readiness"),
+                || !finish_handoff.load(Ordering::Acquire),
+                || {
+                    coordinated_rx
+                        .recv_timeout(Duration::from_secs(1))
+                        .expect("coordinator finishes before the final drain");
+                    observations.lock().expect("observation lock").push((
+                        next_sequence.fetch_add(1, Ordering::Relaxed),
+                        "final reader",
+                    ));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        });
+
+        assert_eq!(
+            *observations.lock().expect("observation lock"),
+            vec![(0, "earlier reader"), (1, "final reader")]
+        );
     }
 }

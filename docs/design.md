@@ -414,14 +414,16 @@ All runtimes read connected keyboards from Vial into memory at startup. Layer
 events received between Vial responses are buffered and replayed through the
 normal reducer when the live listener starts. A device that finishes its Vial
 read early keeps recording reports until every startup reader is ready, giving
-the handoff one cross-device ordering boundary. Each accepted keyboard's open
-HID handle and metadata keyboard ID transfer with its model into that listener,
-so reports queued after the boundary stay in the same session and an immediate
-disconnect can clear buffered state. Devices that do not produce a
-self-describing model contribute neither a startup handle nor accepted layer
-events. Events compose only accepted in-memory models. On Linux the daemon sends
-the composed model to renderer clients, so no renderer leaves the previous
-layer visible while disk I/O completes.
+the handoff one cross-device ordering boundary. An accepted reader commits to
+at least one drain before reporting that readiness; failed and unsupported
+readers report only that their startup attempt is complete. Each accepted
+keyboard's open HID handle and metadata keyboard ID transfer with its model
+into that listener, so reports queued after the boundary stay in the same
+session and an immediate disconnect can clear buffered state. Devices that do
+not produce a self-describing model contribute neither a startup handle nor
+accepted layer events. Events compose only accepted in-memory models. On Linux
+the daemon sends the composed model to renderer clients, so no renderer leaves
+the previous layer visible while disk I/O completes.
 
 Events already waiting when a UI loop wakes are reduced to their final active
 layer before the window changes. Intermediate restores and switches are not
@@ -452,9 +454,10 @@ its own system. Linux CI also runs the release daemon and Qt renderer on an
 isolated D-Bus session with the in-memory simulation fixture, then
 asserts the visible, hidden, and visible-again states through the public D-Bus
 contract and compares the software-rendered Qt Quick output with a golden PNG.
-Another Linux CI test creates a vendor-defined device through `/dev/uhid` and
-sends the real 32-byte Raw HID protocol through the kernel's `hidraw` path,
-then asserts the visible and hidden states from the daemon's public D-Bus
-contract. Together the two tests cover both sides of the daemon independently.
+Another Linux CI test creates concurrent vendor-defined devices through
+`/dev/uhid`, including slow, unsupported, and malformed Vial readers. It sends
+the real 32-byte Raw HID protocol through the kernel's `hidraw` path, then
+asserts the visible and hidden states from the daemon's public D-Bus contract.
+Together the two tests cover both sides of the daemon independently.
 That a window stays on top, passes clicks through and never takes
 focus still needs a real machine.

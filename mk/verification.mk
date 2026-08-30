@@ -177,12 +177,20 @@ endif
 .PHONY: test-hid-to-dbus-e2e-linux
 test-hid-to-dbus-e2e-linux: build-overlay
 ifeq ($(OS_FAMILY),linux)
+	$(MAKE) run-hid-to-dbus-e2e-linux
+else
+	$(error test-hid-to-dbus-e2e-linux is only available on Linux)
+endif
+
+.PHONY: run-hid-to-dbus-e2e-linux
+run-hid-to-dbus-e2e-linux:
+ifeq ($(OS_FAMILY),linux)
 	$(CC) -o target/virtual-raw-hid \
 		-std=c11 -Wall -Wextra -Wpedantic -Werror \
 		overlay/platforms/linux/tests/virtual_raw_hid.c -llzma
 	dbus-run-session -- ./overlay/platforms/linux/tests/test_hid_to_dbus_e2e.sh
 else
-	$(error test-hid-to-dbus-e2e-linux is only available on Linux)
+	$(error run-hid-to-dbus-e2e-linux is only available on Linux)
 endif
 
 # Runs both suites with coverage. The workspace-wide measurement remains
@@ -204,5 +212,25 @@ coverage-python:
 # from Linux, macOS, and Windows so Codecov can merge the native backends.
 .PHONY: coverage-rust
 coverage-rust:
-	$(CARGO_LLVM_COV) --workspace --all-targets --lcov --output-path coverage-rust.lcov
+	$(CARGO_LLVM_COV) --workspace --all-targets --no-report
+ifeq ($(OS_FAMILY),linux)
+	@if [ -r /dev/uhid ] && [ -w /dev/uhid ]; then \
+		$(MAKE) coverage-rust-hid-to-dbus-e2e-linux; \
+	else \
+		echo 'Skipping virtual HID coverage: /dev/uhid is not readable and writable'; \
+	fi
+endif
+	$(CARGO_LLVM_COV) report --lcov --output-path coverage-rust.lcov
 	$(CARGO_LLVM_COV) report --summary-only
+
+.PHONY: coverage-rust-hid-to-dbus-e2e-linux
+coverage-rust-hid-to-dbus-e2e-linux:
+ifeq ($(OS_FAMILY),linux)
+	@export CARGO_TARGET_DIR="$(abspath target/llvm-cov-target)"; \
+		eval "$$($(CARGO_LLVM_COV) show-env --sh)"; \
+		$(CARGO) build --package keymap-overlay-linux-daemon; \
+		KEYMAP_OVERLAY_E2E_DAEMON="$(abspath target/llvm-cov-target/debug/keymap-overlay)" \
+		$(MAKE) run-hid-to-dbus-e2e-linux
+else
+	$(error coverage-rust-hid-to-dbus-e2e-linux is only available on Linux)
+endif
