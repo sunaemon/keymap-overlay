@@ -56,10 +56,16 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          # PR caches are isolated to that PR. Restore main's cache everywhere,
+          # but save the reusable copy only after a change reaches main.
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       # Must follow mise, which is what puts rustc on PATH for the cache key.
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Lint
         run: mise run lint
@@ -123,6 +129,11 @@ jobs:
       contents: read
       id-token: write
 
+    # coverage-rust activates mise.dev.toml, so install and cache that profile
+    # before the tests instead of fetching its tools during the coverage step.
+    env:
+      MISE_ENV: dev
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
@@ -131,9 +142,13 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Tests
         run: make test
@@ -173,13 +188,20 @@ jobs:
         include:
           - architecture: x86_64
             runner: windows-latest
+            mise_environment: dev
           - architecture: arm64
             runner: windows-11-vs2026-arm
+            mise_environment: ''
     runs-on: ${{ matrix.runner }}
 
     permissions:
       contents: read
       id-token: write
+
+    # Only x86_64 collects Rust coverage. Keep ARM64 on the base tool profile,
+    # while caching the development tools x86_64 would otherwise fetch later.
+    env:
+      MISE_ENV: ${{ matrix.mise_environment }}
 
     defaults:
       run:
@@ -193,9 +215,13 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Tests
         run: make test
@@ -258,6 +284,8 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Audit Rust dependencies
         run: make audit
