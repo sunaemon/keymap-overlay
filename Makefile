@@ -648,11 +648,19 @@ else
 	$(error test-hid-to-dbus-e2e-linux is only available on Linux)
 endif
 
-# Runs both suites with line coverage. Keep this measurement separate from a
-# minimum threshold until CI has established a representative baseline.
+# Runs both suites with coverage. Keep this measurement separate from a
+# minimum threshold until Codecov has representative reports from every OS.
 .PHONY: coverage
-coverage:
-	$(UV) run pytest --cov=model/scripts --cov=model/src --cov=installer/release --cov=firmware/tools --cov=tools --cov-report=term-missing --cov-report=xml:coverage-python.xml
+coverage: coverage-python coverage-rust
+
+.PHONY: coverage-python
+coverage-python:
+	$(UV) run pytest --cov-branch --cov=model/scripts --cov=model/src --cov=installer/release --cov=firmware/tools --cov=tools.check_commit_message --cov-report=term-missing --cov-report=xml:coverage-python.xml
+
+# Rust source is compiled differently on each host. CI uploads this report
+# from Linux, macOS, and Windows so Codecov can merge the native backends.
+.PHONY: coverage-rust
+coverage-rust:
 	$(CARGO_LLVM_COV) --workspace --all-targets --lcov --output-path coverage-rust.lcov
 	$(CARGO_LLVM_COV) report --summary-only
 

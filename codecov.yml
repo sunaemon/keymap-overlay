@@ -17,11 +17,12 @@ component_management:
     - component_id: python
       name: Python
       paths:
-        - model/**
-        - installer/**
-        - firmware/tools/**
-        - tools/**
+        - model/**/*.py
+        - installer/release/*.py
+        - firmware/tools/*.py
+        - tools/*.py
     - component_id: rust
       name: Rust
       paths:
-        - overlay/**
+        - overlay/**/*.rs
+        - tools/keymap-overlay-hil/**/*.rs
