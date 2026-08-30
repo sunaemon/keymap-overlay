@@ -15,8 +15,16 @@ use keymap_overlay_runtime::{
 };
 use log::{info, warn};
 use rustix::event::{PollFd, PollFlags, poll};
+use signal_hook::{
+    consts::{SIGINT, SIGTERM},
+    iterator::Signals,
+};
 use std::os::fd::AsFd;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc::{self, Receiver, Sender},
+};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zbus::blocking::Connection;
@@ -132,6 +140,8 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
         .context("Failed to own the keymap overlay D-Bus name")?;
 
     let (sender, receiver) = mpsc::channel();
+    let shutting_down = Arc::new(AtomicBool::new(false));
+    spawn_shutdown_watcher(sender.clone(), Arc::clone(&shutting_down))?;
     let source = spawn_layer_event_source(
         ChannelSink(sender),
         simulated,
@@ -144,6 +154,9 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
     let mut pending = PendingTransition::default();
 
     for event in &receiver {
+        if shutting_down.load(Ordering::Acquire) {
+            return Ok(());
+        }
         let transition = reduce_queued_events(event, &receiver, &mut pending);
         let outcome = state.update(&transition, &models)?;
         if outcome.missing_model
@@ -171,6 +184,21 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
             )
             .context("Failed to publish renderer state")?;
     }
+    Ok(())
+}
+
+fn spawn_shutdown_watcher(
+    sender: Sender<LayerEvent>,
+    shutting_down: Arc<AtomicBool>,
+) -> Result<()> {
+    let mut signals =
+        Signals::new([SIGINT, SIGTERM]).context("Failed to watch shutdown signals")?;
+    thread::spawn(move || {
+        if signals.forever().next().is_some() {
+            shutting_down.store(true, Ordering::Release);
+            let _ = sender.send(LayerEvent::Disconnected { keyboard_id: None });
+        }
+    });
     Ok(())
 }
 

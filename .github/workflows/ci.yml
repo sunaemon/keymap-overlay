@@ -116,6 +116,16 @@ jobs:
       - name: Check third-party license notices
         run: make check-licenses
 
+      # x86_64 includes the real generator startup path in Rust coverage. The
+      # release-acceptance suite uses the same kernel fixture on both runners.
+      - name: Enable the virtual Raw HID test device
+        if: matrix.architecture == 'x86_64' || needs.changes.outputs.release-acceptance == 'true'
+        run: |
+          sudo modprobe uhid
+          sudo chmod 0666 /dev/uhid
+          sudo install -m 0644 overlay/platforms/linux/tests/99-keymap-overlay-e2e.rules /etc/udev/rules.d/99-keymap-overlay-e2e.rules
+          sudo udevadm control --reload
+
       # Linux x86_64 supplies the coverage baseline (both suites, with report
       # generation); the other architecture keeps the plain test path without
       # uploading a duplicate report for the same commit.
@@ -141,21 +151,20 @@ jobs:
           name: linux-x86_64
           use_oidc: true
 
-      - name: Enable the virtual Raw HID test device
-        if: needs.changes.outputs.release-acceptance == 'true'
-        run: |
-          sudo modprobe uhid
-          sudo chmod 0666 /dev/uhid
-          sudo install -m 0644 overlay/platforms/linux/tests/99-keymap-overlay-e2e.rules /etc/udev/rules.d/99-keymap-overlay-e2e.rules
-          sudo udevadm control --reload
-
       # The three systems build different windows out of the same crate, so
       # each one builds the binary it ships.
       # Covers installer rollback, kernel UHID input through the daemon's D-Bus
       # API, and D-Bus output through the Qt renderer and golden image.
       - name: Run Linux release acceptance
         if: needs.changes.outputs.release-acceptance == 'true'
-        run: make test-release-acceptance-linux
+        run: |
+          if [ "${{ matrix.architecture }}" == "x86_64" ]; then
+            # The HID-to-D-Bus half already ran against the coverage-instrumented
+            # daemon above; do not repeat the same virtual-HID workflow.
+            make test-installer-sh test-dbus-to-renderer-e2e-linux
+          else
+            make test-release-acceptance-linux
+          fi
 
       - name: Check for unformatted files
         run: git diff --exit-code

@@ -16,10 +16,13 @@ their required hardware evidence.
 - Rust unit tests cover Raw HID parsing, active-layer reduction, multi-keyboard
   precedence, disconnect state, transparency composition, model geometry,
   labels, custom keycodes, and encoder model construction.
-- Linux HID-to-D-Bus E2E creates a self-describing kernel `/dev/uhid` device,
-  serves compressed Vial metadata and a dynamic keymap through the real startup
-  protocol, then proves nested KMO precedence, restoration, and final hide in
-  public D-Bus state.
+- Linux HID-to-D-Bus E2E creates concurrent kernel `/dev/uhid` devices with
+  valid, slow, unsupported, and malformed Vial startup behavior. It serves
+  compressed metadata and a dynamic keymap through the real startup protocol,
+  then proves nested KMO precedence, restoration, and final hide in public
+  D-Bus state. Linux x86_64 runs this same workflow against the
+  coverage-instrumented daemon, covering the complete multi-device startup
+  handoff through the real `hidraw` path without a second test runner.
 - Linux D-Bus-to-Qt E2E uses `--simulate`, proves show/hide/show state and
   held-key metadata, and compares one offscreen software-rendered image. It
   does not run under KDE, LayerShellQt, Wayland, X11, or a real display scale.
