@@ -100,7 +100,11 @@ cleanup() {
     wait "$VIRTUAL_HID_PID" 2>/dev/null
   fi
   systemctl --user unset-environment QT_LINUX_ACCESSIBILITY_ALWAYS_ON
-  systemctl --user start keymap-overlay.service keymap-overlay-qt.service
+  if ! systemctl --user start keymap-overlay.service keymap-overlay-qt.service; then
+    if [[ "$status" -eq 0 ]]; then
+      status=1
+    fi
+  fi
   exit "$status"
 }
 

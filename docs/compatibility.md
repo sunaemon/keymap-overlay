@@ -15,13 +15,14 @@ Release CI builds and tests these targets:
 | Linux    | `x86_64`                | GNOME 45+ or Qt 6/LayerShellQt, with systemd user services |
 | Windows  | `x86_64`                | Native Windows overlay installed from PowerShell           |
 
-Linux ARM64 and Windows ARM64 archives are built and tested by CI but remain
-experimental. They are not part of the physical hardware release gate.
+Linux ARM64 and Windows ARM64 are experimental release targets. CI builds and
+tests their archives, but they are not part of the physical hardware release
+gate.
 
 Firmware compilation and flashing are supported on macOS and Linux. On a
 Windows host, use WSL for firmware and layer-image work; the overlay itself is
-native Windows software. Other architectures and init systems are not currently
-release targets.
+native Windows software. Architectures other than the stable and experimental
+release targets above, and other init systems, are not currently release targets.
 
 The macOS renderer uses Liquid Glass on macOS 26 and newer, with the native
 visual-effect material available on macOS 11 through 25.

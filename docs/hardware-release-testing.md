@@ -392,9 +392,9 @@ Fill the release PR template without changing its stable row IDs or headers:
   comma-separated values.
 - `GLOBAL-01` and `GLOBAL-02` are checked with `PASS`, or a reasoned `N/A` when
   firmware and embedded metadata did not change.
-- Every `MAC`, `LX`, `KDE`, `GNOME`, `LA`, `KDEA`, `WIN`, and `WINA` check is
-  completed with `PASS`; shared Linux results stay within their architecture,
-  and renderer results cannot be copied to another renderer.
+- Every `MAC`, `LX`, `KDE`, `GNOME`, and `WIN` check is completed with `PASS`;
+  shared Linux results stay within their architecture, and renderer results
+  cannot be copied to another renderer.
 - Every lifecycle row records `PASS` for upgrade, rollback, and uninstall and
   identifies its local transcript or PR comment in the evidence cell.
 

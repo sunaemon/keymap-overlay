@@ -84,8 +84,9 @@ keyboard to own the overlay.
 | simultaneous-keyboards | Pending     | Pending          | Pending        | PENDING |
 
 For every check, change the box and `Result` together. Checks accept only
-`PASS`; shared Linux checks apply to both renderer sessions on that architecture,
-while renderer checks cannot be completed from another renderer's result.
+`PASS`, except for the documented `GLOBAL-01` and `GLOBAL-02` `N/A` case; shared
+Linux checks apply to both renderer sessions on that architecture, while renderer
+checks cannot be completed from another renderer's result.
 
 ### macos-arm64-appkit checks
 
