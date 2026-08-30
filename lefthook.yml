@@ -4,6 +4,26 @@
 # passes the pipeline. Set LEFTHOOK=0 to skip them for a single command, e.g.
 # `LEFTHOOK=0 git commit`.
 
+# The Python fixer must finish before its type checker reads the same files.
+# That lane still runs alongside the independent shell and Rust linters.
+lint:
+  parallel: true
+  setup:
+    - run: uv sync
+  jobs:
+    - name: python
+      group:
+        piped: true
+        jobs:
+          - name: ruff
+            run: ruff check --fix .
+          - name: ty
+            run: ty check --extra-search-path model/typings .
+    - name: shellcheck
+      run: shellcheck installer/install.sh installer/tests/test_install_sh.sh overlay/platforms/linux/tests/test_dbus_to_renderer_e2e.sh overlay/platforms/linux/tests/test_hid_to_dbus_e2e.sh overlay/platforms/linux/tests/test_hardware_physical_reports.sh overlay/platforms/linux/tests/test_hardware_session.sh overlay/platforms/macos/tests/test_appkit_e2e.sh overlay/platforms/macos/tests/test_hardware_physical_reports.sh overlay/platforms/macos/tests/test_hardware_session.sh overlay/platforms/macos/tests/test_hardware_lifecycle.sh overlay/platforms/macos/tests/test_hardware_login.sh firmware/tools/test_hardware_macos.sh
+    - name: clippy
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
 pre-commit:
   # `make format` rewrites files and `make lint` applies ruff's fixes, so both
   # restage what they touched.
