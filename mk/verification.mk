@@ -22,10 +22,13 @@ test-installer-ps:
 
 .PHONY: check-contracts
 check-contracts:
-	@schema="$$(mktemp)"; trap 'rm -f "$$schema"' EXIT; \
-	$(DISPLAY_MODEL_SCHEMA_COMMAND) > "$$schema"; \
-	if ! cmp -s "$(DISPLAY_MODEL_SCHEMA)" "$$schema"; then \
-		diff -u "$(DISPLAY_MODEL_SCHEMA)" "$$schema"; \
+	@generated="$$(mktemp)"; schema="$$(mktemp)"; checked="$$(mktemp)"; \
+	trap 'rm -f "$$generated" "$$schema" "$$checked"' EXIT; \
+	$(DISPLAY_MODEL_SCHEMA_COMMAND) > "$$generated"; \
+	tr -d '\r' < "$$generated" > "$$schema"; \
+	tr -d '\r' < "$(DISPLAY_MODEL_SCHEMA)" > "$$checked"; \
+	if ! cmp -s "$$checked" "$$schema"; then \
+		diff -u "$$checked" "$$schema"; \
 		exit 1; \
 	fi
 	$(CARGO) test --package keymap-overlay-generator --features contract-schema contract::

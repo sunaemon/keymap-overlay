@@ -24,6 +24,7 @@ pub fn fixtures() -> Result<Vec<OverlayModel>> {
 
 /// Builds the base and held-layer models used by every native renderer's E2E path.
 pub fn simulation_models(keyboard_id: u8, layer: u8) -> Result<HashMap<(u8, u8), OverlayModel>> {
+    anyhow::ensure!(layer != 0, "simulation layer must be between 1 and 255");
     let models = fixtures()?;
     let mut base = models[0].clone();
     let mut held = models[1].clone();
@@ -84,6 +85,16 @@ mod tests {
     }
 
     #[test]
+    fn simulation_models_reject_layer_zero() {
+        assert_eq!(
+            simulation_models(12, 0)
+                .expect_err("layer zero")
+                .to_string(),
+            "simulation layer must be between 1 and 255"
+        );
+    }
+
+    #[test]
     fn retarget_layer_updates_encoder_momentary_actions() {
         let mut encoder = fixtures().expect("fixtures")[2].clone();
 
@@ -102,5 +113,33 @@ mod tests {
         assert_eq!(schema["title"], "OverlayModel");
         assert_eq!(schema["properties"]["version"]["minimum"], 2);
         assert_eq!(schema["properties"]["version"]["maximum"], 2);
+    }
+
+    #[cfg(feature = "contract-schema")]
+    #[test]
+    fn schema_rejects_integers_outside_the_rust_u32_range() {
+        let schema: serde_json::Value =
+            serde_json::from_str(&schema_json().expect("generated schema")).expect("schema JSON");
+        let out_of_range = u64::from(u32::MAX) + 1;
+        let paths = [
+            "/properties/width/maximum",
+            "/properties/height/maximum",
+            "/$defs/DisplayKey/properties/x/maximum",
+            "/$defs/DisplayKey/properties/y/maximum",
+            "/$defs/DisplayKey/properties/width/maximum",
+            "/$defs/DisplayKey/properties/height/maximum",
+            "/$defs/DisplayEncoder/properties/x/maximum",
+            "/$defs/DisplayEncoder/properties/y/maximum",
+            "/$defs/DisplayEncoder/properties/size/maximum",
+        ];
+
+        for path in paths {
+            let maximum = schema
+                .pointer(path)
+                .and_then(serde_json::Value::as_u64)
+                .expect("numeric maximum");
+            assert_eq!(maximum, u64::from(u32::MAX));
+            assert!(out_of_range > maximum);
+        }
     }
 }

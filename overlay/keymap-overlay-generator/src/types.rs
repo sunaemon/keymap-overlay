@@ -104,7 +104,9 @@ pub struct OverlayModel {
     #[cfg_attr(feature = "contract-schema", schemars(range(min = 2, max = 2)))]
     pub version: u8,
     pub layer: u8,
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub width: u32,
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub height: u32,
     pub header_font_size: f64,
     pub key_font_size: f64,
@@ -116,9 +118,13 @@ pub struct OverlayModel {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DisplayKey {
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub x: u32,
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub y: u32,
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub width: u32,
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub height: u32,
     pub label: Vec<String>,
     pub held: bool,
@@ -131,8 +137,11 @@ pub struct DisplayKey {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DisplayEncoder {
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub x: u32,
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub y: u32,
+    #[cfg_attr(feature = "contract-schema", schemars(range(max = u32::MAX)))]
     pub size: u32,
     pub counter_clockwise: Vec<String>,
     pub clockwise: Vec<String>,

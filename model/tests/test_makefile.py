@@ -34,6 +34,30 @@ def test_makefile_keeps_one_public_entry_point_with_concern_fragments() -> None:
         assert (root / "mk" / f"{fragment}.mk").is_file()
 
 
+def test_contract_check_accepts_windows_checkout_line_endings(tmp_path: Path) -> None:
+    """Compare generated contracts independently of Git checkout line endings."""
+    checked_schema = tmp_path / "display-model.schema.json"
+    checked_schema.write_bytes(b'{\r\n  "version": 2\r\n}\r\n')
+    generator = tmp_path / "generate-schema"
+    generator.write_text(
+        "#!/bin/sh\nprintf '{\\n  \"version\": 2\\n}\\n'\n",
+        encoding="utf-8",
+    )
+    generator.chmod(0o755)
+
+    subprocess.run(
+        [
+            MAKE,
+            "check-contracts",
+            f"DISPLAY_MODEL_SCHEMA={checked_schema.as_posix()}",
+            f"DISPLAY_MODEL_SCHEMA_COMMAND={generator.as_posix()}",
+            "CARGO=true",
+        ],
+        check=True,
+        cwd=Path(__file__).parents[2],
+    )
+
+
 def test_firmware_setup_initializes_only_required_qmk_submodules() -> None:
     """Resolve nested firmware dependencies from the configured keyboards."""
     result = subprocess.run(

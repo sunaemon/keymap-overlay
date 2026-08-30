@@ -20,6 +20,7 @@
     "height": {
       "type": "integer",
       "format": "uint32",
+      "maximum": 4294967295,
       "minimum": 0
     },
     "key_font_size": {
@@ -47,6 +48,7 @@
     "width": {
       "type": "integer",
       "format": "uint32",
+      "maximum": 4294967295,
       "minimum": 0
     }
   },
@@ -108,16 +110,19 @@
         "size": {
           "type": "integer",
           "format": "uint32",
+          "maximum": 4294967295,
           "minimum": 0
         },
         "x": {
           "type": "integer",
           "format": "uint32",
+          "maximum": 4294967295,
           "minimum": 0
         },
         "y": {
           "type": "integer",
           "format": "uint32",
+          "maximum": 4294967295,
           "minimum": 0
         }
       },
@@ -137,6 +142,7 @@
         "height": {
           "type": "integer",
           "format": "uint32",
+          "maximum": 4294967295,
           "minimum": 0
         },
         "held": {
@@ -165,16 +171,19 @@
         "width": {
           "type": "integer",
           "format": "uint32",
+          "maximum": 4294967295,
           "minimum": 0
         },
         "x": {
           "type": "integer",
           "format": "uint32",
+          "maximum": 4294967295,
           "minimum": 0
         },
         "y": {
           "type": "integer",
           "format": "uint32",
+          "maximum": 4294967295,
           "minimum": 0
         }
       },
