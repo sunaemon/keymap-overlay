@@ -109,7 +109,18 @@ cat >"$FAKE_BIN/launchctl" <<'EOF'
 #!/bin/sh
 printf 'launchctl %s\n' "$*" >>"$TEST_COMMAND_LOG"
 case "$*" in
+  *print*)
+    if [ "${TEST_MACOS_LOADED:-1}" -eq 1 ]; then
+      exit 0
+    fi
+    exit 1
+    ;;
   *bootstrap*)
+    bootstrap_count=$(grep -c '^launchctl bootstrap' "$TEST_COMMAND_LOG")
+    if [ "${TEST_FAIL_MACOS_INSTALL:-0}" -ne 0 ] && [ "$bootstrap_count" -le 3 ]; then
+      echo 'Bootstrap failed: 5: Input/output error' >&2
+      exit 1
+    fi
     if [ "${TEST_FAIL_LAUNCHCTL_ONCE:-0}" -ne 0 ] && [ ! -f "${TEST_COMMAND_LOG}.launchctl-failed-once" ]; then
       : >"${TEST_COMMAND_LOG}.launchctl-failed-once"
       echo 'Bootstrap failed: 5: Input/output error' >&2
@@ -165,6 +176,8 @@ run_installer() {
     TEST_CURL_LOG="$home/curl.log" \
     TEST_REAL_INSTALL="$REAL_INSTALL" \
     TEST_FAIL_SERVICE="${TEST_FAIL_SERVICE:-0}" \
+    TEST_FAIL_MACOS_INSTALL="${TEST_FAIL_MACOS_INSTALL:-0}" \
+    TEST_MACOS_LOADED="${TEST_MACOS_LOADED:-1}" \
     TEST_MAIN_ENABLED="${TEST_MAIN_ENABLED:-1}" \
     TEST_MAIN_ACTIVE="${TEST_MAIN_ACTIVE:-1}" \
     TEST_QT_ENABLED="${TEST_QT_ENABLED:-1}" \
@@ -283,6 +296,51 @@ test_macos_retries_transient_launchctl_bootstrap_failure() {
   test "$bootstrap_count" -eq 2
 }
 
+test_failed_macos_upgrade_restores_loaded_service() {
+  home="$TEST_DIRECTORY/macos loaded rollback home"
+  bin="$home/.local/bin"
+  state="$home/.config/keymap-overlay"
+  plist="$home/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist"
+  mkdir -p "$bin" "$state" "$(dirname "$plist")"
+  printf 'old binary\n' >"$bin/keymap-overlay"
+  printf 'old installer\n' >"$state/install.sh"
+  printf 'old service\n' >"$plist"
+  : >"$home/commands.log"
+
+  if TEST_FAIL_MACOS_INSTALL=1 TEST_MACOS_LOADED=1 \
+    run_installer "$home" Darwin arm64 keymap-overlay-macos-arm64.tar.gz; then
+    echo 'Expected macOS service installation to fail.' >&2
+    exit 1
+  fi
+
+  assert_file_contains "$bin/keymap-overlay" 'old binary'
+  assert_file_contains "$state/install.sh" 'old installer'
+  assert_file_contains "$plist" 'old service'
+  bootstrap_count=$(grep -c '^launchctl bootstrap' "$home/commands.log")
+  test "$bootstrap_count" -eq 4
+}
+
+test_failed_macos_upgrade_keeps_unloaded_service_unloaded() {
+  home="$TEST_DIRECTORY/macos unloaded rollback home"
+  bin="$home/.local/bin"
+  plist="$home/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist"
+  mkdir -p "$bin" "$(dirname "$plist")"
+  printf 'old binary\n' >"$bin/keymap-overlay"
+  printf 'old service\n' >"$plist"
+  : >"$home/commands.log"
+
+  if TEST_FAIL_MACOS_INSTALL=1 TEST_MACOS_LOADED=0 \
+    run_installer "$home" Darwin arm64 keymap-overlay-macos-arm64.tar.gz; then
+    echo 'Expected macOS service installation to fail.' >&2
+    exit 1
+  fi
+
+  assert_file_contains "$bin/keymap-overlay" 'old binary'
+  assert_file_contains "$plist" 'old service'
+  bootstrap_count=$(grep -c '^launchctl bootstrap' "$home/commands.log")
+  test "$bootstrap_count" -eq 3
+}
+
 test_gnome_disables_qt_renderer_unless_forced() {
   home="$TEST_DIRECTORY/gnome home"
   cache="$home/.cache/keymap-overlay"
@@ -391,6 +449,8 @@ test_linux_install_and_uninstall
 test_linux_arm64_install
 test_macos_stops_service_before_replacing_binary
 test_macos_retries_transient_launchctl_bootstrap_failure
+test_failed_macos_upgrade_restores_loaded_service
+test_failed_macos_upgrade_keeps_unloaded_service_unloaded
 test_gnome_disables_qt_renderer_unless_forced
 test_failed_service_install_rolls_back
 test_failed_gnome_upgrade_keeps_qt_disabled

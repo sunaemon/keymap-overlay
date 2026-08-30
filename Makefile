@@ -233,7 +233,9 @@ QMK_FLAGS += -e BUILD_DIR=$(ABS_BUILD_DIR)/qmk_build
 VIAL_JSON := $(BUILD_DIR)/vial.json
 
 ASSET_EXTENSION := json
-ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)
+# Include every command-line value that changes the generated model in its
+# output identity, so make cannot reuse a model generated at another scale.
+ASSET_BUILD_DIR := $(BUILD_DIR)/assets/$(OVERLAY_PLATFORM)/$(PIXELS_PER_UNIT)
 CONSOLIDATED_ASSET := $(ASSET_BUILD_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)
 
 endif
@@ -1114,6 +1116,8 @@ $(ASSET_BUILD_DIR):
 # it is not copied into release archives or installed beside the overlay.
 NATIVE_GENERATOR_DEPS := Cargo.toml Cargo.lock overlay/keymap-overlay-generator/Cargo.toml
 NATIVE_GENERATOR_DEPS += $(wildcard overlay/keymap-overlay-generator/src/*.rs)
+NATIVE_GENERATOR_DEPS += overlay/keymap-core/Cargo.toml
+NATIVE_GENERATOR_DEPS += $(wildcard overlay/keymap-core/src/*.rs)
 
 $(CONSOLIDATED_ASSET): $(KEYBOARD_JSON) $(KEYBOARD_CONFIG) $(NATIVE_GENERATOR_DEPS) | $(ASSET_BUILD_DIR)
 	$(call WRITE_OUTPUT,$@,$(CARGO) run --quiet --package keymap-overlay-generator --bin keymap-overlay-generator -- --keyboard-json "$(KEYBOARD_JSON)" --keyboard-config "$(KEYBOARD_CONFIG)" --layout-name "$(LAYOUT_NAME)" --keyboard-id "$(KEYBOARD_ID)" --platform "$(OVERLAY_PLATFORM)" --pixels-per-unit "$(PIXELS_PER_UNIT)")

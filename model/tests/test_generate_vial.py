@@ -138,6 +138,41 @@ def test_generate_vial_accepts_keyboard_ids_at_protocol_boundaries(
     assert vial.keymapOverlay.keyboardId == keyboard_id
 
 
+@pytest.mark.parametrize("pixels_per_unit", [-1, 0])
+def test_generate_vial_rejects_non_positive_pixels_per_unit(
+    tmp_path: Path, pixels_per_unit: int
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text('{"qmk_keyboard":"test/keyboard"}', encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="pixelsPerUnit"):
+        generate_vial(
+            DATA_DIR / "keyboard.json",
+            "LAYOUT",
+            keyboard_config=config,
+            keyboard_id=7,
+            pixels_per_unit=pixels_per_unit,
+        )
+
+
+def test_generate_vial_rejects_mismatched_encoder_placements(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(
+        '{"qmk_keyboard":"test/keyboard","encoders":[{"matrix":[0,0]}]}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="1 encoder placements.*defines 0"):
+        generate_vial(
+            DATA_DIR / "keyboard.json",
+            "LAYOUT",
+            keyboard_config=config,
+            keyboard_id=7,
+        )
+
+
 def test_generate_vial_accepts_a_keymap_without_custom_keycodes(
     tmp_path: Path,
 ) -> None:

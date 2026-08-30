@@ -17,6 +17,7 @@ LOG_DIRECTORY="${HOME}/.local/var/log/keymap-overlay"
 QT_SERVICE_PATH="${HOME}/.config/systemd/user/keymap-overlay-qt.service"
 GNOME_EXTENSION_UUID='keymap-overlay@sunaemon'
 GNOME_EXTENSION_PATH="${HOME}/.local/share/gnome-shell/extensions/${GNOME_EXTENSION_UUID}"
+MACOS_SERVICE_LABEL='com.sunaemon.keymap-overlay'
 
 main() {
   configure_platform
@@ -83,13 +84,13 @@ configure_platform() {
     Darwin:arm64)
       asset_name='keymap-overlay-macos-arm64.tar.gz'
       checksum_command='shasum'
-      service_path="${HOME}/Library/LaunchAgents/com.sunaemon.keymap-overlay.plist"
+      service_path="${HOME}/Library/LaunchAgents/${MACOS_SERVICE_LABEL}.plist"
       service_installer=install_macos_service
       service_stopper=stop_macos_service
       service_uninstaller=uninstall_macos_service
       previous_service_restarter=restart_previous_macos_service
       platform_staged_validator=validate_no_extra_staged_files
-      platform_file_backupper=backup_no_extra_files
+      platform_file_backupper=backup_macos_files
       platform_file_installer=install_no_extra_files
       platform_file_restorer=restore_no_extra_files
       platform_file_uninstaller=uninstall_no_extra_files
@@ -235,6 +236,13 @@ backup_no_extra_files() {
   :
 }
 
+backup_macos_files() {
+  if [ -f "$service_path" ] &&
+    launchctl print "gui/$(id -u)/${MACOS_SERVICE_LABEL}" >/dev/null 2>&1; then
+    : >"${temporary_directory}/was-service-loaded"
+  fi
+}
+
 backup_linux_files() {
   backup_file "$QT_BINARY_PATH" qt-binary
   backup_file "$QT_SERVICE_PATH" qt-service
@@ -367,7 +375,6 @@ xml_escape() {
 # launchd never rotates what it redirects, so the overlay owns its own log file
 # here.
 install_macos_service() {
-  label='com.sunaemon.keymap-overlay'
   binary_xml="$(xml_escape "$BINARY_PATH")"
   log_xml="$(xml_escape "${LOG_DIRECTORY}/overlay.log")"
   mkdir -p "$(dirname "$service_path")" || return
@@ -377,7 +384,7 @@ install_macos_service() {
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${label}</string>
+  <string>${MACOS_SERVICE_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
     <string>${binary_xml}</string>
@@ -411,7 +418,7 @@ bootstrap_macos_service() {
 }
 
 stop_macos_service() {
-  launchctl bootout 'gui/'"$(id -u)"'/com.sunaemon.keymap-overlay' 2>/dev/null || true
+  launchctl bootout "gui/$(id -u)/${MACOS_SERVICE_LABEL}" 2>/dev/null || true
 }
 
 uninstall_macos_service() {
@@ -420,7 +427,9 @@ uninstall_macos_service() {
 }
 
 restart_previous_macos_service() {
-  bootstrap_macos_service
+  if [ -f "${temporary_directory}/was-service-loaded" ]; then
+    bootstrap_macos_service
+  fi
 }
 
 install_linux_service() {
