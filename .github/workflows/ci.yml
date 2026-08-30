@@ -44,6 +44,10 @@ jobs:
               - 'firmware/layer_notify.h'
               - 'Makefile'
               - 'mk/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'mise*.toml'
+              - '.github/workflows/ci.yml'
 
   linux-build-and-test:
     name: linux-${{ matrix.architecture }}
