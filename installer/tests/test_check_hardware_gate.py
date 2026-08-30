@@ -95,12 +95,12 @@ def test_blank_and_incomplete_platform_rows_are_rejected() -> None:
 def test_platform_architecture_must_match_the_release_target() -> None:
     """A platform row cannot substitute CI or another CPU architecture."""
     evidence = complete_gate().replace(
-        "| windows-arm64-wpf | arm64 |",
-        "| windows-arm64-wpf | x86_64 |",
+        "| windows-x86_64-wpf | x86_64 |",
+        "| windows-x86_64-wpf | arm64 |",
     )
 
     with pytest.raises(
-        HardwareGateError, match="windows-arm64-wpf architecture must be arm64"
+        HardwareGateError, match="windows-x86_64-wpf architecture must be x86_64"
     ):
         validate_hardware_gate(evidence, HEAD_SHA, frozenset())
 
@@ -407,30 +407,12 @@ def complete_gate(*, candidate: str = HEAD_SHA) -> str:
                 "v0.0.7 firmware",
             ),
             platform_row(
-                "linux-arm64-kde-wayland",
-                "arm64",
-                "Fedora 42",
-                "KDE Plasma 6 / Wayland",
-                "Insixty",
-                "1",
-                "v0.0.7 firmware",
-            ),
-            platform_row(
                 "windows-x86_64-wpf",
                 "x86_64",
                 "Windows 11 24H2",
                 "WPF / desktop",
                 "Insixty, DOIO KB16",
                 "1, 2",
-                "v0.0.7 firmware",
-            ),
-            platform_row(
-                "windows-arm64-wpf",
-                "arm64",
-                "Windows 11 24H2",
-                "WPF / desktop",
-                "Insixty",
-                "1",
                 "v0.0.7 firmware",
             ),
         )
@@ -459,11 +441,8 @@ Candidate commit: `{candidate}`
 | Platform ID | Upgrade | Rollback | Uninstall | Evidence |
 | ----------- | ------- | -------- | --------- | -------- |
 | macos-arm64-appkit | PASS | PASS | PASS | local acceptance log |
-| linux-x86_64-kde-wayland | PASS | PASS | PASS | local acceptance log |
-| linux-x86_64-gnome-wayland | PASS | PASS | PASS | local acceptance log |
-| linux-arm64-kde-wayland | PASS | PASS | PASS | local acceptance log |
+| linux-x86_64 | PASS | PASS | PASS | local acceptance log |
 | windows-x86_64-wpf | PASS | PASS | PASS | local acceptance log |
-| windows-arm64-wpf | PASS | PASS | PASS | local acceptance log |
 """
 
 

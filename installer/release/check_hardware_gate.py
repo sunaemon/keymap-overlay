@@ -26,35 +26,28 @@ EXPECTED_PLATFORM_IDS = (
     "macos-arm64-appkit",
     "linux-x86_64-kde-wayland",
     "linux-x86_64-gnome-wayland",
-    "linux-arm64-kde-wayland",
     "windows-x86_64-wpf",
-    "windows-arm64-wpf",
 )
 PLATFORM_ARCHITECTURES = {
     "macos-arm64-appkit": "arm64",
     "linux-x86_64-kde-wayland": "x86_64",
     "linux-x86_64-gnome-wayland": "x86_64",
-    "linux-arm64-kde-wayland": "arm64",
     "windows-x86_64-wpf": "x86_64",
-    "windows-arm64-wpf": "arm64",
 }
 EXPECTED_GLOBAL_CHECK_IDS = ("GLOBAL-01", "GLOBAL-02")
-PLATFORM_CHECK_PREFIXES = {
-    "macos-arm64-appkit": "MAC",
-    "linux-x86_64-kde-wayland": "KDE",
-    "linux-x86_64-gnome-wayland": "GNOME",
-    "linux-arm64-kde-wayland": "KDEA",
-    "windows-x86_64-wpf": "WIN",
-    "windows-arm64-wpf": "WINA",
-}
 EXPECTED_CHECK_SECTIONS = {
     "Platform-independent checks": EXPECTED_GLOBAL_CHECK_IDS,
-    **{
-        f"{platform_id} checks": tuple(
-            f"{prefix}-{number:02d}" for number in range(1, 11)
-        )
-        for platform_id, prefix in PLATFORM_CHECK_PREFIXES.items()
-    },
+    "macos-arm64-appkit checks": tuple(f"MAC-{number:02d}" for number in range(1, 11)),
+    "linux-x86_64 shared checks": tuple(
+        f"LX-{number:02d}" for number in (2, 3, 7, 8, 9)
+    ),
+    "linux-x86_64-kde-wayland checks": tuple(
+        f"KDE-{number:02d}" for number in (1, 4, 5, 6, 10)
+    ),
+    "linux-x86_64-gnome-wayland checks": tuple(
+        f"GNOME-{number:02d}" for number in (1, 4, 5, 6, 10)
+    ),
+    "windows-x86_64-wpf checks": tuple(f"WIN-{number:02d}" for number in range(1, 11)),
 }
 EXPECTED_CHECK_IDS = tuple(
     check_id for check_ids in EXPECTED_CHECK_SECTIONS.values() for check_id in check_ids
@@ -63,6 +56,11 @@ EXPECTED_COVERAGE_IDS = (
     "bundled-keyboards",
     "encoder-keyboard",
     "simultaneous-keyboards",
+)
+EXPECTED_LIFECYCLE_IDS = (
+    "macos-arm64-appkit",
+    "linux-x86_64",
+    "windows-x86_64-wpf",
 )
 CONDITIONAL_CHECK_IDS = frozenset(EXPECTED_GLOBAL_CHECK_IDS)
 FIRMWARE_EVIDENCE_PATHS = frozenset({"Makefile"})
@@ -519,7 +517,7 @@ def _validate_lifecycle_matrix(evidence: str, problems: list[str]) -> None:
         ("Platform ID", "Upgrade", "Rollback", "Uninstall", "Evidence"),
         problems,
     )
-    indexed = _index_rows(rows, EXPECTED_PLATFORM_IDS, "lifecycle", problems)
+    indexed = _index_rows(rows, EXPECTED_LIFECYCLE_IDS, "lifecycle", problems)
     for platform_id, row in indexed.items():
         for operation, result in zip(
             ("upgrade", "rollback", "uninstall"), row[1:4], strict=True

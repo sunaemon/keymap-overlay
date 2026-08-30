@@ -12,8 +12,11 @@ Release CI builds and tests these targets:
 | Platform | Release architecture    | Runtime expectation                                        |
 | -------- | ----------------------- | ---------------------------------------------------------- |
 | macOS    | Apple silicon (`arm64`) | macOS 11+; current CI runner; Input Monitoring permission  |
-| Linux    | `x86_64`, `arm64`       | GNOME 45+ or Qt 6/LayerShellQt, with systemd user services |
-| Windows  | `x86_64`, `arm64`       | Native Windows overlay installed from PowerShell           |
+| Linux    | `x86_64`                | GNOME 45+ or Qt 6/LayerShellQt, with systemd user services |
+| Windows  | `x86_64`                | Native Windows overlay installed from PowerShell           |
+
+Linux ARM64 and Windows ARM64 archives are built and tested by CI but remain
+experimental. They are not part of the physical hardware release gate.
 
 Firmware compilation and flashing are supported on macOS and Linux. On a
 Windows host, use WSL for firmware and layer-image work; the overlay itself is

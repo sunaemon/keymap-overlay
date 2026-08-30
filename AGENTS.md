@@ -252,6 +252,10 @@ native backend, so `ui/appkit.rs` is compiled by the macOS job, WPF and its Rust
 bridge by the Windows job, and the D-Bus daemon and Qt renderer by the Linux
 job. A fourth job runs `make audit`.
 
+Linux ARM64 and Windows ARM64 are experimental release targets. CI still builds
+and tests their archives, but the hardware release gate and lifecycle checklist
+cover only macOS ARM64, Linux x86_64, and Windows x86_64.
+
 Only the Linux job runs the complete lint task. After changing the Windows
 bridge, run clippy against its manifest; after changing WPF, publish the
 self-contained project on Windows. The Windows CI job performs both builds.

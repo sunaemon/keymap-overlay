@@ -318,9 +318,7 @@ def complete_gate() -> str:
 | macos-arm64-appkit | arm64 | macOS 15.6 | AppKit / Aqua | Insixty | 1 | stable firmware |
 | linux-x86_64-kde-wayland | x86_64 | Fedora 42 | KDE Plasma 6 / Wayland | DOIO KB16 | 2 | stable firmware |
 | linux-x86_64-gnome-wayland | x86_64 | Ubuntu 26.04 | GNOME 49 / Wayland | Insixty | 1 | stable firmware |
-| linux-arm64-kde-wayland | arm64 | Fedora 42 | KDE Plasma 6 / Wayland | Insixty | 1 | stable firmware |
 | windows-x86_64-wpf | x86_64 | Windows 11 24H2 | WPF / desktop | Insixty, DOIO KB16 | 1, 2 | stable firmware |
-| windows-arm64-wpf | arm64 | Windows 11 24H2 | WPF / desktop | Insixty | 1 | stable firmware |
 
 ### Keyboard coverage
 
@@ -336,11 +334,8 @@ def complete_gate() -> str:
 | Platform ID | Upgrade | Rollback | Uninstall | Evidence |
 | ----------- | ------- | -------- | --------- | -------- |
 | macos-arm64-appkit | PASS | PASS | PASS | local acceptance log |
-| linux-x86_64-kde-wayland | PASS | PASS | PASS | local acceptance log |
-| linux-x86_64-gnome-wayland | PASS | PASS | PASS | local acceptance log |
-| linux-arm64-kde-wayland | PASS | PASS | PASS | local acceptance log |
+| linux-x86_64 | PASS | PASS | PASS | local acceptance log |
 | windows-x86_64-wpf | PASS | PASS | PASS | local acceptance log |
-| windows-arm64-wpf | PASS | PASS | PASS | local acceptance log |
 """
 
 

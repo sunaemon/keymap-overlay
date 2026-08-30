@@ -4,6 +4,7 @@ set -eu
 PROJECT_DIRECTORY=$(CDPATH='' cd -- "$(dirname "$0")/../../../.." && pwd)
 DAEMON=${KEYMAP_OVERLAY_E2E_DAEMON:-"$PROJECT_DIRECTORY/target/release/keymap-overlay"}
 VIRTUAL_HID=${KEYMAP_OVERLAY_E2E_VIRTUAL_HID:-"$PROJECT_DIRECTORY/target/virtual-raw-hid"}
+VIAL_DEFINITION="$PROJECT_DIRECTORY/model/tests/data/vial-contract.json"
 TEST_DIRECTORY=$(mktemp -d)
 DAEMON_PID=''
 VIRTUAL_HID_PID=''
@@ -39,13 +40,29 @@ get_state() {
     --method com.sunaemon.KeymapOverlay.Renderer1.GetState 2>/dev/null
 }
 
-virtual_hid_node_exists() {
+find_virtual_hid_node() {
   for device in /sys/class/hidraw/hidraw*/device/uevent; do
     if [ -f "$device" ] && grep -q '^HID_NAME=Keymap Overlay E2E$' "$device"; then
+      printf '/dev/%s\n' "$(basename "$(dirname "$(dirname "$device")")")"
       return 0
     fi
   done
   return 1
+}
+
+wait_for_virtual_hid_access() {
+  node=$1
+  attempts=0
+  while [ ! -r "$node" ] || [ ! -w "$node" ]; do
+    if ! kill -0 "$VIRTUAL_HID_PID" 2>/dev/null; then
+      fail 'virtual HID device exited before its udev permissions settled'
+    fi
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      fail "virtual HID node is not accessible: $node; run make install-uhid-test-rule"
+    fi
+    sleep 0.05
+  done
 }
 
 wait_for_state() {
@@ -73,7 +90,8 @@ if [ ! -c /dev/uhid ]; then
   fail '/dev/uhid is unavailable; load the uhid kernel module first'
 fi
 
-"$VIRTUAL_HID" >"$TEST_DIRECTORY/virtual-hid.log" 2>&1 &
+"$VIRTUAL_HID" --definition "$VIAL_DEFINITION" \
+  >"$TEST_DIRECTORY/virtual-hid.log" 2>&1 &
 VIRTUAL_HID_PID=$!
 attempts=0
 while ! grep -q 'Virtual Raw HID device ready' \
@@ -89,7 +107,8 @@ while ! grep -q 'Virtual Raw HID device ready' \
 done
 
 attempts=0
-while ! virtual_hid_node_exists; do
+virtual_hid_node=''
+while [ -z "$virtual_hid_node" ]; do
   if ! kill -0 "$VIRTUAL_HID_PID" 2>/dev/null; then
     fail 'virtual HID device exited before its hidraw node appeared'
   fi
@@ -97,15 +116,21 @@ while ! virtual_hid_node_exists; do
   if [ "$attempts" -ge 100 ]; then
     fail 'timed out waiting for the virtual HID hidraw node'
   fi
+  virtual_hid_node=$(find_virtual_hid_node || true)
   sleep 0.05
 done
+wait_for_virtual_hid_access "$virtual_hid_node"
 
-KEYMAP_OVERLAY_E2E_MODEL=1:2 "$DAEMON" \
-  >"$TEST_DIRECTORY/daemon.log" 2>&1 &
+"$DAEMON" >"$TEST_DIRECTORY/daemon.log" 2>&1 &
 DAEMON_PID=$!
 
-wait_for_state 'the Raw HID press to become visible on D-Bus' \
+wait_for_state 'the virtual Vial model and lower layer to become visible' \
+  ', true, '\''{"version":2,"layer":1'
+wait_for_state 'the higher layer to take numeric precedence' \
   ', true, '\''{"version":2,"layer":2'
-wait_for_state 'the Raw HID release to hide the D-Bus state' ", false, '')"
+wait_for_state 'the lower held layer to be restored' \
+  ', true, '\''{"version":2,"layer":1'
+wait_for_state 'the final release to hide the D-Bus state' ", false, '')"
 
-printf '%s\n' 'Linux HID-to-D-Bus E2E test passed'
+printf '%s\n' \
+  'Linux self-describing Vial HID-to-D-Bus integration test passed'

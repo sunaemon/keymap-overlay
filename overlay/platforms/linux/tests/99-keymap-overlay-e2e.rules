@@ -1,0 +1,5 @@
+# Grants access only to the project fixture's virtual UHID ancestry and USB
+# identity. Virtual devices have no physical seat, so logind cannot apply the
+# usual uaccess ACL used by keyboards. Avoid HID_NAME because some udev versions
+# process the hidraw event before that property is available.
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", DEVPATH=="*/virtual/misc/uhid/0003:355D:1001.*/hidraw/hidraw*", MODE:="0666"
