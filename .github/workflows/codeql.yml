@@ -14,7 +14,7 @@ on:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
 
     permissions:
       contents: read
@@ -23,28 +23,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - language: actions
-            build-mode: none
-            runner: ubuntu-latest
-          - language: c-cpp
-            build-mode: none
-            runner: ubuntu-latest
-          - language: csharp
-            build-mode: none
-            runner: ubuntu-latest
-          - language: javascript-typescript
-            build-mode: none
-            runner: ubuntu-latest
-          - language: python
-            build-mode: none
-            runner: ubuntu-latest
-          - language: rust
-            build-mode: none
-            runner: ubuntu-latest
-          - language: swift
-            build-mode: manual
-            runner: macos-15
+        # Swift is only used by a macOS hardware-test helper, not the shipped
+        # application. Its hosted-runner build hangs under CodeQL tracing.
+        language:
+          - actions
+          - c-cpp
+          - csharp
+          - javascript-typescript
+          - python
+          - rust
 
     steps:
       - name: Checkout repo
@@ -56,22 +43,7 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
-
-      # The only Swift source is a standalone macOS hardware-test executable,
-      # not an Xcode project or Swift package, so CodeQL cannot autobuild it.
-      - name: Build Swift HIL UI
-        if: matrix.language == 'swift'
-        timeout-minutes: 10
-        env:
-          COMPILATION_CACHE_ENABLE_CACHING: 'NO'
-          SWIFT_ENABLE_COMPILE_CACHE: 'NO'
-          SWIFT_USE_INTEGRATED_DRIVER: 'NO'
-        run: |
-          mkdir -p target/codeql
-          xcrun swiftc \
-            -o target/codeql/keymap-overlay-macos-hil-ui \
-            overlay/platforms/macos/tests/hil_accessibility.swift
+          build-mode: none
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
