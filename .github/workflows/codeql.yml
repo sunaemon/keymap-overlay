@@ -44,7 +44,7 @@ jobs:
             runner: ubuntu-latest
           - language: swift
             build-mode: manual
-            runner: macos-latest
+            runner: macos-15
 
     steps:
       - name: Checkout repo
@@ -62,6 +62,11 @@ jobs:
       # not an Xcode project or Swift package, so CodeQL cannot autobuild it.
       - name: Build Swift HIL UI
         if: matrix.language == 'swift'
+        timeout-minutes: 10
+        env:
+          COMPILATION_CACHE_ENABLE_CACHING: 'NO'
+          SWIFT_ENABLE_COMPILE_CACHE: 'NO'
+          SWIFT_USE_INTEGRATED_DRIVER: 'NO'
         run: |
           mkdir -p target/codeql
           xcrun swiftc \
