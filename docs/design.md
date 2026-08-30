@@ -398,6 +398,14 @@ keeps its push action centred inside.
 `keymap-overlay-generator` owns the canonical Rust semantic model types. The
 runtime re-exports those same types for platform frontends instead of maintaining
 a second representation or serializing models between the two linked libraries.
+Those types generate the checked-in version 2 JSON Schema at
+`overlay/display-model-contract/display-model.schema.json`. Shared base-layer,
+held-layer, and encoder fixtures in the same directory are parsed through the
+canonical types; the base and held-layer fixtures also drive the simulated
+AppKit, GNOME Shell, Qt Quick, and WPF E2E paths. `make check-contracts` rejects
+schema drift or invalid fixtures, while `make generate-contracts` records an
+intentional additive contract update. A breaking shape change requires a new
+contract version and migration coverage in every renderer.
 
 All runtimes read connected keyboards from Vial into memory at startup. Layer
 events received between Vial responses are buffered and replayed through the
