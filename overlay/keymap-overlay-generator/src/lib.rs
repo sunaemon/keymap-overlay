@@ -13,7 +13,10 @@ use keymap_core::RawLayerEvent;
 use labels::Platform;
 use log::warn;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    mpsc::{self, Receiver},
+};
 use std::thread;
 
 pub fn read_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Result<T> {
@@ -80,14 +83,21 @@ pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<Connecte
     );
 
     // Reading every device concurrently lets unsolicited KMO reports acquire
-    // one cross-device observation order instead of an enumeration order.
+    // one cross-device observation order instead of an enumeration order. A
+    // completed reader keeps draining until every device reaches the handoff,
+    // so a faster Vial read cannot leave its later reports queued behind a
+    // slower device's already-sequenced reports.
     let next_event_sequence = AtomicU64::new(0);
+    let finish_startup_handoff = AtomicBool::new(false);
+    let (reader_ready_tx, reader_ready_rx) = mpsc::channel();
     Ok(thread::scope(|scope| {
         let workers = devices
             .into_iter()
             .map(|(device, path)| {
                 let error_path = path.clone();
                 let next_event_sequence = &next_event_sequence;
+                let finish_startup_handoff = &finish_startup_handoff;
+                let reader_ready_tx = reader_ready_tx.clone();
                 let worker = scope.spawn(move || {
                     let mut layer_events = Vec::new();
                     let mut record_event = |event| {
@@ -101,7 +111,20 @@ pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<Connecte
                         platform,
                         &mut record_event,
                     )
-                    .with_context(|| format!("Failed to read Vial device {path:?}"))?;
+                    .with_context(|| format!("Failed to read Vial device {path:?}"));
+                    let _ = reader_ready_tx.send(());
+                    drop(reader_ready_tx);
+                    let models = models?;
+                    if models.is_some() {
+                        vial::record_layer_events_until(
+                            &device,
+                            || !finish_startup_handoff.load(Ordering::Acquire),
+                            &mut record_event,
+                        )
+                        .with_context(|| {
+                            format!("Failed to finish startup handoff for Vial device {path:?}")
+                        })?;
+                    }
                     Ok(models.map(|models| ConnectedKeyboard {
                         models,
                         device,
@@ -113,12 +136,27 @@ pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<Connecte
             })
             .collect::<Vec<_>>();
 
+        drop(reader_ready_tx);
+        coordinate_startup_handoff(reader_ready_rx, workers.len(), &finish_startup_handoff);
         collect_connected_keyboard_models(workers, |(path, worker)| {
             worker
                 .join()
                 .unwrap_or_else(|_| Err(anyhow!("Vial reader for {path:?} panicked")))
         })
     }))
+}
+
+fn coordinate_startup_handoff(
+    reader_ready_rx: Receiver<()>,
+    reader_count: usize,
+    finish_startup_handoff: &AtomicBool,
+) {
+    for _ in 0..reader_count {
+        if reader_ready_rx.recv().is_err() {
+            break;
+        }
+    }
+    finish_startup_handoff.store(true, Ordering::Release);
 }
 
 fn collect_connected_keyboard_models<T, U>(
@@ -141,6 +179,8 @@ fn collect_connected_keyboard_models<T, U>(
 mod tests {
     use super::*;
     use anyhow::bail;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::Duration;
 
     #[test]
     fn unusable_and_unsupported_devices_do_not_discard_accepted_models() {
@@ -155,5 +195,32 @@ mod tests {
 
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].keyboard_id, 1);
+    }
+
+    #[test]
+    fn startup_handoff_waits_for_every_reader() {
+        let finish_startup_handoff = AtomicBool::new(false);
+        let (reader_ready_tx, reader_ready_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                coordinate_startup_handoff(reader_ready_rx, 2, &finish_startup_handoff);
+                finished_tx.send(()).expect("handoff completion receiver");
+            });
+
+            reader_ready_tx.send(()).expect("first reader ready");
+            assert_eq!(
+                finished_rx.recv_timeout(Duration::from_millis(20)),
+                Err(RecvTimeoutError::Timeout)
+            );
+            assert!(!finish_startup_handoff.load(Ordering::Acquire));
+
+            reader_ready_tx.send(()).expect("second reader ready");
+            finished_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("handoff completes after every reader");
+            assert!(finish_startup_handoff.load(Ordering::Acquire));
+        });
     }
 }

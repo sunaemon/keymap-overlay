@@ -213,7 +213,10 @@ The model uses platform-independent point geometry. On macOS those values are
 AppKit points, on Linux they are Qt logical pixels, and on Windows they are WPF
 device-independent units. `PIXELS_PER_UNIT` controls the size of
 one QMK layout unit. WPF interprets them as device-independent units and applies
-the active monitor's DPI scale when positioning the native window.
+the active monitor's DPI scale when positioning the native window. The model's
+horizontal padding grows with encoder size when necessary, reserving the
+quarter-diameter overhang used by counter-clockwise and clockwise labels even
+at custom scales.
 
 ### Requirements on Linux
 
@@ -409,14 +412,16 @@ contract version and migration coverage in every renderer.
 
 All runtimes read connected keyboards from Vial into memory at startup. Layer
 events received between Vial responses are buffered and replayed through the
-normal reducer when the live listener starts. Each accepted keyboard's open HID
-handle and metadata keyboard ID transfer with its model into that listener, so
-reports queued after the final Vial response stay in the same session and an
-immediate disconnect can clear buffered state. Devices that do not produce a
+normal reducer when the live listener starts. A device that finishes its Vial
+read early keeps recording reports until every startup reader is ready, giving
+the handoff one cross-device ordering boundary. Each accepted keyboard's open
+HID handle and metadata keyboard ID transfer with its model into that listener,
+so reports queued after the boundary stay in the same session and an immediate
+disconnect can clear buffered state. Devices that do not produce a
 self-describing model contribute neither a startup handle nor accepted layer
-events. Events compose only accepted in-memory models. On Linux the daemon
-sends the composed model to renderer clients, so no renderer leaves the
-previous layer visible while disk I/O completes.
+events. Events compose only accepted in-memory models. On Linux the daemon sends
+the composed model to renderer clients, so no renderer leaves the previous
+layer visible while disk I/O completes.
 
 Events already waiting when a UI loop wakes are reduced to their final active
 layer before the window changes. Intermediate restores and switches are not

@@ -149,6 +149,8 @@ Window {
                 anchors.right: parent.horizontalCenter
                 anchors.rightMargin: 3
                 anchors.bottom: parent.top
+                width: Math.max(0, parent.width * 0.75 - 3)
+                clip: true
                 text: modelData.counter_clockwise.length
                       ? "← " + modelData.counter_clockwise.join(" ") : ""
                 color: systemPalette.windowText
@@ -163,6 +165,8 @@ Window {
                 anchors.left: parent.horizontalCenter
                 anchors.leftMargin: 3
                 anchors.bottom: parent.top
+                width: Math.max(0, parent.width * 0.75 - 3)
+                clip: true
                 text: modelData.clockwise.length
                       ? modelData.clockwise.join(" ") + " →" : ""
                 color: systemPalette.windowText

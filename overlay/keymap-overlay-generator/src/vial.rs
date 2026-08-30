@@ -25,6 +25,7 @@ const CMD_VIAL_GET_DEFINITION: u8 = 0x02;
 const CMD_VIAL_GET_ENCODER: u8 = 0x03;
 const BUFFER_FETCH_CHUNK: usize = 28;
 const RESPONSE_TIMEOUT: Duration = Duration::from_millis(500);
+const STARTUP_HANDOFF_READ_TIMEOUT_MS: i32 = 10;
 // Definitions are normally a few KiB. Limits keep a malformed HID device from
 // forcing an unbounded allocation or XZ decompression while the overlay starts.
 const MAX_COMPRESSED_DEFINITION_BYTES: usize = 1_048_576;
@@ -123,6 +124,27 @@ pub(crate) fn read_device_model_with_definition_recording_events(
         keycodes,
         encoders,
     })
+}
+
+/// Keeps observing unsolicited layer reports until every startup reader is ready.
+pub(crate) fn record_layer_events_until(
+    device: &HidDevice,
+    mut continue_reading: impl FnMut() -> bool,
+    on_layer_event: &mut dyn FnMut(RawLayerEvent),
+) -> Result<()> {
+    while continue_reading() {
+        let mut response = [0; MAX_INPUT_MESSAGE_LENGTH];
+        let response_len = device
+            .read_timeout(&mut response, STARTUP_HANDOFF_READ_TIMEOUT_MS)
+            .context("Failed while preserving layer events during startup handoff")?;
+        if response_len == 0 {
+            continue;
+        }
+        let _ = classify_vial_response(response, response_len, on_layer_event, || {
+            hid_device_identity(device)
+        })?;
+    }
+    Ok(())
 }
 
 fn read_device_model_recording_events(
