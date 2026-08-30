@@ -274,10 +274,9 @@ GitHub Actions weekly; the tool versions pinned in `mise.toml` and
 GitHub CLI (`gh`) is installed and authenticated for repository operations;
 prefer it to browser automation for pull requests, checks, releases, and other
 GitHub state. Run it outside the sandbox so it can access the user's
-authentication and network connection. On this Windows host it is provided by
-the README's MSYS2 UCRT64 environment at
-`C:\msys64\ucrt64\bin\gh.exe`; use that absolute path when the calling
-PowerShell process does not have UCRT64 on `PATH`.
+authentication and network connection. The README's Windows development setup
+installs it normally with WinGet and documents authentication; do not encode a
+machine-specific executable path as repository guidance.
 
 `make install-overlay` still cannot be exercised in CI, because `launchctl
 bootstrap` and `systemctl --user` need a real login session, and the layer-shell

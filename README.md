@@ -481,7 +481,16 @@ Develop the native Windows overlay in MSYS2 UCRT64, not WSL. In PowerShell:
 ```powershell
 winget install --id MSYS2.MSYS2 -e --source winget
 winget install --id jdx.mise -e --source winget
+winget install --id GitHub.cli -e --source winget
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --includeRecommended"
+```
+
+Open a new terminal after WinGet finishes, then authenticate GitHub CLI for
+pull requests, checks, releases, and artifact attestation verification:
+
+```powershell
+gh auth login
+gh auth status
 ```
 
 WinGet normally exposes `mise.exe` through
