@@ -91,6 +91,8 @@ jobs:
         with:
           fail_ci_if_error: true
           files: coverage-python.xml,coverage-rust.lcov
+          flags: linux
+          name: linux-x86_64
           use_oidc: true
 
       - name: Enable the virtual Raw HID test device
@@ -117,6 +119,10 @@ jobs:
     name: mac-arm64
     runs-on: macos-latest
 
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
@@ -132,13 +138,24 @@ jobs:
       - name: Run Tests
         run: make test
 
-      - name: Run Rust Tests
-        run: make test-rust
+      # The AppKit implementation is only compiled on macOS. Uploading its
+      # Rust report lets Codecov merge it with the Linux baseline.
+      - name: Run Rust Tests with Coverage
+        run: make coverage-rust
 
       # Covers installer rollback and simulated runtime events through the
       # main-queue wake-up, model composition, and native AppKit view state.
       - name: Run macOS release acceptance
         run: make test-release-acceptance-macos
+
+      - name: Upload macOS Coverage
+        uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: true
+          files: coverage-rust.lcov
+          flags: macos
+          name: mac-arm64
+          use_oidc: true
 
   # The Windows half: hidapi's own Windows backend behind a narrow Rust DLL,
   # a WPF-owned window, and a per-user Run key instead of a login agent. Every
@@ -159,6 +176,10 @@ jobs:
           - architecture: arm64
             runner: windows-11-vs2026-arm
     runs-on: ${{ matrix.runner }}
+
+    permissions:
+      contents: read
+      id-token: write
 
     defaults:
       run:
@@ -191,7 +212,12 @@ jobs:
         shell: powershell
         run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
 
+      - name: Run Rust Tests with Coverage
+        if: matrix.architecture == 'x86_64'
+        run: make coverage-rust
+
       - name: Run Rust Tests
+        if: matrix.architecture != 'x86_64'
         run: make test-rust
 
       # Publishes the self-contained single-file WPF executable, then exercises
@@ -199,6 +225,16 @@ jobs:
       # and native WPF presentation state.
       - name: Run Windows release acceptance
         run: make test-release-acceptance-windows
+
+      - name: Upload Windows Coverage
+        if: matrix.architecture == 'x86_64'
+        uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: true
+          files: coverage-rust.lcov
+          flags: windows
+          name: windows-x86_64
+          use_oidc: true
 
       # Keep the experimental pure-Rust WinUI frontend compiling without
       # changing the installed or released WPF implementation.
