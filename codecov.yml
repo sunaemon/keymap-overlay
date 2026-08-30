@@ -1,0 +1,27 @@
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "header, diff, components, files"
+  behavior: default
+  require_changes: true
+
+component_management:
+  individual_components:
+    - component_id: python
+      name: Python
+      paths:
+        - model/**
+        - installer/**
+        - firmware/tools/**
+        - tools/**
+    - component_id: rust
+      name: Rust
+      paths:
+        - overlay/**

@@ -22,6 +22,10 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
 
+    permissions:
+      contents: read
+      id-token: write
+
     # Loads mise.dev.toml on top of mise.toml so the format and lint tools are
     # resolved by `mise install` and cached by mise-action, instead of being
     # fetched inside every task run.
@@ -67,10 +71,27 @@ jobs:
         run: make check-licenses
 
       - name: Run Tests
+        if: matrix.architecture != 'x86_64'
         run: make test
 
+      # Executes both test suites and prints line-coverage summaries. Linux
+      # x86_64 supplies the baseline; the other architecture keeps its normal
+      # test path without uploading a duplicate report for the same commit.
+      - name: Run Tests with Coverage
+        if: matrix.architecture == 'x86_64'
+        run: make coverage
+
       - name: Run Rust Tests
+        if: matrix.architecture != 'x86_64'
         run: make test-rust
+
+      - name: Upload Coverage
+        if: matrix.architecture == 'x86_64'
+        uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: true
+          files: coverage-python.xml,coverage-rust.lcov
+          use_oidc: true
 
       - name: Enable the virtual Raw HID test device
         run: |

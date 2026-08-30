@@ -1,6 +1,7 @@
 # QMK Keymap Overlay
 
 [![CI](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunaemon/keymap-overlay/actions/workflows/ci.yml?query=branch%3Amain)
+[![Codecov](https://codecov.io/gh/sunaemon/keymap-overlay/branch/main/graph/badge.svg)](https://app.codecov.io/gh/sunaemon/keymap-overlay)
 [![Tools: MIT](https://img.shields.io/badge/Tools-MIT-green.svg)](LICENSE.md#tools-and-application-mit)
 [![Firmware: GPL-2.0-or-later](https://img.shields.io/badge/Firmware-GPL--2.0--or--later-blue.svg)](LICENSE.md#firmware-and-qmk-keymap-files-gpl-20-or-later)
 [![Platform: macOS | Linux | Windows](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platform-support)

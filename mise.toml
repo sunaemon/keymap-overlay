@@ -4,7 +4,7 @@
 # there and the hooks fall through to a hardcoded install path, then to an
 # `echo` that exits 0, so every check silently stops running.
 lefthook = "2.1.10"
-rust = { version = "1.97.1", components = "rustfmt,clippy", profile = "default" }
+rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools-preview", profile = "default" }
 dotnet = "10.0.400"
 python = "3.14.7"
 uv = "0.12.3"

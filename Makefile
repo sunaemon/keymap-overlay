@@ -72,6 +72,7 @@ SUDO ?= sudo
 # bootloader labels its volume differently.
 UF2_VOLUME_LABEL ?= RPI-RP2
 CARGO_AUDIT ?= $(MISE_DEV) exec -- cargo-audit
+CARGO_LLVM_COV ?= $(MISE_DEV) exec -- cargo llvm-cov
 LEFTHOOK ?= $(MISE) exec -- lefthook
 QMK ?= $(QMK_ENV) $(MISE) exec -- qmk
 UV ?= $(MISE) exec -- uv
@@ -646,6 +647,14 @@ ifeq ($(OS_FAMILY),linux)
 else
 	$(error test-hid-to-dbus-e2e-linux is only available on Linux)
 endif
+
+# Runs both suites with line coverage. Keep this measurement separate from a
+# minimum threshold until CI has established a representative baseline.
+.PHONY: coverage
+coverage:
+	$(UV) run pytest --cov=model/scripts --cov=model/src --cov=installer/release --cov=firmware/tools --cov=tools --cov-report=term-missing --cov-report=xml:coverage-python.xml
+	$(CARGO_LLVM_COV) --workspace --all-targets --lcov --output-path coverage-rust.lcov
+	$(CARGO_LLVM_COV) report --summary-only
 
 .PHONY: clean
 clean:

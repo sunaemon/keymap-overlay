@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=9.0.3"]
+dev = ["pytest>=9.0.3", "pytest-cov>=7.0.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["model/tests", "installer/tests", "firmware/tests", "tools/tests"]
