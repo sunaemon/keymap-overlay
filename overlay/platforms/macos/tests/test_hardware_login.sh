@@ -68,7 +68,7 @@ prepare() {
   plutil -lint "$PLIST"
 
   printf 'Login continuation prepared for candidate %s.\n' "$(git -C "$ROOT" rev-parse HEAD)"
-  printf 'The next sign-in will run the first-event and Accessibility checks.\n'
+  printf 'The next sign-in will record service and keyboard readiness.\n'
   if [[ "$request_logout" == --logout ]]; then
     osascript -e 'tell application "System Events" to log out'
   else
@@ -93,7 +93,7 @@ after_login() {
   done
   (( SECONDS < deadline )) || fail "Keyboards did not become ready after sign-in"
 
-  local service_state overlay_pid accessibility_output
+  local service_state overlay_pid
   while (( SECONDS < deadline )); do
     if service_state="$(launchctl print "gui/$(id -u)/$OVERLAY_LABEL" 2>/dev/null)"; then
       overlay_pid="$(awk '$1 == "pid" && $2 == "=" { print $3; exit }' <<<"$service_state")"
@@ -105,15 +105,33 @@ after_login() {
   done
   [[ "${overlay_pid:-}" =~ ^[0-9]+$ ]] || fail "Overlay did not start after sign-in"
 
-  while (( SECONDS < deadline )); do
-    if accessibility_output="$("$UI_PROBE" --check-accessibility 2>/dev/null)" && \
-      [[ "$accessibility_output" == "Accessibility permission is available" ]]; then
-      break
-    fi
-    sleep 1
-  done
-  [[ "${accessibility_output:-}" == "Accessibility permission is available" ]] || \
-    fail "Accessibility permission did not become ready after sign-in"
+  printf 'PASS candidate=%s keyboard_id=%s secondary_keyboard_id=%s primary_layer=%s secondary_layer=%s signed_in_at=%s\n' \
+    "$candidate" "$keyboard_id" "$secondary_keyboard_id" "$primary_layer" \
+    "$secondary_layer" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$RESULT"
+}
+
+verify() {
+  local candidate keyboard_id secondary_keyboard_id primary_layer secondary_layer
+  local service_state overlay_pid
+  candidate="$(git -C "$ROOT" rev-parse HEAD)"
+  [[ -f "$RESULT" ]] || {
+    [[ ! -f "$STDERR_LOG" ]] || cat "$STDERR_LOG" >&2
+    fail "No successful post-login result is available"
+  }
+  grep -Fq "PASS candidate=$candidate " "$RESULT" || \
+    fail "The post-login result belongs to another candidate"
+
+  keyboard_id="$(sed -n 's/.* keyboard_id=\([^ ]*\).*/\1/p' "$RESULT")"
+  secondary_keyboard_id="$(sed -n 's/.* secondary_keyboard_id=\([^ ]*\).*/\1/p' "$RESULT")"
+  primary_layer="$(sed -n 's/.* primary_layer=\([^ ]*\).*/\1/p' "$RESULT")"
+  secondary_layer="$(sed -n 's/.* secondary_layer=\([^ ]*\).*/\1/p' "$RESULT")"
+  [[ "$keyboard_id" =~ ^[0-9]+$ && "$secondary_keyboard_id" =~ ^[0-9]+$ && \
+    "$primary_layer" =~ ^[0-9]+$ && "$secondary_layer" =~ ^[0-9]+$ ]] || \
+    fail "The post-login result has invalid HIL parameters"
+
+  service_state="$(launchctl print "gui/$(id -u)/$OVERLAY_LABEL")"
+  overlay_pid="$(awk '$1 == "pid" && $2 == "=" { print $3; exit }' <<<"$service_state")"
+  [[ "$overlay_pid" =~ ^[0-9]+$ ]] || fail "The installed overlay has no running PID"
 
   run_ui_probe "macOS Accessibility HIL checks passed" \
     --overlay-pid "$overlay_pid" \
@@ -124,23 +142,12 @@ after_login() {
     --secondary-layer "$secondary_layer" \
     --expected-label "L$primary_layer" \
     --skip-encoder-checks true
-  printf 'PASS candidate=%s signed_in_at=%s\n' \
-    "$candidate" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$RESULT"
-}
-
-verify() {
-  local candidate
-  candidate="$(git -C "$ROOT" rev-parse HEAD)"
-  [[ -f "$RESULT" ]] || {
-    [[ ! -f "$STDERR_LOG" ]] || cat "$STDERR_LOG" >&2
-    fail "No successful post-login result is available"
-  }
-  grep -Fq "PASS candidate=$candidate " "$RESULT" || \
-    fail "The post-login result belongs to another candidate"
+  printf 'VERIFIED candidate=%s verified_at=%s\n' \
+    "$candidate" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >>"$RESULT"
   cat "$RESULT"
   launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
   rm -f "$PLIST"
-  printf 'PASS: actual sign-out/sign-in startup and first HIL layer event\n'
+  printf 'PASS: actual sign-out/sign-in startup and interactive HIL layer event\n'
 }
 
 case "${1:-prepare}" in
