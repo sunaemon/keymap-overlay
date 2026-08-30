@@ -1,6 +1,6 @@
 .PHONY: lint
 lint:
-	$(MISE_DEV) run lint
+	$(MISE_DEV) exec -- lefthook run lint
 
 # Checks Cargo.lock against the RustSec advisory database. Ignored advisories
 # and the reasons for them live in .cargo/audit.toml.

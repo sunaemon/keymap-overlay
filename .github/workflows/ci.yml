@@ -108,7 +108,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Lint
-        run: mise run lint
+        run: make lint
 
       - name: Run Format
         run: mise run format
