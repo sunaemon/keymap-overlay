@@ -213,7 +213,10 @@ The model uses platform-independent point geometry. On macOS those values are
 AppKit points, on Linux they are Qt logical pixels, and on Windows they are WPF
 device-independent units. `PIXELS_PER_UNIT` controls the size of
 one QMK layout unit. WPF interprets them as device-independent units and applies
-the active monitor's DPI scale when positioning the native window.
+the active monitor's DPI scale when positioning the native window. The model's
+horizontal padding grows with encoder size when necessary, reserving the
+quarter-diameter overhang used by counter-clockwise and clockwise labels even
+at custom scales.
 
 ### Requirements on Linux
 

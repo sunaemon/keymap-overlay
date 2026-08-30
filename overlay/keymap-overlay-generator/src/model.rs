@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 const PADDING: i64 = 20;
 const HEADER_HEIGHT: i64 = 38;
 const KEY_INSET: i64 = 3;
+const ENCODER_LABEL_OVERHANG_DIVISOR: i64 = 4;
 
 fn transparent_keys() -> [&'static str; 3] {
     ["KC_TRNS", "KC_TRANSPARENT", "_______"]
@@ -253,7 +254,15 @@ fn build_model(
         .iter()
         .map(|(_, y, _, h)| y + h)
         .fold(f64::NEG_INFINITY, f64::max);
-    let (width, height) = canvas_size(min_x, min_y, max_x, max_y, pixels_per_unit)?;
+    let horizontal_padding = horizontal_padding(placements, pixels_per_unit)?;
+    let (width, height) = canvas_size(
+        min_x,
+        min_y,
+        max_x,
+        max_y,
+        pixels_per_unit,
+        horizontal_padding,
+    )?;
 
     let encoder_key_indices: HashSet<usize> =
         placements.iter().filter_map(|(index, ..)| *index).collect();
@@ -264,7 +273,16 @@ fn build_model(
             continue;
         }
         let box_ = inset_box(
-            pixel_box(key.x, key.y, key.w, key.h, min_x, min_y, pixels_per_unit)?,
+            pixel_box(
+                key.x,
+                key.y,
+                key.w,
+                key.h,
+                min_x,
+                min_y,
+                pixels_per_unit,
+                horizontal_padding,
+            )?,
             KEY_INSET,
         )?;
         let (left, top, right, bottom) = box_;
@@ -304,6 +322,7 @@ fn build_model(
             min_x,
             min_y,
             pixels_per_unit,
+            horizontal_padding,
         )?;
         let press = key_index.map_or("KC_NO".to_string(), |index| display_keys[index].clone());
         let raw_press = key_index.map_or("KC_NO".to_string(), |index| raw_keys[index].clone());
@@ -359,9 +378,13 @@ fn canvas_size(
     max_x: f64,
     max_y: f64,
     pixels_per_unit: i64,
+    horizontal_padding: i64,
 ) -> Result<(u32, u32)> {
+    let horizontal_margins = horizontal_padding
+        .checked_mul(2)
+        .context("Canvas horizontal padding exceeds the supported range")?;
     let width = checked_round((max_x - min_x) * pixels_per_unit as f64, "canvas width")?
-        .checked_add(2 * PADDING)
+        .checked_add(horizontal_margins)
         .context("Canvas width exceeds the supported range")?;
     let height = checked_round((max_y - min_y) * pixels_per_unit as f64, "canvas height")?
         .checked_add(2 * PADDING + HEADER_HEIGHT)
@@ -372,6 +395,7 @@ fn canvas_size(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn pixel_box(
     x: f64,
     y: f64,
@@ -380,9 +404,10 @@ fn pixel_box(
     min_x: f64,
     min_y: f64,
     pixels_per_unit: i64,
+    horizontal_padding: i64,
 ) -> Result<(i64, i64, i64, i64)> {
     let left = checked_round((x - min_x) * pixels_per_unit as f64, "x coordinate")?
-        .checked_add(PADDING)
+        .checked_add(horizontal_padding)
         .context("X coordinate exceeds the supported range")?;
     let top = checked_round((y - min_y) * pixels_per_unit as f64, "y coordinate")?
         .checked_add(PADDING + HEADER_HEIGHT)
@@ -397,6 +422,25 @@ fn pixel_box(
         top.checked_add(pixel_height)
             .context("Bottom coordinate exceeds the supported range")?,
     ))
+}
+
+fn horizontal_padding(
+    placements: &[EncoderPlacementResolved],
+    pixels_per_unit: i64,
+) -> Result<i64> {
+    placements
+        .iter()
+        .try_fold(PADDING, |padding, (_, _, _, width, height)| {
+            let encoder_extent = checked_round(
+                width.min(*height) * pixels_per_unit as f64,
+                "encoder label extent",
+            )?;
+            let label_overhang = encoder_extent
+                .checked_add(ENCODER_LABEL_OVERHANG_DIVISOR - 1)
+                .context("Encoder label extent exceeds the supported range")?
+                .div_euclid(ENCODER_LABEL_OVERHANG_DIVISOR);
+            Ok(padding.max(label_overhang))
+        })
 }
 
 /// Matches Python's `round()` (ties to even), not Rust's default
@@ -633,6 +677,37 @@ mod tests {
         assert!(model.encoders[0].counter_clockwise_transparent);
         assert!(model.encoders[0].clockwise_transparent);
         assert_eq!(model.encoders[0].press, "MUTE");
+    }
+
+    #[test]
+    fn custom_scale_reserves_encoder_direction_label_bounds() {
+        let keyboard = two_key_keyboard_with_encoder();
+        let base = layer(&["KC_MUTE", "KC_A"], &[["KC_VOLD", "KC_VOLU"]]);
+
+        for matrix in [(0, 0), (0, 1)] {
+            let config = config(&format!(
+                r#"{{"encoders": [{{"matrix": [{}, {}]}}]}}"#,
+                matrix.0, matrix.1
+            ));
+            let model = build_layer_model(
+                &keyboard,
+                &config,
+                "LAYOUT",
+                0,
+                &base,
+                &base,
+                &HashMap::new(),
+                Platform::Macos,
+                128,
+            )
+            .expect("high-scale model");
+            let encoder = &model.encoders[0];
+            let center = f64::from(encoder.x) + f64::from(encoder.size) / 2.0;
+            let label_half_span = f64::from(encoder.size) * 0.75;
+
+            assert!(center - label_half_span >= 0.0);
+            assert!(center + label_half_span <= f64::from(model.width));
+        }
     }
 
     #[test]
@@ -874,6 +949,95 @@ mod tests {
         .expect_err("zero-width key");
 
         assert!(error.to_string().contains("sizes must be positive"));
+    }
+
+    #[test]
+    fn oversized_scale_is_rejected_at_the_canvas_boundary() {
+        let keyboard = keyboard(
+            r#"{
+                "usb": {"vid": "0x0001", "pid": "0x0002"},
+                "layouts": {"LAYOUT": {"layout": [
+                    {"x": 0, "y": 0, "matrix": [0, 0]}
+                ]}}
+            }"#,
+        );
+        let base = layer(&["KC_A"], &[]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config("{}"),
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            i64::MAX,
+        )
+        .expect_err("unrepresentable canvas scale");
+
+        assert!(error.to_string().contains("canvas width"));
+    }
+
+    #[test]
+    fn key_pixel_conversion_errors_are_propagated() {
+        let layout = [
+            LayoutKey {
+                x: 0.0,
+                y: 0.0,
+                matrix: (0, 0),
+                w: 1.0,
+                h: 1.0,
+                r: 0.0,
+            },
+            LayoutKey {
+                x: f64::NAN,
+                y: 0.0,
+                matrix: (0, 1),
+                w: 1.0,
+                h: 1.0,
+                r: 0.0,
+            },
+        ];
+        let keys = ["KC_A".to_string(), "KC_B".to_string()];
+
+        let error = build_model(
+            &layout,
+            &keys,
+            &keys,
+            &[],
+            &[],
+            &[],
+            &HashMap::new(),
+            &keycode_labels(),
+            0,
+            64,
+        )
+        .expect_err("invalid internal key coordinate");
+
+        assert!(error.to_string().contains("x coordinate"));
+    }
+
+    #[test]
+    fn oversized_scale_is_rejected_when_sizing_encoder_labels() {
+        let keyboard = two_key_keyboard_with_encoder();
+        let config = config(r#"{"encoders": [{"matrix": [0, 1]}]}"#);
+        let base = layer(&["KC_A", "KC_B"], &[["KC_VOLD", "KC_VOLU"]]);
+
+        let error = build_layer_model(
+            &keyboard,
+            &config,
+            "LAYOUT",
+            0,
+            &base,
+            &base,
+            &HashMap::new(),
+            Platform::Macos,
+            i64::MAX,
+        )
+        .expect_err("unrepresentable encoder label scale");
+
+        assert!(error.to_string().contains("encoder label extent"));
     }
 
     #[test]
