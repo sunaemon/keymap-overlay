@@ -8,7 +8,7 @@ coverage:
         informational: true
 
 comment:
-  layout: "header, diff, components, files"
+  layout: 'header, diff, components, files'
   behavior: default
   require_changes: true
 
