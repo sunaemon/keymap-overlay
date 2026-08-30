@@ -1,5 +1,5 @@
-#include <QByteArray>
 #include <QAccessible>
+#include <QByteArray>
 #include <QColor>
 #include <QCursor>
 #include <QDBusConnection>
