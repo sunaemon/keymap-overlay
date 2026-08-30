@@ -10,8 +10,48 @@ on:
   pull_request:
 
 jobs:
+  # Each platform's release-acceptance suite drives a real overlay build and
+  # installer run, so it is only worth paying for on changes that could
+  # actually affect it. Everything else in these jobs (lint, format, unit and
+  # coverage suites) still runs on every push and pull request.
+  changes:
+    name: changes
+    # Just a checkout and a path filter: fits the 1 vCPU, minimal-image,
+    # 15-minute-capped runner at roughly a third of ubuntu-latest's price.
+    runs-on: ubuntu-slim
+
+    permissions:
+      contents: read
+
+    outputs:
+      release-acceptance: ${{ steps.filter.outputs.release-acceptance }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Detect release-acceptance-relevant changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            release-acceptance:
+              - 'overlay/**'
+              - 'installer/**'
+              - 'firmware/layer_notify.h'
+              - 'Makefile'
+              - 'mk/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'mise*.toml'
+              - '.github/workflows/ci.yml'
+
   linux-build-and-test:
     name: linux-${{ matrix.architecture }}
+    needs: changes
     strategy:
       fail-fast: false
       matrix:
@@ -76,16 +116,16 @@ jobs:
       - name: Check third-party license notices
         run: make check-licenses
 
+      # Linux x86_64 supplies the coverage baseline (both suites, with report
+      # generation); the other architecture keeps the plain test path without
+      # uploading a duplicate report for the same commit.
       - name: Run Tests
-        if: matrix.architecture != 'x86_64'
-        run: make test
-
-      # Executes both test suites and prints line-coverage summaries. Linux
-      # x86_64 supplies the baseline; the other architecture keeps its normal
-      # test path without uploading a duplicate report for the same commit.
-      - name: Run Tests with Coverage
-        if: matrix.architecture == 'x86_64'
-        run: make coverage
+        run: |
+          if [ "${{ matrix.architecture }}" == "x86_64" ]; then
+            make coverage
+          else
+            make test
+          fi
 
       - name: Run Rust Tests
         if: matrix.architecture != 'x86_64'
@@ -102,6 +142,7 @@ jobs:
           use_oidc: true
 
       - name: Enable the virtual Raw HID test device
+        if: needs.changes.outputs.release-acceptance == 'true'
         run: |
           sudo modprobe uhid
           sudo chmod 0666 /dev/uhid
@@ -113,6 +154,7 @@ jobs:
       # Covers installer rollback, kernel UHID input through the daemon's D-Bus
       # API, and D-Bus output through the Qt renderer and golden image.
       - name: Run Linux release acceptance
+        if: needs.changes.outputs.release-acceptance == 'true'
         run: make test-release-acceptance-linux
 
       - name: Check for unformatted files
@@ -123,6 +165,7 @@ jobs:
   # compiled by the Linux job, which builds the Qt backend instead.
   mac-arm64:
     name: mac-arm64
+    needs: changes
     runs-on: macos-latest
 
     permissions:
@@ -161,6 +204,7 @@ jobs:
       # Covers installer rollback and simulated runtime events through the
       # main-queue wake-up, model composition, and native AppKit view state.
       - name: Run macOS release acceptance
+        if: needs.changes.outputs.release-acceptance == 'true'
         run: make test-release-acceptance-macos
 
       - name: Upload macOS Coverage
@@ -182,6 +226,7 @@ jobs:
   # machine.
   windows-build-and-test:
     name: windows-${{ matrix.architecture }}
+    needs: changes
     strategy:
       fail-fast: false
       matrix:
@@ -238,18 +283,19 @@ jobs:
         shell: powershell
         run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
 
-      - name: Run Rust Tests with Coverage
-        if: matrix.architecture == 'x86_64'
-        run: make coverage-rust
-
       - name: Run Rust Tests
-        if: matrix.architecture != 'x86_64'
-        run: make test-rust
+        run: |
+          if [ "${{ matrix.architecture }}" == "x86_64" ]; then
+            make coverage-rust
+          else
+            make test-rust
+          fi
 
       # Publishes the self-contained single-file WPF executable, then exercises
       # simulated runtime events through the dispatcher, model composition,
       # and native WPF presentation state.
       - name: Run Windows release acceptance
+        if: needs.changes.outputs.release-acceptance == 'true'
         run: make test-release-acceptance-windows
 
       - name: Upload Windows Coverage
