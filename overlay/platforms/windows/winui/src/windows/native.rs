@@ -1,79 +1,43 @@
-//! Audited Win32 boundary for the transparent XAML Island host.
+//! Audited Win32 boundary for the experimental WinUI overlay window.
 
-#[allow(
-    dead_code,
-    non_camel_case_types,
-    non_snake_case,
-    clippy::missing_safety_doc,
-    clippy::upper_case_acronyms
-)]
-#[path = "island_bindings.rs"]
-mod island_bindings;
-
-use super::OverlayComponent;
-use island_bindings::{DesktopWindowXamlSource, RectInt32, WindowId};
-use keymap_overlay_runtime::LayerEventSourceHandle;
-use std::cell::{Cell, RefCell};
-use std::mem::size_of;
-use std::sync::OnceLock;
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use keymap_overlay_runtime::{LayerEventSourceHandle, PendingTransition, Transition};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
-    BLACK_BRUSH, GetMonitorInfoW, GetStockObject, HBRUSH, HMONITOR, MONITOR_DEFAULTTONEAREST,
-    MONITORINFO, MonitorFromPoint,
+    CreateRoundRectRgn, DeleteObject, GetMonitorInfoW, HGDIOBJ, HMONITOR, MONITOR_DEFAULTTONEAREST,
+    MONITORINFO, MonitorFromPoint, SetWindowRgn,
 };
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GWL_EXSTYLE, GetCursorPos, GetWindowLongPtrW, HWND_TOPMOST,
-    LWA_ALPHA, LWA_COLORKEY, PostQuitMessage, RegisterClassExW, SET_WINDOW_POS_FLAGS, SW_HIDE,
-    SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SetLayeredWindowAttributes,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WM_DESTROY, WM_DEVICECHANGE,
-    WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
+    CallWindowProcW, FindWindowW, GWL_EXSTYLE, GWL_STYLE, GWLP_WNDPROC, GetCursorPos,
+    GetWindowLongPtrW, HWND_TOPMOST, LWA_ALPHA, LWA_COLORKEY, PostMessageW, SET_WINDOW_POS_FLAGS,
+    SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SetLayeredWindowAttributes,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_APP, WM_DEVICECHANGE, WNDPROC, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows_core::HRESULT;
-use windows_reactor::{App, Component, RenderHost, WinUIBackend, WinUIDispatcher, WindowSize};
+use windows_reactor::{LocalSender, WindowSize};
+
+pub(super) const WINDOW_TITLE: &str = "Keymap Overlay WinUI Prototype";
 
 const DBT_DEVNODES_CHANGED: usize = 0x0007;
-const WINDOW_CLASS: &[u16] = &[
-    b'K' as u16,
-    b'e' as u16,
-    b'y' as u16,
-    b'm' as u16,
-    b'a' as u16,
-    b'p' as u16,
-    b'O' as u16,
-    b'v' as u16,
-    b'e' as u16,
-    b'r' as u16,
-    b'l' as u16,
-    b'a' as u16,
-    b'y' as u16,
-    b'I' as u16,
-    b's' as u16,
-    b'l' as u16,
-    b'a' as u16,
-    b'n' as u16,
-    b'd' as u16,
-    0,
-];
+const WM_OVERLAY_TRANSITION: u32 = WM_APP + 1;
+const OVERLAY_CORNER_RADIUS: f64 = 16.0;
 
 static LISTENER: OnceLock<LayerEventSourceHandle> = OnceLock::new();
 
 thread_local! {
-    static ISLAND_HOST: RefCell<Option<IslandHost>> = const { RefCell::new(None) };
+    static ORIGINAL_WINDOW_PROC: Cell<isize> = const { Cell::new(0) };
+    static OVERLAY_WINDOW: Cell<HWND> = const { Cell::new(HWND(std::ptr::null_mut())) };
+    static PENDING: Cell<Option<Arc<Mutex<PendingTransition>>>> = const { Cell::new(None) };
+    static SENDER: Cell<Option<LocalSender<Transition>>> = const { Cell::new(None) };
     static REQUESTED_SIZE: Cell<WindowSize> = const {
         Cell::new(WindowSize { width: 1.0, height: 1.0 })
     };
     static WINDOW_VISIBLE: Cell<bool> = const { Cell::new(false) };
-}
-
-pub(super) fn run(component: OverlayComponent) -> windows_core::Result<()> {
-    App::new().run_custom(move |_app| {
-        let host = IslandHost::new(Box::new(component))?;
-        ISLAND_HOST.with(|slot| *slot.borrow_mut() = Some(host));
-        Ok(())
-    })
 }
 
 pub(super) fn install_listener(listener: LayerEventSourceHandle) {
@@ -82,130 +46,75 @@ pub(super) fn install_listener(listener: LayerEventSourceHandle) {
     }
 }
 
-pub(super) fn request_window(size: WindowSize) {
-    REQUESTED_SIZE.set(size);
-}
-
-struct IslandHost {
-    _source: DesktopWindowXamlSource,
-    _render_host: RenderHost<WinUIBackend, WinUIDispatcher>,
-    _window: HWND,
-}
-
-impl IslandHost {
-    fn new(root: Box<dyn Component>) -> windows_core::Result<Self> {
-        let window = create_overlay_window()?;
-        let source = DesktopWindowXamlSource::new()
-            .map_err(|error| island_error("Failed to create DesktopWindowXamlSource", error))?;
-        source
-            .initialize(WindowId {
-                value: window.0 as usize as u64,
-            })
-            .map_err(|error| island_error("Failed to initialize the XAML Island host", error))?;
-        let site_bridge = source
-            .site_bridge()
-            .map_err(|error| island_error("Failed to get the XAML Island site bridge", error))?;
-        let island_id = site_bridge
-            .window_id()
-            .map_err(|error| island_error("Failed to get the XAML Island window ID", error))?;
-        let island_window = HWND(island_id.value as usize as *mut _);
-        configure_island_window(island_window);
-        site_bridge
-            .show()
-            .map_err(|error| island_error("Failed to show the XAML Island site bridge", error))?;
-
-        let dispatcher = WinUIDispatcher::for_current_thread()?;
-        let render_host = RenderHost::new(WinUIBackend::new(), root, dispatcher);
-        render_host.set_marshaller(Some(WinUIDispatcher::for_current_thread()?.marshaller()));
-
-        let source_for_render = source.clone();
-        let render_host_for_render = render_host.downgrade();
-        render_host.set_post_render(move |root_id| {
-            let Some(root_id) = root_id else {
-                return;
-            };
-            let Some(render_host) = render_host_for_render.upgrade() else {
-                return;
-            };
-            let result = render_host
-                .with_backend(|backend| backend.get_ui_element(root_id))
-                .ok_or_else(|| windows_core::Error::from_hresult(HRESULT(0x80004005_u32 as i32)))
-                .and_then(|element| source_for_render.set_content(&element));
-            if let Err(error) = result {
-                log::error!("Failed to attach the WinUI root to the XAML Island: {error}");
-            }
-        });
-
-        render_host.set_render_complete(move |_| present_window(window, &site_bridge));
-        render_host.kick();
-
-        Ok(Self {
-            _source: source,
-            _render_host: render_host,
-            _window: window,
-        })
-    }
-}
-
-fn island_error(message: &str, error: windows_core::Error) -> windows_core::Error {
-    windows_core::Error::new(error.code(), format!("{message}: {error}"))
-}
-
-fn configure_island_window(window: HWND) {
-    unsafe {
-        let style = GetWindowLongPtrW(window, GWL_EXSTYLE) as u32;
-        let style = style | WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0;
-        SetWindowLongPtrW(window, GWL_EXSTYLE, style as isize);
-    }
-}
-
-fn create_overlay_window() -> windows_core::Result<HWND> {
-    let module = unsafe { GetModuleHandleW(None) }.map_err(map_windows_error)?;
-    let class = WNDCLASSEXW {
-        cbSize: size_of::<WNDCLASSEXW>() as u32,
-        lpfnWndProc: Some(window_proc),
-        hInstance: HINSTANCE(module.0),
-        hbrBackground: HBRUSH(unsafe { GetStockObject(BLACK_BRUSH) }.0),
-        lpszClassName: windows::core::PCWSTR(WINDOW_CLASS.as_ptr()),
-        ..WNDCLASSEXW::default()
-    };
-    if unsafe { RegisterClassExW(&class) } == 0 {
-        return Err(windows_core::Error::new(
-            HRESULT(0x80004005_u32 as i32),
-            "Failed to register the XAML Island host window class",
-        ));
-    }
-
-    let ex_style = WINDOW_EX_STYLE(
-        WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0 | WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0,
-    );
+pub(super) fn configure_window(
+    sender: LocalSender<Transition>,
+    pending: Arc<Mutex<PendingTransition>>,
+    shared_window: Arc<AtomicIsize>,
+) -> windows_core::Result<()> {
     let window = unsafe {
-        CreateWindowExW(
-            ex_style,
-            windows::core::PCWSTR(WINDOW_CLASS.as_ptr()),
+        FindWindowW(
             windows::core::PCWSTR::null(),
-            WS_POPUP,
-            0,
-            0,
-            1,
-            1,
-            None,
-            None,
-            Some(HINSTANCE(module.0)),
-            None,
+            windows::core::w!("Keymap Overlay WinUI Prototype"),
         )
     }
     .map_err(map_windows_error)?;
-    unsafe { SetLayeredWindowAttributes(window, COLORREF(0), 0, LWA_COLORKEY | LWA_ALPHA) }
-        .map_err(map_windows_error)?;
-    Ok(window)
+    let style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) } as u32
+        | WS_EX_LAYERED.0
+        | WS_EX_TRANSPARENT.0
+        | WS_EX_TOOLWINDOW.0
+        | WS_EX_NOACTIVATE.0;
+    unsafe {
+        SetWindowLongPtrW(window, GWL_STYLE, WS_POPUP.0 as isize);
+        SetWindowLongPtrW(window, GWL_EXSTYLE, style as isize);
+        let original = SetWindowLongPtrW(
+            window,
+            GWLP_WNDPROC,
+            window_proc as *const () as usize as isize,
+        );
+        if original == 0 {
+            return Err(windows_core::Error::new(
+                HRESULT(0x80004005_u32 as i32),
+                "Failed to subclass the WinUI window",
+            ));
+        }
+        ORIGINAL_WINDOW_PROC.set(original);
+        let _ = ShowWindow(window, SW_HIDE);
+    }
+    OVERLAY_WINDOW.set(window);
+    PENDING.set(Some(pending));
+    SENDER.set(Some(sender));
+    shared_window.store(window.0 as isize, Ordering::Release);
+    wake_window(window.0 as isize);
+    Ok(())
+}
+
+pub(super) fn request_window(size: WindowSize) {
+    REQUESTED_SIZE.set(size);
+    OVERLAY_WINDOW.with(|window| {
+        let window = window.get();
+        if !window.0.is_null() {
+            present_window(window);
+        }
+    });
+}
+
+pub(super) fn wake_window(raw_window: isize) {
+    if raw_window == 0 {
+        return;
+    }
+    let window = HWND(raw_window as *mut _);
+    if let Err(error) =
+        unsafe { PostMessageW(Some(window), WM_OVERLAY_TRANSITION, WPARAM(0), LPARAM(0)) }
+    {
+        log::error!("Failed to wake the WinUI window: {error}");
+    }
 }
 
 fn map_windows_error(error: windows::core::Error) -> windows_core::Error {
     windows_core::Error::from_hresult(HRESULT(error.code().0))
 }
 
-fn present_window(window: HWND, site_bridge: &island_bindings::DesktopChildSiteBridge) {
+fn present_window(window: HWND) {
     let size = REQUESTED_SIZE.get();
     if size.width <= 1.0 || size.height <= 1.0 {
         if WINDOW_VISIBLE.replace(false) {
@@ -232,23 +141,44 @@ fn present_window(window: HWND, site_bridge: &island_bindings::DesktopChildSiteB
             height,
             hidden_flags,
         );
-        if let Err(error) = site_bridge.move_and_resize(RectInt32 {
-            x: 0,
-            y: 0,
+        apply_rounded_region(
+            window,
             width,
             height,
-        }) {
-            log::error!("Failed to resize the XAML Island: {error}");
-        }
-        if let Err(error) = site_bridge.move_in_z_order_at_top() {
-            log::error!("Failed to move the XAML Island to the top of its Z-order: {error}");
-        }
+            OVERLAY_CORNER_RADIUS * 2.0 * monitor_scale_at(x, y),
+        );
         let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
         if first_show {
             let _ = DwmFlush();
             let _ = SetLayeredWindowAttributes(window, COLORREF(0), 255, LWA_COLORKEY | LWA_ALPHA);
         }
     }
+}
+
+fn apply_rounded_region(window: HWND, width: i32, height: i32, diameter: f64) {
+    unsafe {
+        let region = CreateRoundRectRgn(
+            0,
+            0,
+            width + 1,
+            height + 1,
+            diameter.round() as i32,
+            diameter.round() as i32,
+        );
+        if region.is_invalid() {
+            log::error!("Failed to create the rounded WinUI window region");
+            return;
+        }
+        if SetWindowRgn(window, Some(region), true) == 0 {
+            log::error!("Failed to apply the rounded WinUI window region");
+            let _ = DeleteObject(HGDIOBJ(region.0));
+        }
+    }
+}
+
+fn monitor_scale_at(x: i32, y: i32) -> f64 {
+    let monitor = unsafe { MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST) };
+    monitor_scale(monitor)
 }
 
 fn visible_window_bounds(size: WindowSize) -> (i32, i32, i32, i32) {
@@ -291,16 +221,40 @@ unsafe extern "system" fn window_proc(
     parameter: WPARAM,
     data: LPARAM,
 ) -> LRESULT {
+    if message == WM_OVERLAY_TRANSITION {
+        let transition = PENDING
+            .take()
+            .map(|pending| {
+                let transition = pending
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .take();
+                PENDING.set(Some(pending));
+                transition
+            })
+            .unwrap_or(Transition::Ignore);
+        if transition != Transition::Ignore {
+            let accepted = SENDER
+                .take()
+                .map(|sender| {
+                    let accepted = sender.send(transition);
+                    SENDER.set(Some(sender));
+                    accepted
+                })
+                .unwrap_or(false);
+            if !accepted {
+                log::error!("The WinUI component rejected a layer transition");
+            }
+        }
+        return LRESULT(0);
+    }
     if message == WM_DEVICECHANGE
         && parameter.0 == DBT_DEVNODES_CHANGED
         && let Some(listener) = LISTENER.get()
     {
         listener.device_arrived();
-    } else if message == WM_DESTROY {
-        let host = ISLAND_HOST.with(|slot| slot.borrow_mut().take());
-        drop(host);
-        unsafe { PostQuitMessage(0) };
-        return LRESULT(0);
     }
-    unsafe { DefWindowProcW(window, message, parameter, data) }
+    let original = ORIGINAL_WINDOW_PROC.get();
+    let procedure: WNDPROC = unsafe { std::mem::transmute(original) };
+    unsafe { CallWindowProcW(procedure, window, message, parameter, data) }
 }

@@ -19,11 +19,11 @@ windows = { version = "0.62.2", features = [
   "Win32_UI_HiDpi",
   "Win32_UI_WindowsAndMessaging",
 ] }
-windows-core = { git = "https://github.com/microsoft/windows-rs.git", rev = "845e42a4328ec5b54b97f965798589d997cad177" }
-windows-reactor = { git = "https://github.com/microsoft/windows-rs.git", rev = "845e42a4328ec5b54b97f965798589d997cad177" }
+windows-core = { git = "https://github.com/microsoft/windows-rs.git", rev = "1be5649497b59fe7cc2fb0ae5b0ebd7787327cc8" }
+windows-reactor = { git = "https://github.com/microsoft/windows-rs.git", rev = "1be5649497b59fe7cc2fb0ae5b0ebd7787327cc8" }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
-windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs.git", rev = "845e42a4328ec5b54b97f965798589d997cad177" }
+windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs.git", rev = "1be5649497b59fe7cc2fb0ae5b0ebd7787327cc8" }
 
 [lints.clippy]
 cognitive_complexity = "warn"
