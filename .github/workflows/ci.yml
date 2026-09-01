@@ -35,7 +35,7 @@ jobs:
 
       - name: Detect release-acceptance-relevant changes
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             release-acceptance:
