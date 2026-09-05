@@ -144,27 +144,19 @@ _install_service_linux:
 # The current user's Run key starts the overlay at sign-in without requiring an
 # administrator to create a Task Scheduler entry.
 #
-# The Windows frontend is WPF, which reaches the shared runtime through a C ABI
-# that deliberately carries no strings, so it cannot be handed a `--log-out`
-# path the way the plist hands one to the native binary. It writes to the
-# default file under %LOCALAPPDATA% instead, which is where this variable
-# points unless it was overridden.
+# The native Rust frontend accepts the same log argument as the other
+# platforms, so Windows does not need a C ABI or a special logging path.
 .PHONY: _install_service_windows
 _install_service_windows:
-	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(WINDOWS_LOCAL_APP_DATA)/keymap-overlay/logs" ]; then \
-		echo "ERROR: KEYMAP_OVERLAY_LOG_DIR cannot be honoured on Windows."; \
-		echo "The WPF frontend takes no log argument, so the overlay would keep"; \
-		echo "logging to its default directory. Leave the variable unset."; \
-		exit 1; \
-	fi
 # set -e so a failing cygpath does not hand an empty path to the registry, and
 # $ErrorActionPreference so PowerShell's non-terminating errors become failures
 # make can see: without it, Set-ItemProperty or Start-Process can fail while
 # powershell.exe still exits 0 and install-overlay reports success.
 	@set -e; \
 	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
-	env KEYMAP_OVERLAY_BINARY="$$binary" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY'
+	log_file="$$(cygpath -w "$(KEYMAP_OVERLAY_LOG_FILE)")"; \
+	env KEYMAP_OVERLAY_BINARY="$$binary" KEYMAP_OVERLAY_LOG_FILE="$$log_file" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
+	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote + " --log-out " + $$quote + $$env:KEYMAP_OVERLAY_LOG_FILE + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY -ArgumentList @("--log-out", $$env:KEYMAP_OVERLAY_LOG_FILE)'
 
 .PHONY: uninstall-overlay
 uninstall-overlay:

@@ -274,22 +274,11 @@ endif
 KEYMAP_OVERLAY_LOG_FILE := $(KEYMAP_OVERLAY_LOG_DIR)/overlay.log
 KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay$(EXE_SUFFIX)
 KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-qt
-WPF_PROJECT := overlay/platforms/windows/wpf/KeymapOverlay.Wpf.csproj
-WPF_PUBLISH_DIR := target/wpf-publish
-WINDOWS_BRIDGE_MANIFEST := overlay/platforms/windows/bridge/Cargo.toml
-WINUI_PACKAGE := keymap-overlay-winui
+WINDOWS_PACKAGE := keymap-overlay-windows
 QT_RENDERER_SOURCE := overlay/platforms/linux/qt
 QT_RENDERER_BUILD_DIR := target/qt-release
 ifeq ($(OS_FAMILY),windows)
-WINDOWS_PROCESSOR_ARCHITECTURE := $(shell powershell -NoProfile -Command '(Get-ItemPropertyValue -LiteralPath "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" -Name PROCESSOR_ARCHITECTURE)')
-ifeq ($(WINDOWS_PROCESSOR_ARCHITECTURE),ARM64)
-WINDOWS_DOTNET_RID := win-arm64
-else ifeq ($(WINDOWS_PROCESSOR_ARCHITECTURE),AMD64)
-WINDOWS_DOTNET_RID := win-x64
-else
-$(error native Windows builds require AMD64 or ARM64, got '$(WINDOWS_PROCESSOR_ARCHITECTURE)')
-endif
-OVERLAY_BUILD_BINARY := $(WPF_PUBLISH_DIR)/keymap-overlay.exe
+OVERLAY_BUILD_BINARY := target/release/keymap-overlay.exe
 KEYMAP_OVERLAY ?= "$(OVERLAY_BUILD_BINARY)"
 else
 ifeq ($(OS_FAMILY),macos)
@@ -316,5 +305,4 @@ KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
 # HID node; without it the overlay enumerates the keyboards but cannot read
 # from them.
 KEYMAP_OVERLAY_UDEV_RULES := /etc/udev/rules.d/50-keymap-overlay.rules
-DOTNET ?= $(MISE) exec -- dotnet
 CMAKE ?= cmake

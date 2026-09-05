@@ -21,7 +21,7 @@ endif
 ifeq ($(OS_FAMILY),windows)
 	# Assets are generated in WSL. Installing just Rust and lefthook keeps the
 	# native Windows setup independent of QMK and Python tooling.
-	$(MISE) install rust dotnet lefthook
+	$(MISE) install rust lefthook
 else
 # The dev tools come too: the git hooks installed below run format and lint.
 	$(MISE_DEV) install
