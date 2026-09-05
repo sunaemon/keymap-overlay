@@ -34,7 +34,7 @@ native transparent window
   Linux daemon: final model over session D-Bus
     ├─ GNOME Shell extension (Wayland or X11)
     └─ Qt Quick + KDE LayerShellQt (other desktops)
-  Windows: WPF
+  Windows: Rust / windows-rs + Win32
   ↓
 active keyboard/layer models are composed and displayed
   ↓
@@ -110,7 +110,7 @@ Device arrival notifications request another enumeration without interrupting
 healthy readers, so a release cannot be lost while the new device becomes
 openable. Linux receives `hidraw` add notifications from udev, macOS receives
 usage-filtered notifications from `IOHIDManager`, and Windows forwards
-`WM_DEVICECHANGE` from the mapped WPF window. This restores HID event handling
+`WM_DEVICECHANGE` from the mapped Rust window. This restores HID event handling
 for a keyboard whose model was loaded at startup. A keyboard absent at startup
 requires an overlay restart before its model is available.
 
@@ -129,7 +129,7 @@ final state change. `overlay/keymap-overlay-runtime` shares the keyboard
 listener, maps core state changes to overlay transitions, and owns the asset
 model, command-line handling, and logging.
 Each platform owns its executable, device-arrival integration, and presentation
-boundary. macOS owns an AppKit process, Windows owns a WPF process, and Linux
+boundary. macOS owns an AppKit process, Windows owns a Rust process, and Linux
 separates its HID daemon from replaceable renderer clients.
 
 On **macOS** (`overlay/platforms/macos/appkit`) AppKit owns the
@@ -144,35 +144,19 @@ native show animations on every layer-key press.
 The application replaces the former Hammerspoon and Lua integration entirely.
 No synthetic function-key events or Hammerspoon configuration are required.
 
-On **Windows**, `overlay/platforms/windows/wpf` owns the process and builds a native
-WPF visual tree from each in-memory model. A narrow C ABI bridge loads the
-models, shared Rust HID listener, and core state reducer. Rust invokes only a wake
-callback; the WPF dispatcher calls back to take the final queued transition, so
-bursts collapse before anything is drawn.
+On **Windows**, `overlay/platforms/windows/win32` owns the Rust process and
+uses stable Win32 APIs through `windows-rs`. It calls the shared listener, core
+reducer, model loader, and composer directly; there is no .NET host or C ABI
+bridge. `overlay/platforms/windows/winui` remains an experimental Reactor
+frontend and is not selected for normal builds or releases.
 
-An experimental sibling executable in `overlay/platforms/windows/winui` exercises a
-pure-Rust WinUI 3 frontend through Microsoft's experimental `windows-reactor`
-crate. It calls the shared listener, core reducer, model loader, and composer
-directly, so it has no C ABI bridge. `make build-winui-overlay` builds it on
-Windows; normal builds, installation, and releases intentionally continue to
-use WPF. The frontend uses Reactor's component-owned WinUI window and subclasses
-its HWND to make it layered, non-activating, topmost, and click-through. Win32
-owns only overlay window behavior; WinUI still owns controls, layout,
-typography, DPI, and theme resources. Because WinUI 3 does not officially
-support transparent top-level windows, the prototype must not replace WPF until
-transparency and repeated-show focus behavior pass physical testing.
-
-The transparent WPF window is mapped once and shrinks to one pixel while idle.
+The transparent native window is mapped once and shrinks to one pixel while idle.
 Its HWND uses `WS_EX_NOACTIVATE`, `WS_EX_TOOLWINDOW`, and click-through styling,
 so repeated layer presses cannot take focus and the overlay stays out of the
 taskbar and Alt-Tab. `SetWindowPos` always includes `SWP_NOACTIVATE`.
 
-Windows publishes one self-contained `keymap-overlay.exe`. The .NET single-file
-bundle contains the Rust bridge DLL and extracts native content automatically
-before launch; installation and autostart still manage one executable.
-Release builds publish matching WPF and Rust bridge binaries for both x64 and
-ARM64 Windows; the installer selects the archive for the operating system's
-native architecture.
+Windows publishes one native `keymap-overlay.exe` for both x64 and ARM64; the
+installer selects the archive for the operating system's native architecture.
 
 On **Linux**, `overlay/platforms/linux/daemon` owns the startup-loaded models,
 validates and composes them, owns
@@ -210,10 +194,10 @@ composition; Qt receives only the final semantic model over D-Bus and has no
 access to HID or the asset directory.
 
 The model uses platform-independent point geometry. On macOS those values are
-AppKit points, on Linux they are Qt logical pixels, and on Windows they are WPF
-device-independent units. `PIXELS_PER_UNIT` controls the size of
-one QMK layout unit. WPF interprets them as device-independent units and applies
-the active monitor's DPI scale when positioning the native window. The model's
+AppKit points, on Linux they are Qt logical pixels, and on Windows they are
+Win32 device pixels. `PIXELS_PER_UNIT` controls the size of one QMK layout
+unit. The Win32 frontend uses those dimensions directly when positioning the
+native window. The model's
 horizontal padding grows with encoder size when necessary, reserving the
 quarter-diameter overhang used by counter-clockwise and clockwise labels even
 at custom scales.
@@ -233,9 +217,8 @@ at custom scales.
 ### Requirements on Windows
 
 - Normal release installation through `install.ps1` requires only PowerShell.
-  Make-based source development and builds additionally require an MSYS2
-  UCRT64 shell with MSYS2's Git and GNU Make installed, and PowerShell
-  reachable on `PATH` for writing the current user's Run key.
+  Source development uses Cargo from a Visual Studio developer command prompt;
+  it does not require MSYS2, GNU Make, .NET, or WPF.
 - Nothing has to be granted to read the keyboard: a vendor-defined HID
   interface is open to any process, unlike macOS Input Monitoring or the
   `hidraw` node on Linux. hidapi is built on its own Windows backend, which
@@ -255,9 +238,7 @@ the overlay, which also serves anyone packaging it where a distribution
 requires notices as files. The overlay binary embeds both notices and prints
 them with `keymap-overlay --license` and `--third-party-licenses`, so a copy
 carried away from its install directory still states its terms. The Windows
-package also installs those files beside the executable, because WPF owns that
-process and reaches the shared runtime through a C ABI that carries no strings,
-leaving it nothing to print.
+package also installs those files beside the executable.
 
 The installers stop the running service before replacing its files, preserve
 the previous binaries, notices, and service definition
@@ -307,10 +288,8 @@ given the destination its supervisor handles best:
   rotate and retain: `journalctl --user -u keymap-overlay`.
 - macOS passes `~/.local/var/log/keymap-overlay/overlay.log`, because launchd
   redirects a job's output but never rotates it.
-- Windows writes `%LOCALAPPDATA%\keymap-overlay\logs\overlay.log`. WPF owns
-  that process and reaches the shared runtime through a C ABI that carries no
-  strings, so it cannot be handed a path; `make install-overlay` refuses to run
-  if `KEYMAP_OVERLAY_LOG_DIR` was overridden.
+- Windows passes `%LOCALAPPDATA%\keymap-overlay\logs\overlay.log` with
+  `--log-out`, like macOS.
 
 A log the overlay owns rotates at 1 MiB and retains the current file plus three
 previous files.
@@ -382,7 +361,7 @@ labels, transparency metadata, held-state metadata, and encoder actions; it
 contains no toolkit-specific objects and does not pass through keymap-drawer,
 YAML, SVG, or another schema. All three platforms retain these models only in
 memory, compose held layers using QMK precedence, and render the result
-with AppKit, GNOME Shell, Qt Quick, or WPF. Keys use quiet, nearly opaque fills
+with AppKit, GNOME Shell, Qt Quick, or Win32/GDI. Keys use quiet, nearly opaque fills
 and a low-contrast
 hairline so they stay distinct over bright and dark backgrounds; the held layer
 key alone receives its pale tint. Display-only labels for custom keycodes come
@@ -405,7 +384,7 @@ Those types generate the checked-in version 2 JSON Schema at
 `overlay/display-model-contract/display-model.schema.json`. Shared base-layer,
 held-layer, and encoder fixtures in the same directory are parsed through the
 canonical types; the base and held-layer fixtures also drive the simulated
-AppKit, GNOME Shell, Qt Quick, and WPF E2E paths. `make check-contracts` rejects
+AppKit, GNOME Shell, Qt Quick, and Win32 E2E paths. `make check-contracts` rejects
 schema drift or invalid fixtures, while `make generate-contracts` records an
 intentional additive contract update. A breaking shape change requires a new
 contract version and migration coverage in every renderer.
@@ -434,7 +413,7 @@ empty content view while hiding so a later map cannot expose stale content.
 
 Each system gets the window integration it can actually support. AppKit covers
 macOS, GNOME Shell renders inside GNOME, Qt Quick plus KDE LayerShellQt covers
-other Linux Wayland sessions, and WPF covers Windows.
+other Linux Wayland sessions, and the Rust Win32 frontend covers Windows.
 On Wayland a normal application window cannot raise itself above others or
 reject input, which is the entire behaviour of this overlay; LayerShellQt is
 therefore a semantic requirement rather than a styling choice.
@@ -443,9 +422,9 @@ Windows and macOS use different native-window implementations because macOS
 can compose Liquid Glass and native controls directly while Windows needs the mapped,
 non-activating behaviour described above.
 
-Windows CI runs the release WPF executable with `--simulate`, then asserts the
+Windows CI runs the native executable with `--simulate`, then asserts the
 visible, hidden, and visible-again native presentation states. This covers the
-dispatcher wake-up, model composition, and WPF visual-tree path without a
+UI wake-up, model composition, and Win32 presentation path without a
 physical keyboard. Focus, topmost, and click-through behavior still require a
 real interactive desktop.
 

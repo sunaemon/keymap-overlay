@@ -1,4 +1,4 @@
-//! Experimental pure-Rust WinUI 3 frontend.
+//! Windows frontend implemented in Rust with windows-rs.
 
 #[allow(unsafe_code)]
 mod native;
@@ -9,6 +9,9 @@ use keymap_overlay_runtime::{
     PendingTransition, SimulatedLayer, StartupRawHidDevice, Transition, compose_model,
     default_log_file, initialize_logging, spawn_layer_event_source, startup_models, write_notice,
 };
+use std::env;
+use std::fs::OpenOptions;
+use std::io::Write as _;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex};
 use windows_reactor::{
@@ -93,7 +96,7 @@ impl Component for OverlayComponent {
         let window = Arc::clone(&self.window);
         context.use_effect("native-window", (), move || {
             if let Err(error) = native::configure_window(sender, pending, window) {
-                log::error!("Failed to configure the native WinUI window: {error}");
+                log::error!("Failed to configure the native Windows window: {error}");
             }
             None
         });
@@ -121,6 +124,7 @@ impl Component for OverlayComponent {
                 width: 1.0,
                 height: 1.0,
             });
+        write_e2e_state(&self.transition, model.as_ref());
         context.window_visuals(
             WindowVisuals::new().client_size(window_size.width, window_size.height),
         );
@@ -130,6 +134,40 @@ impl Component for OverlayComponent {
         });
 
         model.map_or_else(hidden_view, model_view)
+    }
+}
+
+/// Records presentation transitions when the Windows E2E harness requests it.
+fn write_e2e_state(transition: &Transition, model: Option<&OverlayModel>) {
+    let Some(path) = env::var_os("KEYMAP_OVERLAY_E2E_STATE_FILE") else {
+        return;
+    };
+    let state = match (transition, model) {
+        (
+            Transition::Show {
+                keyboard_id,
+                layers,
+            },
+            Some(model),
+        ) => format!(
+            "show keyboard={keyboard_id} layers={layers:?} size={}x{} keys={} encoders={} held={}",
+            model.width,
+            model.height,
+            model.keys.len(),
+            model.encoders.len(),
+            model.keys.iter().filter(|key| key.held).count()
+                + model.encoders.iter().filter(|encoder| encoder.held).count(),
+        ),
+        (Transition::Hide, _) => "hide size=1x1".to_owned(),
+        _ => return,
+    };
+    let result = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| writeln!(file, "{state}"));
+    if let Err(error) = result {
+        log::error!("Failed to record Windows E2E state: {error}");
     }
 }
 
@@ -150,7 +188,7 @@ impl LayerEventSink for WinUiSink {
     }
 }
 
-/// Runs the experimental WinUI frontend without changing the WPF release path.
+/// Runs the Windows frontend.
 pub(crate) fn run() -> Result<()> {
     let arguments = Arguments::parse();
     if let Some(notice) = arguments.notice() {

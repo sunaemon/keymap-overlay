@@ -5,7 +5,6 @@
 # `echo` that exits 0, so every check silently stops running.
 lefthook = "2.1.10"
 rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools", profile = "default" }
-dotnet = "10.0.400"
 python = "3.14.7"
 uv = "0.12.3"
 "pipx:qmk" = "1.2.0"

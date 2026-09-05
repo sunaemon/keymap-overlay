@@ -225,9 +225,8 @@ jobs:
           name: mac-arm64
           use_oidc: true
 
-  # The Windows half: hidapi's own Windows backend behind a narrow Rust DLL,
-  # a WPF-owned window, and a per-user Run key instead of a login agent. Every
-  # Make step runs under Git Bash because platform dispatch uses `uname -s`.
+  # The Windows half: hidapi's native Windows backend, a Rust-owned WinUI
+  # window, and a per-user Run key instead of a login agent.
   #
   # What this job cannot prove is the part that matters most — that showing the
   # overlay never takes focus. No CI runner has a session to test that in, the
@@ -300,9 +299,9 @@ jobs:
             make test-rust
           fi
 
-      # Publishes the self-contained single-file WPF executable, then exercises
-      # simulated runtime events through the dispatcher, model composition,
-      # and native WPF presentation state.
+      # Builds the native Rust executable, then exercises simulated runtime
+      # events through the component sender, model composition, and native
+      # presentation state.
       - name: Run Windows release acceptance
         if: needs.changes.outputs.release-acceptance == 'true'
         run: make test-release-acceptance-windows
@@ -317,10 +316,8 @@ jobs:
           name: windows-x86_64
           use_oidc: true
 
-      # Keep the experimental pure-Rust WinUI frontend compiling without
-      # changing the installed or released WPF implementation.
-      - name: Check the WinUI prototype
-        run: cargo check -p keymap-overlay-winui
+      - name: Check the Windows frontend
+        run: cargo check -p keymap-overlay-windows
 
   # Audits Cargo.lock against the RustSec advisory database. Unlike the other
   # jobs this one can start failing without anything here changing, because the

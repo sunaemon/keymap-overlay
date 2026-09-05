@@ -26,7 +26,7 @@ There are four parts:
    on this path.
 3. **Native overlay** (`overlay/`) that implements the Raw HID protocol,
    native macOS window, Linux D-Bus daemon and
-   Qt client, and Windows bridge.
+   Qt client, and Windows frontend.
 4. **Firmware glue** (`firmware/`) that sends the Raw HID reports.
 
 ## Core Components
@@ -64,7 +64,7 @@ EEPROM. Only the overlay resolves transparency, in memory.
 The generator produces a platform-neutral model from QMK `keyboard.json`;
 encoder positions come from each keyboard's project `config.json`, because QMK
 describes encoder pins but not their physical layout. All three systems
-install JSON and draw the model with AppKit, GNOME Shell, Qt Quick, or WPF. An
+install JSON and draw the model with AppKit, GNOME Shell, Qt Quick, or Win32. An
 encoder placed at a matrix position replaces that push key with one circular
 control showing counter-clockwise, clockwise, and push actions.
 
@@ -79,8 +79,9 @@ control showing counter-clockwise, clockwise, and push actions.
 - `overlay/platforms/linux/daemon`: the Linux HID and D-Bus service executable.
 - `overlay/platforms/linux/protocol`: the typed Linux renderer D-Bus contract
   implemented by the daemon and consumed by both native renderers.
-- `overlay/platforms/windows/bridge`: the audited Windows C ABI boundary. WPF
-  supplies a wake callback and takes the final reduced show/hide transition.
+- `overlay/platforms/windows/win32`: the production Rust Windows executable.
+  It owns the native window and takes the final reduced show/hide transition directly.
+- `overlay/platforms/windows/winui`: the experimental Rust WinUI prototype.
 
 The core library owns protocol and active-layer state semantics. The runtime
 library holds the shared listener, overlay transitions, model composition, and
@@ -89,9 +90,8 @@ executable and integration code:
 
 - `overlay/platforms/macos/appkit`: the native macOS AppKit window and semantic
   JSON renderer.
-- `overlay/platforms/windows/wpf`: the native WPF window. Win32 styles make it
-  transparent, click-through, topmost, and non-activating. A self-contained
-  single-file publish embeds the Rust bridge DLL for automatic extraction.
+- `overlay/platforms/windows/win32`: the native Rust Win32 window. Win32 styles
+  make it transparent, click-through, topmost, and non-activating.
 - `overlay/platforms/linux/daemon`: reduces HID events, loads the final semantic model, and
   publishes renderer state over session D-Bus. The GNOME Shell extension
   consumes it directly; the separate `keymap-overlay-qt` client receives it
@@ -99,13 +99,13 @@ executable and integration code:
   GNOME.
 
 Cargo gates the Rust dependencies per target, the standalone Qt client is built
-only on Linux, the C ABI bridge is kept on Windows, and hidapi uses hidraw on
+only on Linux, and hidapi uses hidraw on
 Linux rather than its default libusb backend. Keep new dependencies on the same
 side of that line as the code using them.
 
 The overlay is event-driven. Delivering an event also wakes the UI thread — an
-AppKit channel on macOS, a QtDBus or Shell signal callback on Linux, or a WPF
-dispatcher callback on Windows, behind the `LayerEventSink` trait — so there is
+AppKit channel on macOS, a QtDBus or Shell signal callback on Linux, or a Win32
+window message on Windows, behind the `LayerEventSink` trait — so there is
 no polling loop and no periodic repaint.
 Do not reintroduce one: this process runs from login to logout, so idle cost
 matters.
@@ -135,7 +135,7 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 
 - **Python**: firmware metadata generation and standalone keymap conversions.
   - `uv`: package manager. `pydantic` provides validation and `typer` the CLIs.
-- **Rust/C++/C#/GJS**: the overlay (AppKit on macOS, WPF on Windows, GNOME
+- **Rust/C++/GJS**: the overlay (AppKit on macOS, Win32 on Windows, GNOME
   Shell or Qt Quick plus KDE LayerShellQt on Linux, and `hidapi`), and the
   native display-model library (`overlay/keymap-overlay-generator`).
 - **Makefile**: orchestrates build, installation, and flashing.
@@ -195,7 +195,7 @@ bootloader and copy the file onto the mounted `RPI-RP2` volume in Explorer.
 make format       # Format everything (ruff, cargo fmt, mbake, prettier, taplo, clang-format)
 make lint         # ruff check, ty, cargo clippy -D warnings
 make test         # pytest
-make test-rust    # cargo test --workspace
+make test-rust    # cargo test --workspace, excluding the experimental WinUI prototype
 make coverage     # Python line/branch coverage plus Rust line coverage
 make coverage-rust # Rust coverage for the current platform
 make test-installer-sh # release installer integration tests with stubbed services
@@ -256,7 +256,7 @@ E2E test). On Windows it runs `test`, the `install.ps1` Pester suite,
 `coverage-rust` on x86_64 or `test-rust` on ARM64, and `build-overlay`; the
 other Windows steps set `shell: bash` so the Makefile runs under Git Bash.
 Each job builds only its own native backend,
-so `ui/appkit.rs` is compiled by the macOS job, WPF and its Rust bridge by the
+so `ui/appkit.rs` is compiled by the macOS job, the Rust Win32 frontend by the
 Windows job, and the D-Bus daemon and Qt renderer by the Linux job. A fourth
 job runs `make audit`.
 
@@ -265,8 +265,7 @@ and tests their archives, but the hardware release gate and lifecycle checklist
 cover only macOS ARM64, Linux x86_64, and Windows x86_64.
 
 Only the Linux job runs the complete lint task. After changing the Windows
-bridge, run clippy against its manifest; after changing WPF, publish the
-self-contained project on Windows. The Windows CI job performs both builds.
+frontend, run clippy against its package. The Windows CI job compiles it.
 
 `make audit` is the only check that can start failing without anything here
 changing, because the RustSec database grows on its own. Advisories that are
@@ -393,8 +392,8 @@ Use one-line `///` XML documentation comments for C# types and public APIs.
 ### Rust
 
 - Application logic crates forbid `unsafe_code` and deny clippy warnings. The
-  audited Windows bridge is the only exception because its exported C ABI uses
-  unsafe attributes.
+  Windows native module is the narrowly reviewed exception because Win32 window
+  subclassing requires unsafe calls.
 - Keep protocol and other pure logic in `keymap-core` where it can be tested
   without hardware. Shared I/O belongs in `keymap-overlay-runtime`; operating
   system integration belongs in the matching platform crate.

@@ -28,7 +28,6 @@ jobs:
         language:
           - actions
           - c-cpp
-          - csharp
           - javascript-typescript
           - python
           - rust

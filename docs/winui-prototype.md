@@ -1,57 +1,41 @@
 # Pure-Rust WinUI Prototype
 
-`keymap-overlay-winui` is an experimental Windows frontend that keeps the HID
+`keymap-overlay-winui` is an experimental Windows frontend. It keeps the HID
 listener, transition reducer, model composition, WinUI visual tree, and Win32
-window integration in Rust. It does not load
-`keymap-overlay-windows-bridge.dll`.
+window integration in Rust through `windows-reactor`.
 
-The release implementation remains `overlay/platforms/windows/wpf`. Neither
-`make build-overlay` nor `make install-overlay` selects this prototype.
+The production implementation is `overlay/platforms/windows/win32`, which uses
+the stable Win32 APIs directly through `windows-rs`. The prototype is not
+selected by normal builds, installation, CI release acceptance, or release
+packaging.
 
 ## Build and run
 
-Use the same MSYS2 UCRT64 shell as the normal Windows build:
+From an architecture-matching Visual Studio developer command prompt:
 
-```bash
-make build-winui-overlay
-target/release/keymap-overlay-winui.exe
+```powershell
+cargo build --release --package keymap-overlay-winui
+target\release\keymap-overlay-winui.exe
 ```
 
-The prototype is framework-dependent and needs Windows App SDK 2.4.0 or newer
-installed. Its build stages the Windows App Runtime bootstrap DLL and
-`resources.pri` beside the executable.
+The prototype is framework-dependent and requires Windows App Runtime 2.4.0 or
+newer. Its build stages the Windows App Runtime bootstrap DLL and `resources.pri`
+beside the executable.
 
-## Why it is not the release frontend yet
+## Why it remains experimental
 
-- Microsoft documents C# and C++ as the supported WinUI 3 projections. The
-  `windows-reactor` and `windows-reactor-setup` crates are now published on
-  crates.io, but this prototype still pins the exact `windows-rs` revision it
-  was developed and validated against.
-- WinUI 3 does not officially support transparent top-level windows. The
-  current Reactor API owns the WinUI window, so the prototype subclasses its
-  HWND into a layered popup that requests transparency, topmost,
-  click-through, and non-activation behavior. This composition needs visual
-  testing around the desktop background, antialiased text, and rounded edges
-  at every DPI used.
-- Text uses WinUI theme resources, but the overlay and key fills are currently
-  fixed light colors. Physical testing confirms that switching Windows to dark
-  mode does not update those fills. Dark-mode styling remains an open issue,
-  and High Contrast still needs separate verification.
-- The host stays hidden while the WinUI tree is laid out. Before every show it is
-  positioned at zero opacity, waits for a DWM composition boundary, and only
-  then becomes visible. Confirm that no white frame appears on either the first
-  or repeated shows.
-- A real desktop must confirm the non-activation contract. Type continuously
-  in an editor, press and release a layer key repeatedly, and confirm the
-  overlay never takes focus, especially from the second show onward.
-- Hot-plug handling receives `WM_DEVICECHANGE` in the Win32 host and forwards
-  it to the Rust listener. Connect a second keyboard while another remains
-  attached and confirm its first layer press is recognized.
+- `windows-reactor` is experimental, and Microsoft officially supports C# and
+  C++ rather than Rust for WinUI 3 projections.
+- WinUI 3 does not officially support transparent top-level windows. Reactor
+  owns the WinUI window, so the prototype subclasses its HWND into a layered
+  popup for transparency, topmost placement, click-through, and non-activation.
+- The host stays hidden while the WinUI tree is laid out. Before every show it
+  is positioned at zero opacity, waits for a DWM composition boundary, and only
+  then becomes visible. A real desktop must verify that no white frame appears.
+- Text uses WinUI theme resources, but the overlay and key fills are fixed light
+  colors. Dark mode and High Contrast require separate validation.
+- A real desktop must verify focus safety, repeated show/hide cycles, DPI-aware
+  placement, click-through, topmost behavior, and Raw HID hot-plug handling.
 
-## Physical test status
-
-The `windows-reactor` second-preview migration changes the native host and
-invalidates the prototype's earlier physical results. Re-run every item above
-on Windows before treating transparency, DPI-aware placement, HID hot-plug,
-repeated-show focus behavior, or theme readability as verified. Dark mode still
-does not affect the fixed overlay and key fills.
+The production backend must stay independent of these risks. Changes here do
+not alter the normal Windows release path.

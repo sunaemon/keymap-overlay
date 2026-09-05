@@ -56,7 +56,7 @@ composition rules, and native window design.
 
 |                | macOS                       | Linux                                   | Windows                       |
 | -------------- | --------------------------- | --------------------------------------- | ----------------------------- |
-| Renderer       | AppKit                      | GNOME Shell or Qt Quick                 | WPF                           |
+| Renderer       | AppKit                      | GNOME Shell or Qt Quick                 | Rust / windows-rs + Win32     |
 | Autostart      | launchd                     | systemd user services + GNOME extension | current-user Run registry key |
 | Raw HID access | Input Monitoring permission | `uaccess` udev rule                     | no additional permission      |
 | Firmware tools | source checkout             | source checkout                         | source checkout in WSL        |
@@ -228,7 +228,9 @@ Windows uses two environments:
 - **PowerShell** installs the released native overlay, which reads layer models
   directly from the connected keyboard.
 
-MSYS2 and Visual Studio Build Tools are needed only for development.
+Visual Studio Build Tools are needed only for source development; Windows App
+Runtime is needed only for the experimental WinUI prototype, and MSYS2 and
+.NET are not used.
 
 Install Windows Terminal first, in an administrator PowerShell:
 
@@ -474,16 +476,20 @@ This shows keyboard 1 layer 2 for two seconds, hides it for one second, and
 repeats until interrupted. Simulation replaces Raw HID input and supplies an
 in-memory test model, so it works without a supported keyboard attached.
 
-### Windows with MSYS2 UCRT64
+### Windows native overlay development
 
-Develop the native Windows overlay in MSYS2 UCRT64, not WSL. In PowerShell:
+Develop the native Windows overlay in PowerShell, not WSL. The frontend is a
+single Rust executable; it uses Cargo directly and has no .NET, WPF, MSYS2, or
+GNU Make dependency. In PowerShell:
 
 ```powershell
-winget install --id MSYS2.MSYS2 -e --source winget
 winget install --id jdx.mise -e --source winget
 winget install --id GitHub.cli -e --source winget
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --includeRecommended"
 ```
+
+The production frontend uses only the Windows APIs exposed by `windows-rs`;
+Windows App Runtime is optional and needed only for the experimental WinUI build.
 
 Open a new terminal after WinGet finishes, then authenticate GitHub CLI for
 pull requests, checks, releases, and artifact attestation verification:
@@ -518,58 +524,39 @@ if (($userPath -split ";") -notcontains $miseBin) {
 
 Open the architecture-matching Visual Studio developer command prompt (`ARM64
 Native Tools Command Prompt for VS 2022` on Windows on Arm, or `x64 Native
-Tools Command Prompt for VS 2022` on x64), then start UCRT64 from it so the
-MSVC linker and Windows SDK environment are inherited:
+Tools Command Prompt for VS 2022` on x64). Then run:
 
-```bat
-C:\msys64\msys2_shell.cmd -defterm -here -no-start -ucrt64 -use-full-path
+```powershell
+git clone https://github.com/sunaemon/keymap-overlay.git
+Set-Location keymap-overlay
+mise install rust
+cargo build --release --package keymap-overlay-windows
+cargo run --release --package keymap-overlay-windows -- --simulate 1:2
+cargo test --workspace
 ```
 
-In UCRT64, `type -a link` must list Visual Studio's architecture-matching
-`link.exe` before MSYS2's `/usr/bin/link`; Rust needs the former.
+The native build follows the host architecture. Confirm it before building:
 
-In that shell:
-
-```bash
-pacman -Syu
-# Reopen the shell if requested, then:
-pacman -Syu
-pacman -S --needed mingw-w64-ucrt-x86_64-git make
-WINDOWS_HOME="$(cygpath -u "$USERPROFILE")"
-cd "$WINDOWS_HOME"
-git -c core.autocrlf=false clone https://github.com/sunaemon/keymap-overlay.git
-cd keymap-overlay
-make setup
-command -v mise
-mise exec -- dotnet --info
-make test
-make test-rust
-make test-release-acceptance-windows
-make install-overlay
+```powershell
+mise exec -- rustc -vV | Select-String '^host:'
 ```
 
-The native build follows the host architecture: x64 produces a `win-x64` WPF
-executable and x64 Rust bridge, while Windows on Arm produces `win-arm64` for
-both. Confirm that Rust and .NET agree before building:
+It must be `x86_64-pc-windows-msvc` on x64 or `aarch64-pc-windows-msvc` on
+Windows on Arm. The Visual Studio install command above includes both x64 and
+ARM64 C++ tools so either build has the MSVC linker and Windows SDK it needs.
 
-```bash
-mise exec -- rustc -vV | grep '^host:'
-mise exec -- dotnet --info | grep 'RID:'
-```
+The release installer remains PowerShell because it downloads and verifies a
+published archive. Source builds run directly from Cargo. At startup, the
+overlay reads every connected self-describing Vial keyboard into memory;
+disconnected keyboards require a restart after they are connected.
 
-The pairs must be `x86_64-pc-windows-msvc` with `win-x64`, or
-`aarch64-pc-windows-msvc` with `win-arm64`. The Visual Studio install command
-above includes both x64 and ARM64 C++ tools so either native build has the MSVC
-linker and Windows SDK it needs.
+For the Windows Rust frontend, use Cargo for the local verification loop:
 
-`make install-overlay` reads every connected self-describing Vial keyboard into
-memory at startup. Disconnected keyboards have no model until the overlay is
-restarted with them connected.
-
-After changing the Windows bridge, also run:
-
-```bash
-cargo clippy --manifest-path overlay/platforms/windows/bridge/Cargo.toml -- -D warnings
+```powershell
+cargo fmt --check
+cargo clippy --package keymap-overlay-windows -- -D warnings
+cargo check --package keymap-overlay-windows
+cargo test --workspace
 ```
 
 ### Verification
@@ -586,7 +573,7 @@ make audit
 make test-installer-sh
 ```
 
-Windows release acceptance runs the `install.ps1` Pester suite and the WPF E2E
+Windows release acceptance runs the `install.ps1` Pester suite and the native E2E
 test, which checks visible, hidden, and visible-again presentation states using
 simulated layer events. Verify manually that the overlay never takes focus:
 type into an editor while repeatedly holding a layer key and confirm every
@@ -602,9 +589,8 @@ GPL-2.0-or-later. The tools and application are MIT licensed. See
 [LICENSE.md](LICENSE.md), [firmware/examples/LICENSE](firmware/examples/LICENSE), and the generated
 [overlay dependency notices](THIRD-PARTY-LICENSES.html).
 
-On macOS and Linux, the installed overlay embeds its MIT license and dependency
-notices, so a binary copied away from its install directory can still state its
-terms: run `keymap-overlay --license` or
-`keymap-overlay --third-party-licenses`. On Windows, the notice files must
-remain beside `keymap-overlay.exe`, and all license files remain in every
-release archive for downstream packaging.
+The installed overlay embeds its MIT license and dependency notices on every
+platform, so a binary copied away from its install directory can still state
+its terms: run `keymap-overlay --license` or
+`keymap-overlay --third-party-licenses`. Release archives also include the
+notice file for downstream packaging.
