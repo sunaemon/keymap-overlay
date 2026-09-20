@@ -10,6 +10,8 @@ use keymap_overlay_runtime::{
 };
 use std::env;
 use std::ffi::OsString;
+#[cfg(test)]
+use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -86,6 +88,18 @@ struct WindowBounds {
     width: i32,
     height: i32,
     scale: f32,
+}
+
+struct EncoderLayout {
+    shape: RectF,
+    counter_clockwise: TextLayout,
+    clockwise: TextLayout,
+    press: TextLayout,
+}
+
+struct TextLayout {
+    rectangle: RectF,
+    text: String,
 }
 
 struct GdiPlusToken(usize);
@@ -448,16 +462,10 @@ unsafe fn draw_model(graphics: *mut GpGraphics, model: &OverlayModel, scale: f32
         "apply monitor scaling",
     )?;
 
-    let (width, height) = window_size(model);
     unsafe {
         draw_rounded_rectangle(
             graphics,
-            RectF {
-                X: 0.5,
-                Y: 0.5,
-                Width: width as f32 - 1.0,
-                Height: height as f32 - 1.0,
-            },
+            overlay_rectangle(model),
             OUTER_CORNER_RADIUS,
             OVERLAY_FILL,
             OVERLAY_BORDER,
@@ -468,29 +476,19 @@ unsafe fn draw_model(graphics: *mut GpGraphics, model: &OverlayModel, scale: f32
         draw_text(
             graphics,
             &format!("L{}", model.layer),
-            RectF {
-                X: WINDOW_EDGE as f32 + HEADER_HORIZONTAL_INSET,
-                Y: WINDOW_EDGE as f32 + HEADER_TOP,
-                Width: model.width as f32 - HEADER_HORIZONTAL_INSET * 2.0,
-                Height: HEADER_HEIGHT,
-            },
+            header_rectangle(model),
             fonts.header,
             StringAlignmentNear,
             fonts.text_brush,
         )?;
     }
     for key in &model.keys {
-        let x = WINDOW_EDGE as f32 + key.x as f32;
-        let y = WINDOW_EDGE as f32 + key.y as f32;
+        let shape = key_shape_rectangle(key);
+        let text = key_text_rectangle(key);
         unsafe {
             draw_rounded_rectangle(
                 graphics,
-                RectF {
-                    X: x + 0.5,
-                    Y: y + 0.5,
-                    Width: key.width as f32 - 1.0,
-                    Height: key.height as f32 - 1.0,
-                },
+                shape,
                 KEY_CORNER_RADIUS,
                 if key.held { HELD_FILL } else { KEY_FILL },
                 KEY_BORDER,
@@ -498,12 +496,7 @@ unsafe fn draw_model(graphics: *mut GpGraphics, model: &OverlayModel, scale: f32
             draw_text(
                 graphics,
                 &key.label.join("\n"),
-                RectF {
-                    X: x,
-                    Y: y,
-                    Width: key.width as f32,
-                    Height: key.height as f32,
-                },
+                text,
                 fonts.key,
                 StringAlignmentCenter,
                 fonts.text_brush,
@@ -736,15 +729,107 @@ unsafe fn create_rounded_path(
     Ok(path)
 }
 
+fn overlay_rectangle(model: &OverlayModel) -> RectF {
+    let (width, height) = window_size(model);
+    RectF {
+        X: 0.5,
+        Y: 0.5,
+        Width: width as f32 - 1.0,
+        Height: height as f32 - 1.0,
+    }
+}
+
+fn header_rectangle(model: &OverlayModel) -> RectF {
+    RectF {
+        X: WINDOW_EDGE as f32 + HEADER_HORIZONTAL_INSET,
+        Y: WINDOW_EDGE as f32 + HEADER_TOP,
+        Width: model.width as f32 - HEADER_HORIZONTAL_INSET * 2.0,
+        Height: HEADER_HEIGHT,
+    }
+}
+
+fn key_shape_rectangle(key: &keymap_overlay_runtime::DisplayKey) -> RectF {
+    let text = key_text_rectangle(key);
+    RectF {
+        X: text.X + 0.5,
+        Y: text.Y + 0.5,
+        Width: text.Width - 1.0,
+        Height: text.Height - 1.0,
+    }
+}
+
+fn key_text_rectangle(key: &keymap_overlay_runtime::DisplayKey) -> RectF {
+    RectF {
+        X: WINDOW_EDGE as f32 + key.x as f32,
+        Y: WINDOW_EDGE as f32 + key.y as f32,
+        Width: key.width as f32,
+        Height: key.height as f32,
+    }
+}
+
+fn encoder_layout(encoder: &keymap_overlay_runtime::DisplayEncoder) -> EncoderLayout {
+    let x = WINDOW_EDGE as f32 + encoder.x as f32;
+    let y = WINDOW_EDGE as f32 + encoder.y as f32;
+    let size = encoder.size as f32;
+    let center_x = x + size / 2.0;
+    let label_width = size * ENCODER_LABEL_WIDTH_RATIO;
+    let label_y = y - ENCODER_LABEL_VERTICAL_OFFSET;
+    EncoderLayout {
+        shape: RectF {
+            X: x + 0.5,
+            Y: y + 0.5,
+            Width: size - 1.0,
+            Height: size - 1.0,
+        },
+        counter_clockwise: TextLayout {
+            rectangle: RectF {
+                X: center_x - label_width - ENCODER_LABEL_GAP / 2.0,
+                Y: label_y,
+                Width: label_width,
+                Height: ENCODER_LABEL_HEIGHT,
+            },
+            text: if encoder.counter_clockwise.is_empty() {
+                String::new()
+            } else {
+                format!("← {}", encoder.counter_clockwise.join(" "))
+            },
+        },
+        clockwise: TextLayout {
+            rectangle: RectF {
+                X: center_x + ENCODER_LABEL_GAP / 2.0,
+                Y: label_y,
+                Width: label_width,
+                Height: ENCODER_LABEL_HEIGHT,
+            },
+            text: if encoder.clockwise.is_empty() {
+                String::new()
+            } else {
+                format!("{} →", encoder.clockwise.join(" "))
+            },
+        },
+        press: TextLayout {
+            rectangle: RectF {
+                X: x,
+                Y: y,
+                Width: size,
+                Height: size,
+            },
+            text: if encoder.press.is_empty() {
+                String::new()
+            } else {
+                format!("P {}", encoder.press)
+            },
+        },
+    }
+}
+
 unsafe fn draw_encoder(
     graphics: *mut GpGraphics,
     encoder: &keymap_overlay_runtime::DisplayEncoder,
     font: *mut GpFont,
     text_brush: *mut GpSolidFill,
 ) -> Result<()> {
-    let x = WINDOW_EDGE as f32 + encoder.x as f32;
-    let y = WINDOW_EDGE as f32 + encoder.y as f32;
-    let size = encoder.size as f32;
+    let layout = encoder_layout(encoder);
     let mut fill = std::ptr::null_mut();
     let mut pen = std::ptr::null_mut();
     let shape_result = (|| {
@@ -763,16 +848,25 @@ unsafe fn draw_encoder(
                 GdipFillEllipse(
                     graphics,
                     fill.cast(),
-                    x + 0.5,
-                    y + 0.5,
-                    size - 1.0,
-                    size - 1.0,
+                    layout.shape.X,
+                    layout.shape.Y,
+                    layout.shape.Width,
+                    layout.shape.Height,
                 )
             },
             "fill an encoder",
         )?;
         check_gdi_plus(
-            unsafe { GdipDrawEllipse(graphics, pen, x + 0.5, y + 0.5, size - 1.0, size - 1.0) },
+            unsafe {
+                GdipDrawEllipse(
+                    graphics,
+                    pen,
+                    layout.shape.X,
+                    layout.shape.Y,
+                    layout.shape.Width,
+                    layout.shape.Height,
+                )
+            },
             "outline an encoder",
         )
     })();
@@ -786,60 +880,27 @@ unsafe fn draw_encoder(
     }
     shape_result?;
 
-    let center_x = x + size / 2.0;
-    let label_width = size * ENCODER_LABEL_WIDTH_RATIO;
-    let label_y = y - ENCODER_LABEL_VERTICAL_OFFSET;
-    let counter_clockwise = if encoder.counter_clockwise.is_empty() {
-        String::new()
-    } else {
-        format!("← {}", encoder.counter_clockwise.join(" "))
-    };
-    let clockwise = if encoder.clockwise.is_empty() {
-        String::new()
-    } else {
-        format!("{} →", encoder.clockwise.join(" "))
-    };
-    let press = if encoder.press.is_empty() {
-        String::new()
-    } else {
-        format!("P {}", encoder.press)
-    };
     unsafe {
         draw_text(
             graphics,
-            &counter_clockwise,
-            RectF {
-                X: center_x - label_width - ENCODER_LABEL_GAP / 2.0,
-                Y: label_y,
-                Width: label_width,
-                Height: ENCODER_LABEL_HEIGHT,
-            },
+            &layout.counter_clockwise.text,
+            layout.counter_clockwise.rectangle,
             font,
             StringAlignmentCenter,
             text_brush,
         )?;
         draw_text(
             graphics,
-            &clockwise,
-            RectF {
-                X: center_x + ENCODER_LABEL_GAP / 2.0,
-                Y: label_y,
-                Width: label_width,
-                Height: ENCODER_LABEL_HEIGHT,
-            },
+            &layout.clockwise.text,
+            layout.clockwise.rectangle,
             font,
             StringAlignmentCenter,
             text_brush,
         )?;
         draw_text(
             graphics,
-            &press,
-            RectF {
-                X: x,
-                Y: y,
-                Width: size,
-                Height: size,
-            },
+            &layout.press.text,
+            layout.press.rectangle,
             font,
             StringAlignmentCenter,
             text_brush,
@@ -892,6 +953,116 @@ unsafe fn draw_text(
         let _ = GdipDeleteStringFormat(format);
     }
     result
+}
+
+#[cfg(test)]
+fn render_scene_snapshot(model: &OverlayModel) -> String {
+    let mut snapshot = String::new();
+    let (width, height) = window_size(model);
+    writeln!(snapshot, "canvas width={width} height={height}").expect("write to string");
+    write_shape_snapshot(
+        &mut snapshot,
+        "round-rect",
+        overlay_rectangle(model),
+        Some(OUTER_CORNER_RADIUS),
+        OVERLAY_FILL,
+        OVERLAY_BORDER,
+    );
+    write_text_snapshot(
+        &mut snapshot,
+        header_rectangle(model),
+        model.header_font_size,
+        "near",
+        &format!("L{}", model.layer),
+    );
+    for key in &model.keys {
+        write_shape_snapshot(
+            &mut snapshot,
+            "round-rect",
+            key_shape_rectangle(key),
+            Some(KEY_CORNER_RADIUS),
+            if key.held { HELD_FILL } else { KEY_FILL },
+            KEY_BORDER,
+        );
+        write_text_snapshot(
+            &mut snapshot,
+            key_text_rectangle(key),
+            model.key_font_size,
+            "center",
+            &key.label.join("\n"),
+        );
+    }
+    for encoder in &model.encoders {
+        let layout = encoder_layout(encoder);
+        write_shape_snapshot(
+            &mut snapshot,
+            "ellipse",
+            layout.shape,
+            None,
+            if encoder.held { HELD_FILL } else { KEY_FILL },
+            KEY_BORDER,
+        );
+        for text in [layout.counter_clockwise, layout.clockwise, layout.press] {
+            if !text.text.is_empty() {
+                write_text_snapshot(
+                    &mut snapshot,
+                    text.rectangle,
+                    model.encoder_font_size,
+                    "center",
+                    &text.text,
+                );
+            }
+        }
+    }
+    snapshot
+}
+
+#[cfg(test)]
+fn write_shape_snapshot(
+    snapshot: &mut String,
+    kind: &str,
+    rectangle: RectF,
+    radius: Option<f32>,
+    fill: u32,
+    border: u32,
+) {
+    write!(snapshot, "{kind} ").expect("write to string");
+    write_rectangle_snapshot(snapshot, rectangle);
+    if let Some(radius) = radius {
+        write!(snapshot, " radius={radius:.2}").expect("write to string");
+    }
+    writeln!(
+        snapshot,
+        " fill=#{fill:08X} border=#{border:08X} width=1.00"
+    )
+    .expect("write to string");
+}
+
+#[cfg(test)]
+fn write_text_snapshot(
+    snapshot: &mut String,
+    rectangle: RectF,
+    font_size: f64,
+    alignment: &str,
+    text: &str,
+) {
+    write!(snapshot, "text ").expect("write to string");
+    write_rectangle_snapshot(snapshot, rectangle);
+    writeln!(
+        snapshot,
+        " font=\"Segoe UI\" size={font_size:.2} align={alignment}/center color=#{TEXT_FILL:08X} value={text:?}"
+    )
+    .expect("write to string");
+}
+
+#[cfg(test)]
+fn write_rectangle_snapshot(snapshot: &mut String, rectangle: RectF) {
+    write!(
+        snapshot,
+        "rect=({:.2},{:.2},{:.2},{:.2})",
+        rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height
+    )
+    .expect("write to string");
 }
 
 fn visible_window_bounds(model: &OverlayModel) -> WindowBounds {
@@ -1085,6 +1256,44 @@ mod tests {
             keys,
             encoders,
         }
+    }
+
+    #[test]
+    fn render_scene_matches_wpf_reference_golden() {
+        let model = OverlayModel {
+            version: 2,
+            layer: 2,
+            width: 260,
+            height: 180,
+            header_font_size: 14.0,
+            key_font_size: 10.0,
+            encoder_font_size: 9.0,
+            keys: vec![
+                DisplayKey {
+                    x: 20,
+                    y: 60,
+                    width: 60,
+                    height: 50,
+                    label: vec!["E2E".to_owned()],
+                    held: true,
+                    transparent: false,
+                    momentary_layer: Some(2),
+                },
+                DisplayKey {
+                    x: 90,
+                    y: 60,
+                    width: 60,
+                    height: 50,
+                    label: vec!["ENTER".to_owned()],
+                    held: false,
+                    transparent: false,
+                    momentary_layer: None,
+                },
+            ],
+            encoders: vec![encoder(180, 90, 50)],
+        };
+        let golden = include_str!("../tests/golden/wpf-reference.scene").replace("\r\n", "\n");
+        assert_eq!(render_scene_snapshot(&model), golden);
     }
 
     #[test]
