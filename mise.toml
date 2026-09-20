@@ -3,10 +3,10 @@
 # lefthook with a plain `mise exec`, which never loads MISE_ENV=dev. Move it
 # there and the hooks fall through to a hardcoded install path, then to an
 # `echo` that exits 0, so every check silently stops running.
-lefthook = "2.1.10"
-rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools", profile = "default" }
+lefthook = "2.1.14"
+rust = { version = "1.98.1", components = "rustfmt,clippy,llvm-tools", profile = "default" }
 python = "3.14.7"
-uv = "0.12.3"
+uv = "0.12.17"
 "pipx:qmk" = "1.2.0"
 
 # Formatting and linting tools live in mise.dev.toml. The format task and the
