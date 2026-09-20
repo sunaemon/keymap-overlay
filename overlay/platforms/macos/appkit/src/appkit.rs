@@ -102,8 +102,7 @@ struct OverlayApp {
     content_host: Retained<NSView>,
     screen_frame: Option<NSRect>,
     e2e_state_file: Option<PathBuf>,
-    e2e_exit_after_shows: Option<u32>,
-    e2e_show_count: u32,
+    e2e_shows_remaining: Option<u32>,
 }
 
 thread_local! {
@@ -152,10 +151,9 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
         content_host,
         screen_frame: current_screen_frame(),
         e2e_state_file: std::env::var_os("KEYMAP_OVERLAY_E2E_STATE_FILE").map(PathBuf::from),
-        e2e_exit_after_shows: std::env::var("KEYMAP_OVERLAY_E2E_EXIT_AFTER_SHOWS")
+        e2e_shows_remaining: std::env::var("KEYMAP_OVERLAY_E2E_EXIT_AFTER_SHOWS")
             .ok()
             .and_then(|value| value.parse().ok()),
-        e2e_show_count: 0,
     };
 
     application.finishLaunching();
@@ -601,9 +599,9 @@ impl OverlayApp {
             frame.size.height,
             self.content_host.subviews().len()
         ));
-        if let Some(exit_after_shows) = self.e2e_exit_after_shows {
-            self.e2e_show_count += 1;
-            if self.e2e_show_count == exit_after_shows
+        if let Some(shows_remaining) = &mut self.e2e_shows_remaining {
+            *shows_remaining = shows_remaining.saturating_sub(1);
+            if *shows_remaining == 0
                 && let Some(mtm) = MainThreadMarker::new()
             {
                 NSApplication::sharedApplication(mtm).terminate(None);
