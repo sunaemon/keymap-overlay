@@ -33,7 +33,7 @@ intercepting clicks.
   - [Enable KDE Plasma, Cinnamon, or another desktop](#kde-plasma-cinnamon-and-other-desktops)
 - [Install on Windows](#install-on-windows)
 - [Update a keymap or the overlay](#everyday-operations)
-- [Use a VIAL keymap](#vial-keymaps)
+- [Use a Vial keymap](#vial-keymaps)
 - [Add your own keyboard](docs/custom-keyboards.md)
 - [Develop keymap-overlay](#development)
 
@@ -54,8 +54,9 @@ definitions and generated layer models are not installed on the host.
 
 If your keyboard already runs compatible firmware, skip directly to the
 released overlay installer for [macOS/Linux](#3-install-the-released-overlay)
-or [Windows](#3-install-the-released-windows-overlay). Linux also needs the
-Raw HID access setup described below.
+or [Windows](#3-install-the-released-windows-overlay). On Linux, first complete
+the source setup to install runtime dependencies and provide the
+`make install-udev-rules` command used below; you can skip flashing.
 
 Connect your keyboards before starting the overlay. Restart it after editing
 a keymap in Vial or connecting a keyboard that was absent at startup. Only
@@ -107,15 +108,18 @@ If the installed firmware cannot enter the bootloader:
 
 ### 1. Prepare the source checkout
 
+On macOS, `make setup` requires Homebrew (`brew`) to install the QMK toolchain.
+
 ```bash
 git clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 curl https://mise.run | sh
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 See [Installing mise](https://mise.jdx.dev/installing-mise.html) for package
-manager alternatives. Start a new shell if `mise` is not yet on `PATH`, then
-install the pinned tools and QMK toolchain:
+manager alternatives and persistent shell setup. Install the pinned tools
+and QMK toolchain:
 
 ```bash
 make setup
@@ -142,9 +146,10 @@ Choose an ID from [Bundled keyboards](#bundled-keyboards):
 make flash KEYBOARD_ID=1
 ```
 
-`make flash` waits for the keyboard bootloader. On Linux, the Makefile mounts
-an rp2040 `RPI-RP2` volume at `/run/media/$USER/RPI-RP2`; set `SUDO=` if the
-desktop already mounts it, or set `UF2_VOLUME_LABEL` for another label.
+`make flash` waits for the keyboard bootloader. On Linux, it reuses a writable
+RP2040 bootloader volume or mounts it at `/run/media/$USER/RPI-RP2` with `sudo`.
+It also cleans up a remaining mount at that path after flashing. Set
+`UF2_VOLUME_LABEL` if your bootloader uses another volume label.
 
 ### 3. Install the released overlay
 
@@ -186,7 +191,8 @@ Grant Raw HID access, then reconnect keyboards that are already plugged in:
 make install-udev-rules
 ```
 
-Restart the overlay after reconnecting so it can read the keyboard's model.
+[Restart the overlay](#restart-the-overlay) after reconnecting so it can read
+the keyboard's model.
 
 The installer provides both Linux renderers. Complete only the subsection for
 your desktop.
@@ -505,6 +511,17 @@ This shows keyboard 1 layer 2 for two seconds, hides it for one second, and
 repeats until interrupted. Simulation replaces Raw HID input and supplies an
 in-memory test model, so it works without a supported keyboard attached.
 
+To export a connected keyboard's live Vial keymap as a display model for
+inspection, clear generated files first so Make performs a fresh device read:
+
+```bash
+make clean
+make draw-layers KEYBOARD_ID=1
+```
+
+This development command writes JSON under `build/<keyboard-id>/assets/`; the installed
+overlay keeps its models in memory and does not read these files.
+
 ### Windows native overlay development
 
 Develop the native Windows overlay in PowerShell, not WSL. The frontend is a
@@ -552,7 +569,14 @@ if (($userPath -split ";") -notcontains $miseBin) {
 
 Open the architecture-matching Visual Studio developer command prompt (`ARM64
 Native Tools Command Prompt for VS 2022` on Windows on Arm, or `x64 Native
-Tools Command Prompt for VS 2022` on x64). Then run:
+Tools Command Prompt for VS 2022` on x64). Start PowerShell from that prompt
+so it inherits the compiler environment:
+
+```cmd
+powershell.exe -NoProfile
+```
+
+Then run these commands in that PowerShell session:
 
 ```powershell
 git clone https://github.com/sunaemon/keymap-overlay.git
