@@ -609,8 +609,8 @@ fn home_directory() -> Option<OsString> {
 ///
 /// Windows sets `USERPROFILE` and not `HOME`, and the overlay runs there as a
 /// native process started from the Run key, so it inherits no shell's idea of
-/// `HOME`. An MSYS2 `HOME` such as `/home/user` is not an absolute Windows
-/// path, so Windows ignores it and uses `USERPROFILE` when both are set.
+/// `HOME`. A non-native `HOME` such as `/home/user` is not an absolute Windows
+/// path, so the runtime ignores it and uses `USERPROFILE` when both are set.
 fn resolve_home_directory(
     home: Option<OsString>,
     user_profile: Option<OsString>,

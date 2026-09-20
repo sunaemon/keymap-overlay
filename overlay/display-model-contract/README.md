@@ -11,5 +11,5 @@ requires a new version and migration coverage in every renderer.
 
 The fixtures cover the base layer, a composed transparent layer, and an encoder.
 The shared base and held-layer fixtures drive the simulated AppKit, GNOME Shell,
-Qt Quick, and WPF E2E paths, so the renderer boundary is exercised with the same
+Qt Quick, and Win32 E2E paths, so the renderer boundary is exercised with the same
 models validated here.

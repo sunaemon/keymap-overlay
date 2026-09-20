@@ -162,8 +162,8 @@ neither keyboard definitions nor model caches.
 
 Make dispatches macOS/Linux behavior from `OS_FAMILY`, derived from `uname -s`.
 Windows uses `tools/windows.ps1` directly; do not add a Windows Make branch or
-reintroduce MSYS2. The PowerShell source-install workflow stops the running
-process before replacing its locked executable.
+another shell compatibility layer. The PowerShell source-install workflow stops
+the running process before replacing its locked executable.
 
 ### Firmware Development
 
@@ -206,7 +206,7 @@ make licenses     # regenerate release third-party license notices
 On Windows use the corresponding `tools/windows.ps1 -Task <task>` commands.
 The Windows entry point covers setup, formatting, linting, Python and Rust
 tests, Rust coverage, build/run, release acceptance, source installation, and
-uninstallation without MSYS2 or GNU Make.
+uninstallation through native PowerShell rather than GNU Make.
 
 The installed hooks own the common local verification gates. When publishing a
 change, do not run `make format`, `make lint`, `make test`, or `make test-rust`

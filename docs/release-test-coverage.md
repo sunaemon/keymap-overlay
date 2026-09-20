@@ -26,7 +26,7 @@ their required hardware evidence.
 - Linux D-Bus-to-Qt E2E uses `--simulate`, proves show/hide/show state and
   held-key metadata, and compares one offscreen software-rendered image. It
   does not run under KDE, LayerShellQt, Wayland, X11, or a real display scale.
-- macOS AppKit and Windows WPF E2E use `--simulate` and prove that native view
+- macOS AppKit and Windows Win32 E2E use `--simulate` and prove that native view
   state transitions visible → hidden → visible again. They bypass physical HID
   and Vial startup reads and do not prove focus, topmost, or click-through
   behavior on an interactive desktop.
@@ -57,7 +57,7 @@ their required hardware evidence.
 | Platform `*-02` held-layer precedence  | Unit tests, macOS HIL, and Linux virtual Vial integration cover nested ordering and restoration                              | End-to-end release-renderer scenarios remain on GNOME and Windows                                 | Multi-report E2E scenarios using release binaries on those frontends                                      |
 | Platform `*-03` Vial edit and restart  | Decoders have unit tests; macOS HIL edits real Vial EEPROM and asserts the changed model after process restart               | The equivalent real-device restart sequence remains on Linux and Windows                          | Stateful virtual Vial device changed between real process starts; HIL persistence remains in `GLOBAL-02`  |
 | Platform `*-04` window safety          | macOS HIL covers all assertions; KDE HIL covers AT-SPI labels, non-focusability, and retained focus                          | Pointer pass-through and window order on KDE; complete interactive coverage on GNOME and Windows  | Authorized Wayland pointer injection, active-window assertions, and screen capture                        |
-| Platform `*-05` geometry and labels    | Generator unit tests cover geometry, platform labels, custom labels, and transparency; Qt has one golden image               | Candidate firmware metadata and live Vial state render correctly on every frontend                | Virtual Vial fixtures plus golden/semantic assertions for AppKit, GNOME, Qt, and WPF                      |
+| Platform `*-05` geometry and labels    | Generator unit tests cover geometry, platform labels, custom labels, and transparency; Qt has one golden image               | Candidate firmware metadata and live Vial state render correctly on every frontend                | Virtual Vial fixtures plus golden/semantic assertions for AppKit, GNOME, Qt, and Win32                    |
 | Platform `*-06` displays and scaling   | One fixed-scale Qt offscreen golden image                                                                                    | Real compositor placement, DPI, multi-monitor, Wayland layer role, and X11 behavior               | Nested/virtual desktops with multiple displays and scale factors, plus geometry and screenshot assertions |
 | Platform `*-07` typing and identity    | Compile-time ID validation and metadata tests                                                                                | Real USB identity and unchanged keyboard input on each host                                       | HIL keyboard plus host typing/input capture on every platform                                             |
 | Platform `*-08` physical `MO` events   | Linux virtual Vial covers deterministic KMO sequences and its guided HIL captures every physical pair; macOS has both proofs | Equivalent switch report proof plus release-renderer scenarios remain on Windows                  | Virtual Vial+KMO E2E on Windows, plus HIL firmware report verification                                    |
@@ -81,7 +81,7 @@ manual work:
    embedded metadata, dynamic layers, and nested KMO reports; the remaining
    work can cover `*-03`, `*-05`, `*-09`, and both specialized coverage rows.
 2. Reuse deterministic encoder-, transparency-, nested-layer-, and
-   multi-keyboard fixtures in AppKit, Qt, and WPF E2E. Add a nested GNOME Shell
+   multi-keyboard fixtures in AppKit, Qt, and Win32 E2E. Add a nested GNOME Shell
    test for the extension. This can retire frontend-content portions of
    platform checks `*-02` and `*-05`, plus encoder and simultaneous-keyboard
    coverage.

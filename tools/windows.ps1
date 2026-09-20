@@ -176,7 +176,7 @@ function Test-WindowsOverlay {
     Build-Overlay
     Invoke-NativeCommand 'powershell.exe' @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-        'overlay/platforms/windows/tests/test_wpf_e2e.ps1'
+        'overlay/platforms/windows/tests/test_win32_e2e.ps1'
     )
 }
 

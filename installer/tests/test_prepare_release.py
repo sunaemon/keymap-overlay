@@ -318,7 +318,7 @@ def complete_gate() -> str:
 | macos-arm64-appkit | arm64 | macOS 15.6 | AppKit / Aqua | Insixty | 1 | stable firmware |
 | linux-x86_64-kde-wayland | x86_64 | Fedora 42 | KDE Plasma 6 / Wayland | DOIO KB16 | 2 | stable firmware |
 | linux-x86_64-gnome-wayland | x86_64 | Ubuntu 26.04 | GNOME 49 / Wayland | Insixty | 1 | stable firmware |
-| windows-x86_64-wpf | x86_64 | Windows 11 24H2 | WPF / desktop | Insixty, DOIO KB16 | 1, 2 | stable firmware |
+| windows-x86_64-win32 | x86_64 | Windows 11 24H2 | Win32 / desktop | Insixty, DOIO KB16 | 1, 2 | stable firmware |
 
 ### Keyboard coverage
 
@@ -326,7 +326,7 @@ def complete_gate() -> str:
 | ----------- | ----------- | ---------------- | -------------- | ------ |
 | bundled-keyboards | Insixty, DOIO KB16 | 1, 2 | macos-arm64-appkit, linux-x86_64-kde-wayland | PASS |
 | encoder-keyboard | DOIO KB16 | 2 | linux-x86_64-kde-wayland | PASS |
-| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-wpf | PASS |
+| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-win32 | PASS |
 
 {check_sections}
 ### Lifecycle results
@@ -335,7 +335,7 @@ def complete_gate() -> str:
 | ----------- | ------- | -------- | --------- | -------- |
 | macos-arm64-appkit | PASS | PASS | PASS | local acceptance log |
 | linux-x86_64 | PASS | PASS | PASS | local acceptance log |
-| windows-x86_64-wpf | PASS | PASS | PASS | local acceptance log |
+| windows-x86_64-win32 | PASS | PASS | PASS | local acceptance log |
 """
 
 

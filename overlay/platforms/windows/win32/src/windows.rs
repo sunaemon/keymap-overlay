@@ -1259,7 +1259,7 @@ mod tests {
     }
 
     #[test]
-    fn render_scene_matches_wpf_reference_golden() {
+    fn render_scene_matches_win32_reference_golden() {
         let model = OverlayModel {
             version: 2,
             layer: 2,
@@ -1292,7 +1292,7 @@ mod tests {
             ],
             encoders: vec![encoder(180, 90, 50)],
         };
-        let golden = include_str!("../tests/golden/wpf-reference.scene").replace("\r\n", "\n");
+        let golden = include_str!("../tests/golden/win32-reference.scene").replace("\r\n", "\n");
         assert_eq!(render_scene_snapshot(&model), golden);
     }
 

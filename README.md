@@ -228,9 +228,8 @@ Windows uses two environments:
 - **PowerShell** installs the released native overlay, which reads layer models
   directly from the connected keyboard.
 
-Visual Studio Build Tools are needed only for source development; Windows App
-Runtime is needed only for the experimental WinUI prototype, and MSYS2 and
-.NET are not used.
+Visual Studio Build Tools are needed only for source development. Windows App
+Runtime is needed only for the experimental WinUI prototype.
 
 Install Windows Terminal first, in an administrator PowerShell:
 
@@ -479,8 +478,7 @@ in-memory test model, so it works without a supported keyboard attached.
 ### Windows native overlay development
 
 Develop the native Windows overlay in PowerShell, not WSL. The frontend is a
-single Rust executable; it uses Cargo directly and has no .NET, WPF, MSYS2, or
-GNU Make dependency. In PowerShell:
+single Rust executable built directly with Cargo. In PowerShell:
 
 ```powershell
 winget install --id jdx.mise -e --source winget

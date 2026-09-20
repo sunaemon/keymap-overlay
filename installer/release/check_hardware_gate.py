@@ -26,13 +26,13 @@ EXPECTED_PLATFORM_IDS = (
     "macos-arm64-appkit",
     "linux-x86_64-kde-wayland",
     "linux-x86_64-gnome-wayland",
-    "windows-x86_64-wpf",
+    "windows-x86_64-win32",
 )
 PLATFORM_ARCHITECTURES = {
     "macos-arm64-appkit": "arm64",
     "linux-x86_64-kde-wayland": "x86_64",
     "linux-x86_64-gnome-wayland": "x86_64",
-    "windows-x86_64-wpf": "x86_64",
+    "windows-x86_64-win32": "x86_64",
 }
 EXPECTED_GLOBAL_CHECK_IDS = ("GLOBAL-01", "GLOBAL-02")
 EXPECTED_CHECK_SECTIONS = {
@@ -47,7 +47,9 @@ EXPECTED_CHECK_SECTIONS = {
     "linux-x86_64-gnome-wayland checks": tuple(
         f"GNOME-{number:02d}" for number in (1, 4, 5, 6, 10)
     ),
-    "windows-x86_64-wpf checks": tuple(f"WIN-{number:02d}" for number in range(1, 11)),
+    "windows-x86_64-win32 checks": tuple(
+        f"WIN-{number:02d}" for number in range(1, 11)
+    ),
 }
 EXPECTED_CHECK_IDS = tuple(
     check_id for check_ids in EXPECTED_CHECK_SECTIONS.values() for check_id in check_ids
@@ -60,7 +62,7 @@ EXPECTED_COVERAGE_IDS = (
 EXPECTED_LIFECYCLE_IDS = (
     "macos-arm64-appkit",
     "linux-x86_64",
-    "windows-x86_64-wpf",
+    "windows-x86_64-win32",
 )
 CONDITIONAL_CHECK_IDS = frozenset(EXPECTED_GLOBAL_CHECK_IDS)
 FIRMWARE_EVIDENCE_PATHS = frozenset({"Makefile"})

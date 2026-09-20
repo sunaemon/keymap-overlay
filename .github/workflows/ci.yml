@@ -225,7 +225,7 @@ jobs:
           name: mac-arm64
           use_oidc: true
 
-  # The Windows half: hidapi's native Windows backend, a Rust-owned WinUI
+  # The Windows half: hidapi's native Windows backend, a Rust-owned Win32
   # window, and a per-user Run key instead of a login agent.
   #
   # What this job cannot prove is the part that matters most — that showing the

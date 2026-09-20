@@ -95,12 +95,12 @@ def test_blank_and_incomplete_platform_rows_are_rejected() -> None:
 def test_platform_architecture_must_match_the_release_target() -> None:
     """A platform row cannot substitute CI or another CPU architecture."""
     evidence = complete_gate().replace(
-        "| windows-x86_64-wpf | x86_64 |",
-        "| windows-x86_64-wpf | arm64 |",
+        "| windows-x86_64-win32 | x86_64 |",
+        "| windows-x86_64-win32 | arm64 |",
     )
 
     with pytest.raises(
-        HardwareGateError, match="windows-x86_64-wpf architecture must be x86_64"
+        HardwareGateError, match="windows-x86_64-win32 architecture must be x86_64"
     ):
         validate_hardware_gate(evidence, HEAD_SHA, frozenset())
 
@@ -122,7 +122,7 @@ def test_missing_platform_and_keyboard_coverage_rows_are_rejected() -> None:
             "",
         )
         .replace(
-            "| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-wpf | PASS |\n",
+            "| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-win32 | PASS |\n",
             "",
         )
     )
@@ -160,7 +160,7 @@ def test_keyboard_coverage_must_include_bundled_and_encoder_ids() -> None:
 def test_coverage_must_match_the_assigned_platform_rows() -> None:
     """Coverage cannot claim keyboards absent from its named platform runs."""
     evidence = complete_gate().replace(
-        "| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-wpf | PASS |",
+        "| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-win32 | PASS |",
         "| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | macos-arm64-appkit | PASS |",
     )
 
@@ -270,17 +270,17 @@ def test_missing_bundled_keyboard_config_is_rejected(tmp_path: Path) -> None:
 def test_lifecycle_rows_require_explicit_results_and_evidence() -> None:
     """Each platform needs upgrade, rollback, uninstall, and evidence results."""
     evidence = complete_gate().replace(
-        "| windows-x86_64-wpf | PASS | PASS | PASS | local acceptance log |",
-        "| windows-x86_64-wpf | PENDING | PASS | PENDING | Pending |",
+        "| windows-x86_64-win32 | PASS | PASS | PASS | local acceptance log |",
+        "| windows-x86_64-win32 | PENDING | PASS | PENDING | Pending |",
     )
 
     with pytest.raises(HardwareGateError) as error:
         validate_hardware_gate(evidence, HEAD_SHA, frozenset())
 
     message = str(error.value)
-    assert "windows-x86_64-wpf upgrade result must be PASS" in message
-    assert "windows-x86_64-wpf uninstall result must be PASS" in message
-    assert "windows-x86_64-wpf has no lifecycle evidence" in message
+    assert "windows-x86_64-win32 upgrade result must be PASS" in message
+    assert "windows-x86_64-win32 uninstall result must be PASS" in message
+    assert "windows-x86_64-win32 has no lifecycle evidence" in message
 
 
 def test_non_release_pull_request_skips_gate(tmp_path: Path) -> None:
@@ -407,10 +407,10 @@ def complete_gate(*, candidate: str = HEAD_SHA) -> str:
                 "v0.0.7 firmware",
             ),
             platform_row(
-                "windows-x86_64-wpf",
+                "windows-x86_64-win32",
                 "x86_64",
                 "Windows 11 24H2",
-                "WPF / desktop",
+                "Win32 / desktop",
                 "Insixty, DOIO KB16",
                 "1, 2",
                 "v0.0.7 firmware",
@@ -433,7 +433,7 @@ Candidate commit: `{candidate}`
 | ----------- | ----------- | ---------------- | -------------- | ------ |
 | bundled-keyboards | Insixty, DOIO KB16 | 1, 2 | macos-arm64-appkit, linux-x86_64-kde-wayland | PASS |
 | encoder-keyboard | DOIO KB16 | 2 | linux-x86_64-kde-wayland | PASS |
-| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-wpf | PASS |
+| simultaneous-keyboards | Insixty, DOIO KB16 | 1, 2 | windows-x86_64-win32 | PASS |
 
 {platform_check_sections}
 ### Lifecycle results
@@ -442,7 +442,7 @@ Candidate commit: `{candidate}`
 | ----------- | ------- | -------- | --------- | -------- |
 | macos-arm64-appkit | PASS | PASS | PASS | local acceptance log |
 | linux-x86_64 | PASS | PASS | PASS | local acceptance log |
-| windows-x86_64-wpf | PASS | PASS | PASS | local acceptance log |
+| windows-x86_64-win32 | PASS | PASS | PASS | local acceptance log |
 """
 
 
