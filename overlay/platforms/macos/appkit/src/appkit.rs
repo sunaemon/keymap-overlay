@@ -599,13 +599,15 @@ impl OverlayApp {
             frame.size.height,
             self.content_host.subviews().len()
         ));
-        if let Some(shows_remaining) = &mut self.e2e_shows_remaining {
-            *shows_remaining = shows_remaining.saturating_sub(1);
-            if *shows_remaining == 0
-                && let Some(mtm) = MainThreadMarker::new()
-            {
-                NSApplication::sharedApplication(mtm).terminate(None);
-            }
+        let should_exit = self
+            .e2e_shows_remaining
+            .as_mut()
+            .is_some_and(|shows_remaining| {
+                *shows_remaining = shows_remaining.saturating_sub(1);
+                *shows_remaining == 0
+            });
+        if should_exit && let Some(mtm) = MainThreadMarker::new() {
+            NSApplication::sharedApplication(mtm).terminate(None);
         }
     }
 
