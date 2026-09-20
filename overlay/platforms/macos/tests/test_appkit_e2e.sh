@@ -50,6 +50,22 @@ wait_for_state() {
   fail "timed out waiting for $description"
 }
 
+wait_for_exit() {
+  description=$1
+  attempts=0
+  while kill -0 "$OVERLAY_PID" 2>/dev/null; do
+    if [ "$attempts" -ge 100 ]; then
+      fail "timed out waiting for overlay to exit after $description"
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.05
+  done
+  if ! wait "$OVERLAY_PID"; then
+    fail "overlay exited unsuccessfully after $description"
+  fi
+  OVERLAY_PID=''
+}
+
 run_case() {
   name=$1
   force_visual_effect=$2
@@ -70,8 +86,7 @@ run_case() {
   wait_for_state 'the next simulated press to attach the layer again' \
     'show keyboard=1 layers=[2] size=160x120 subviews=1 native_subviews=5' 2
 
-  wait "$OVERLAY_PID"
-  OVERLAY_PID=''
+  wait_for_exit "processing the $name AppKit state transitions"
 }
 
 run_case native 0
