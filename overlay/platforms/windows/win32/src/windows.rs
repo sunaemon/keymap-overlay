@@ -2,7 +2,7 @@
 
 //! Production Windows frontend using the stable Win32 API through windows-rs.
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use keymap_overlay_runtime::{
     Arguments, LayerEvent, LayerEventSink, LogDestination, ModelCache, OverlayModel, Parser as _,
     PendingTransition, Transition, compose_model, default_log_file, initialize_logging,
@@ -14,19 +14,39 @@ use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CreateSolidBrush, DRAW_TEXT_FORMAT, DeleteObject, DrawTextW, Ellipse, EndPaint,
-    FillRect, InvalidateRect, PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION,
+    CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC,
+    GetMonitorInfoW, HBITMAP, HDC, HGDIOBJ, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    MonitorFromPoint, ReleaseDC, SelectObject,
+};
+use windows::Win32::Graphics::GdiPlus::{
+    CompositingModeSourceCopy, CompositingModeSourceOver, FillModeAlternate, FontStyleRegular,
+    GdipAddPathArc, GdipAddPathLine, GdipClosePathFigure, GdipCreateFont,
+    GdipCreateFontFamilyFromName, GdipCreateFromHDC, GdipCreatePath, GdipCreatePen1,
+    GdipCreateSolidFill, GdipCreateStringFormat, GdipDeleteBrush, GdipDeleteFont,
+    GdipDeleteFontFamily, GdipDeleteGraphics, GdipDeletePath, GdipDeletePen,
+    GdipDeleteStringFormat, GdipDrawEllipse, GdipDrawPath, GdipDrawString, GdipFillEllipse,
+    GdipFillPath, GdipGraphicsClear, GdipScaleWorldTransform, GdipSetCompositingMode,
+    GdipSetSmoothingMode, GdipSetStringFormatAlign, GdipSetStringFormatLineAlign,
+    GdipSetTextRenderingHint, GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpFont,
+    GpFontFamily, GpGraphics, GpPath, GpSolidFill, GpStringFormat, MatrixOrderPrepend,
+    Ok as GDI_PLUS_OK, RectF, SmoothingModeAntiAlias8x8, StringAlignmentCenter,
+    StringAlignmentNear, TextRenderingHintAntiAliasGridFit, UnitPixel,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, MDT_EFFECTIVE_DPI,
+    SetProcessDpiAwarenessContext,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
-    DispatchMessageW, GWLP_USERDATA, GetMessageW, GetWindowLongPtrW, HMENU, HWND_TOPMOST,
-    IDC_ARROW, LoadCursorW, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SW_HIDE,
-    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, TranslateMessage, WM_APP, WM_CREATE, WM_DESTROY, WM_DEVICECHANGE, WM_PAINT,
-    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
+    CREATESTRUCTW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DispatchMessageW, GWLP_USERDATA,
+    GetCursorPos, GetMessageW, GetWindowLongPtrW, HMENU, HWND_TOPMOST, IDC_ARROW, LoadCursorW, MSG,
+    PostMessageW, PostQuitMessage, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, ULW_ALPHA, UpdateLayeredWindow,
+    WM_APP, WM_CREATE, WM_DESTROY, WM_DEVICECHANGE, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -34,21 +54,66 @@ const WINDOW_CLASS: PCWSTR = w!("KeymapOverlayWindow");
 const WINDOW_TITLE: PCWSTR = w!("Keymap Overlay");
 const WM_OVERLAY_TRANSITION: u32 = WM_APP + 1;
 const DBT_DEVNODES_CHANGED: usize = 0x0007;
-const COLOR_KEY: COLORREF = COLORREF(0x00FF00FF);
 const WINDOW_EDGE: i32 = 1;
-/// Vertical room an encoder's counter-clockwise and clockwise labels need
-/// above and below its circle.
-const ENCODER_LABEL_MARGIN: i32 = 30;
-const DT_CENTER: u32 = 0x0001;
-const DT_CALCRECT: u32 = 0x0400;
+const OUTER_CORNER_RADIUS: f32 = 16.0;
+const KEY_CORNER_RADIUS: f32 = 11.0;
+const HEADER_HORIZONTAL_INSET: f32 = 20.0;
+const HEADER_TOP: f32 = 14.0;
+const HEADER_HEIGHT: f32 = 30.0;
+const ENCODER_LABEL_WIDTH_RATIO: f32 = 0.7;
+const ENCODER_LABEL_GAP: f32 = 3.0;
+const ENCODER_LABEL_VERTICAL_OFFSET: f32 = 30.0;
+const ENCODER_LABEL_HEIGHT: f32 = 26.0;
+const OVERLAY_FILL: u32 = 0xE8D8E0EA;
+const OVERLAY_BORDER: u32 = 0x70606773;
+const KEY_FILL: u32 = 0xE0F1F4F8;
+const HELD_FILL: u32 = 0xFFFFDDDD;
+const KEY_BORDER: u32 = 0x6020242C;
+const TEXT_FILL: u32 = 0xFF20242C;
 
 static LISTENER: OnceLock<keymap_overlay_runtime::LayerEventSourceHandle> = OnceLock::new();
 
 struct State {
     models: Arc<ModelCache>,
     pending: Arc<Mutex<PendingTransition>>,
-    current: Mutex<Option<OverlayModel>>,
     window: AtomicIsize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct WindowBounds {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    scale: f32,
+}
+
+struct GdiPlusToken(usize);
+
+impl Drop for GdiPlusToken {
+    fn drop(&mut self) {
+        unsafe { GdiplusShutdown(self.0) };
+    }
+}
+
+struct RenderSurface {
+    screen: HDC,
+    memory: HDC,
+    bitmap: HBITMAP,
+    previous_bitmap: HGDIOBJ,
+    graphics: *mut GpGraphics,
+}
+
+impl Drop for RenderSurface {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = GdipDeleteGraphics(self.graphics);
+            let _ = SelectObject(self.memory, self.previous_bitmap);
+            let _ = DeleteObject(self.bitmap.into());
+            let _ = DeleteDC(self.memory);
+            let _ = ReleaseDC(None, self.screen);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -91,13 +156,18 @@ pub(crate) fn run() -> Result<()> {
         .map(LogDestination::File)
         .unwrap_or(LogDestination::File(default_log_file()?));
     initialize_logging(destination)?;
+    if let Err(error) =
+        unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) }
+    {
+        log::debug!("Windows DPI awareness was already configured: {error}");
+    }
+    let _gdi_plus = start_gdi_plus()?;
     let startup = startup_models(simulated)?;
     let models = Arc::new(startup.models);
     let pending = Arc::new(Mutex::new(PendingTransition::default()));
     let state = Box::new(State {
         models: Arc::clone(&models),
         pending: Arc::clone(&pending),
-        current: Mutex::new(None),
         window: AtomicIsize::new(0),
     });
     let window = create_window(Box::into_raw(state))?;
@@ -117,6 +187,17 @@ pub(crate) fn run() -> Result<()> {
     message_loop()
 }
 
+fn start_gdi_plus() -> Result<GdiPlusToken> {
+    let input = GdiplusStartupInput {
+        GdiplusVersion: 1,
+        ..Default::default()
+    };
+    let mut token = 0;
+    let status = unsafe { GdiplusStartup(&mut token, &input, std::ptr::null_mut()) };
+    check_gdi_plus(status, "start GDI+")?;
+    Ok(GdiPlusToken(token))
+}
+
 fn create_window(state: *mut State) -> Result<HWND> {
     unsafe {
         let instance = GetModuleHandleW(None)?;
@@ -124,13 +205,12 @@ fn create_window(state: *mut State) -> Result<HWND> {
             hCursor: LoadCursorW(None, IDC_ARROW)?,
             hInstance: instance.into(),
             lpszClassName: WINDOW_CLASS,
-            style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(window_proc),
             ..Default::default()
         };
         RegisterClassW(&class);
         let window = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
+            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT,
             WINDOW_CLASS,
             WINDOW_TITLE,
             WS_POPUP,
@@ -142,12 +222,6 @@ fn create_window(state: *mut State) -> Result<HWND> {
             Some(HMENU::default()),
             Some(instance.into()),
             Some(state.cast()),
-        )?;
-        SetLayeredWindowAttributes(
-            window,
-            COLOR_KEY,
-            255,
-            windows::Win32::UI::WindowsAndMessaging::LWA_COLORKEY,
         )?;
         let _ = ShowWindow(window, SW_HIDE);
         Ok(window)
@@ -188,10 +262,6 @@ unsafe extern "system" fn window_proc(
         unsafe { apply_transition(window) };
         return LRESULT(0);
     }
-    if message == WM_PAINT {
-        unsafe { paint(window) };
-        return LRESULT(0);
-    }
     if message == WM_DEVICECHANGE
         && parameter.0 == DBT_DEVNODES_CHANGED
         && let Some(listener) = LISTENER.get()
@@ -220,35 +290,681 @@ unsafe fn apply_transition(window: HWND) {
         Transition::Ignore => unreachable!("handled before changing the window"),
     };
     write_e2e_state(&transition, model.as_ref());
-    let (width, height) = model.as_ref().map(window_size).unwrap_or((1, 1));
-    *state
-        .current
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = model;
+    if let Some(model) = model {
+        if let Err(error) = unsafe { present_model(window, &model) } {
+            log::error!("Failed to render the Windows overlay: {error:#}");
+            unsafe { hide_window(window) };
+        }
+    } else {
+        unsafe { hide_window(window) };
+    }
+}
+
+unsafe fn hide_window(window: HWND) {
     unsafe {
-        let _ = SetWindowPos(
+        let _ = SetWindowPos(window, Some(HWND_TOPMOST), 0, 0, 1, 1, SWP_NOACTIVATE);
+        let _ = ShowWindow(window, SW_HIDE);
+    }
+}
+
+unsafe fn present_model(window: HWND, model: &OverlayModel) -> Result<()> {
+    let bounds = visible_window_bounds(model);
+    let surface = unsafe { RenderSurface::new(bounds.width, bounds.height)? };
+    unsafe { draw_model(surface.graphics, model, bounds.scale)? };
+
+    let destination = POINT {
+        x: bounds.x,
+        y: bounds.y,
+    };
+    let size = SIZE {
+        cx: bounds.width,
+        cy: bounds.height,
+    };
+    let source = POINT::default();
+    let blend = BLENDFUNCTION {
+        BlendOp: AC_SRC_OVER as u8,
+        BlendFlags: 0,
+        SourceConstantAlpha: 255,
+        AlphaFormat: AC_SRC_ALPHA as u8,
+    };
+    unsafe {
+        UpdateLayeredWindow(
+            window,
+            Some(surface.screen),
+            Some(&destination),
+            Some(&size),
+            Some(surface.memory),
+            Some(&source),
+            COLORREF(0),
+            Some(&blend),
+            ULW_ALPHA,
+        )?;
+        SetWindowPos(
             window,
             Some(HWND_TOPMOST),
-            0,
-            0,
-            width,
-            height,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height,
             SWP_NOACTIVATE,
-        );
-    };
-    unsafe {
-        let _ = InvalidateRect(Some(window), None, true);
-    };
-    unsafe {
-        let _ = ShowWindow(
-            window,
-            if width == 1 {
-                SW_HIDE
-            } else {
-                SW_SHOWNOACTIVATE
+        )?;
+        let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
+    }
+    Ok(())
+}
+
+impl RenderSurface {
+    unsafe fn new(width: i32, height: i32) -> Result<Self> {
+        let screen = unsafe { GetDC(None) };
+        if screen.0.is_null() {
+            return Err(anyhow!("GetDC returned a null display context"));
+        }
+        let memory = unsafe { CreateCompatibleDC(Some(screen)) };
+        if memory.0.is_null() {
+            unsafe {
+                let _ = ReleaseDC(None, screen);
+            }
+            return Err(anyhow!(
+                "CreateCompatibleDC returned a null display context"
+            ));
+        }
+        let bitmap_info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
             },
-        );
+            ..Default::default()
+        };
+        let mut pixels = std::ptr::null_mut();
+        let bitmap = match unsafe {
+            CreateDIBSection(
+                Some(screen),
+                &bitmap_info,
+                DIB_RGB_COLORS,
+                &mut pixels,
+                None,
+                0,
+            )
+        } {
+            Ok(bitmap) => bitmap,
+            Err(error) => {
+                unsafe {
+                    let _ = DeleteDC(memory);
+                    let _ = ReleaseDC(None, screen);
+                }
+                return Err(error.into());
+            }
+        };
+        let previous_bitmap = unsafe { SelectObject(memory, bitmap.into()) };
+        let mut graphics = std::ptr::null_mut();
+        let status = unsafe { GdipCreateFromHDC(memory, &mut graphics) };
+        if status != GDI_PLUS_OK {
+            unsafe {
+                let _ = SelectObject(memory, previous_bitmap);
+                let _ = DeleteObject(bitmap.into());
+                let _ = DeleteDC(memory);
+                let _ = ReleaseDC(None, screen);
+            }
+            return Err(gdi_plus_error(status, "create a GDI+ graphics context"));
+        }
+        Ok(Self {
+            screen,
+            memory,
+            bitmap,
+            previous_bitmap,
+            graphics,
+        })
+    }
+}
+
+unsafe fn draw_model(graphics: *mut GpGraphics, model: &OverlayModel, scale: f32) -> Result<()> {
+    check_gdi_plus(
+        unsafe { GdipSetCompositingMode(graphics, CompositingModeSourceCopy) },
+        "configure transparent compositing",
+    )?;
+    check_gdi_plus(
+        unsafe { GdipGraphicsClear(graphics, 0) },
+        "clear the overlay surface",
+    )?;
+    check_gdi_plus(
+        unsafe { GdipSetCompositingMode(graphics, CompositingModeSourceOver) },
+        "configure source-over compositing",
+    )?;
+    check_gdi_plus(
+        unsafe { GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias8x8) },
+        "enable antialiasing",
+    )?;
+    check_gdi_plus(
+        unsafe { GdipSetTextRenderingHint(graphics, TextRenderingHintAntiAliasGridFit) },
+        "enable text antialiasing",
+    )?;
+    check_gdi_plus(
+        unsafe { GdipScaleWorldTransform(graphics, scale, scale, MatrixOrderPrepend) },
+        "apply monitor scaling",
+    )?;
+
+    let (width, height) = window_size(model);
+    unsafe {
+        draw_rounded_rectangle(
+            graphics,
+            RectF {
+                X: 0.5,
+                Y: 0.5,
+                Width: width as f32 - 1.0,
+                Height: height as f32 - 1.0,
+            },
+            OUTER_CORNER_RADIUS,
+            OVERLAY_FILL,
+            OVERLAY_BORDER,
+        )?;
+    }
+    let fonts = unsafe { FontResources::new(model)? };
+    unsafe {
+        draw_text(
+            graphics,
+            &format!("L{}", model.layer),
+            RectF {
+                X: WINDOW_EDGE as f32 + HEADER_HORIZONTAL_INSET,
+                Y: WINDOW_EDGE as f32 + HEADER_TOP,
+                Width: model.width as f32 - HEADER_HORIZONTAL_INSET * 2.0,
+                Height: HEADER_HEIGHT,
+            },
+            fonts.header,
+            StringAlignmentNear,
+            fonts.text_brush,
+        )?;
+    }
+    for key in &model.keys {
+        let x = WINDOW_EDGE as f32 + key.x as f32;
+        let y = WINDOW_EDGE as f32 + key.y as f32;
+        unsafe {
+            draw_rounded_rectangle(
+                graphics,
+                RectF {
+                    X: x + 0.5,
+                    Y: y + 0.5,
+                    Width: key.width as f32 - 1.0,
+                    Height: key.height as f32 - 1.0,
+                },
+                KEY_CORNER_RADIUS,
+                if key.held { HELD_FILL } else { KEY_FILL },
+                KEY_BORDER,
+            )?;
+            draw_text(
+                graphics,
+                &key.label.join("\n"),
+                RectF {
+                    X: x,
+                    Y: y,
+                    Width: key.width as f32,
+                    Height: key.height as f32,
+                },
+                fonts.key,
+                StringAlignmentCenter,
+                fonts.text_brush,
+            )?;
+        }
+    }
+    for encoder in &model.encoders {
+        unsafe { draw_encoder(graphics, encoder, fonts.encoder, fonts.text_brush)? };
+    }
+    Ok(())
+}
+
+struct FontResources {
+    family: *mut GpFontFamily,
+    header: *mut GpFont,
+    key: *mut GpFont,
+    encoder: *mut GpFont,
+    text_brush: *mut GpSolidFill,
+}
+
+impl FontResources {
+    unsafe fn new(model: &OverlayModel) -> Result<Self> {
+        let family_name: Vec<u16> = "Segoe UI".encode_utf16().chain(Some(0)).collect();
+        let mut family = std::ptr::null_mut();
+        check_gdi_plus(
+            unsafe {
+                GdipCreateFontFamilyFromName(
+                    PCWSTR(family_name.as_ptr()),
+                    std::ptr::null_mut(),
+                    &mut family,
+                )
+            },
+            "load Segoe UI",
+        )?;
+        let mut fonts = Self {
+            family,
+            header: std::ptr::null_mut(),
+            key: std::ptr::null_mut(),
+            encoder: std::ptr::null_mut(),
+            text_brush: std::ptr::null_mut(),
+        };
+        unsafe { fonts.initialize(model) }?;
+        Ok(fonts)
+    }
+
+    unsafe fn initialize(&mut self, model: &OverlayModel) -> Result<()> {
+        check_gdi_plus(
+            unsafe {
+                GdipCreateFont(
+                    self.family,
+                    model.header_font_size as f32,
+                    FontStyleRegular.0,
+                    UnitPixel,
+                    &mut self.header,
+                )
+            },
+            "create the header font",
+        )?;
+        check_gdi_plus(
+            unsafe {
+                GdipCreateFont(
+                    self.family,
+                    model.key_font_size as f32,
+                    FontStyleRegular.0,
+                    UnitPixel,
+                    &mut self.key,
+                )
+            },
+            "create the key font",
+        )?;
+        check_gdi_plus(
+            unsafe {
+                GdipCreateFont(
+                    self.family,
+                    model.encoder_font_size as f32,
+                    FontStyleRegular.0,
+                    UnitPixel,
+                    &mut self.encoder,
+                )
+            },
+            "create the encoder font",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipCreateSolidFill(TEXT_FILL, &mut self.text_brush) },
+            "create the text brush",
+        )
+    }
+}
+
+impl Drop for FontResources {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.text_brush.is_null() {
+                let _ = GdipDeleteBrush(self.text_brush.cast());
+            }
+            if !self.encoder.is_null() {
+                let _ = GdipDeleteFont(self.encoder);
+            }
+            if !self.key.is_null() {
+                let _ = GdipDeleteFont(self.key);
+            }
+            if !self.header.is_null() {
+                let _ = GdipDeleteFont(self.header);
+            }
+            if !self.family.is_null() {
+                let _ = GdipDeleteFontFamily(self.family);
+            }
+        }
+    }
+}
+
+unsafe fn draw_rounded_rectangle(
+    graphics: *mut GpGraphics,
+    rectangle: RectF,
+    radius: f32,
+    fill: u32,
+    border: u32,
+) -> Result<()> {
+    let path = unsafe {
+        create_rounded_path(
+            rectangle.X,
+            rectangle.Y,
+            rectangle.Width,
+            rectangle.Height,
+            radius,
+        )?
     };
+    let mut brush = std::ptr::null_mut();
+    let mut pen = std::ptr::null_mut();
+    let result = (|| {
+        check_gdi_plus(
+            unsafe { GdipCreateSolidFill(fill, &mut brush) },
+            "create a shape brush",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipCreatePen1(border, 1.0, UnitPixel, &mut pen) },
+            "create a shape pen",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipFillPath(graphics, brush.cast(), path) },
+            "fill a rounded rectangle",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipDrawPath(graphics, pen, path) },
+            "outline a rounded rectangle",
+        )
+    })();
+    unsafe {
+        if !pen.is_null() {
+            let _ = GdipDeletePen(pen);
+        }
+        if !brush.is_null() {
+            let _ = GdipDeleteBrush(brush.cast());
+        }
+        let _ = GdipDeletePath(path);
+    }
+    result
+}
+
+unsafe fn create_rounded_path(
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radius: f32,
+) -> Result<*mut GpPath> {
+    let radius = radius.min(width / 2.0).min(height / 2.0).max(0.0);
+    let diameter = radius * 2.0;
+    let right = x + width;
+    let bottom = y + height;
+    let mut path = std::ptr::null_mut();
+    check_gdi_plus(
+        unsafe { GdipCreatePath(FillModeAlternate, &mut path) },
+        "create a rounded rectangle path",
+    )?;
+    let result = (|| {
+        check_gdi_plus(
+            unsafe { GdipAddPathLine(path, x + radius, y, right - radius, y) },
+            "draw a rounded rectangle edge",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipAddPathArc(path, right - diameter, y, diameter, diameter, 270.0, 90.0) },
+            "draw a rounded rectangle corner",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipAddPathLine(path, right, y + radius, right, bottom - radius) },
+            "draw a rounded rectangle edge",
+        )?;
+        check_gdi_plus(
+            unsafe {
+                GdipAddPathArc(
+                    path,
+                    right - diameter,
+                    bottom - diameter,
+                    diameter,
+                    diameter,
+                    0.0,
+                    90.0,
+                )
+            },
+            "draw a rounded rectangle corner",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipAddPathLine(path, right - radius, bottom, x + radius, bottom) },
+            "draw a rounded rectangle edge",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipAddPathArc(path, x, bottom - diameter, diameter, diameter, 90.0, 90.0) },
+            "draw a rounded rectangle corner",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipAddPathLine(path, x, bottom - radius, x, y + radius) },
+            "draw a rounded rectangle edge",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipAddPathArc(path, x, y, diameter, diameter, 180.0, 90.0) },
+            "draw a rounded rectangle corner",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipClosePathFigure(path) },
+            "close a rounded rectangle path",
+        )
+    })();
+    if let Err(error) = result {
+        unsafe {
+            let _ = GdipDeletePath(path);
+        }
+        return Err(error);
+    }
+    Ok(path)
+}
+
+unsafe fn draw_encoder(
+    graphics: *mut GpGraphics,
+    encoder: &keymap_overlay_runtime::DisplayEncoder,
+    font: *mut GpFont,
+    text_brush: *mut GpSolidFill,
+) -> Result<()> {
+    let x = WINDOW_EDGE as f32 + encoder.x as f32;
+    let y = WINDOW_EDGE as f32 + encoder.y as f32;
+    let size = encoder.size as f32;
+    let mut fill = std::ptr::null_mut();
+    let mut pen = std::ptr::null_mut();
+    let shape_result = (|| {
+        check_gdi_plus(
+            unsafe {
+                GdipCreateSolidFill(if encoder.held { HELD_FILL } else { KEY_FILL }, &mut fill)
+            },
+            "create an encoder brush",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipCreatePen1(KEY_BORDER, 1.0, UnitPixel, &mut pen) },
+            "create an encoder pen",
+        )?;
+        check_gdi_plus(
+            unsafe {
+                GdipFillEllipse(
+                    graphics,
+                    fill.cast(),
+                    x + 0.5,
+                    y + 0.5,
+                    size - 1.0,
+                    size - 1.0,
+                )
+            },
+            "fill an encoder",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipDrawEllipse(graphics, pen, x + 0.5, y + 0.5, size - 1.0, size - 1.0) },
+            "outline an encoder",
+        )
+    })();
+    unsafe {
+        if !pen.is_null() {
+            let _ = GdipDeletePen(pen);
+        }
+        if !fill.is_null() {
+            let _ = GdipDeleteBrush(fill.cast());
+        }
+    }
+    shape_result?;
+
+    let center_x = x + size / 2.0;
+    let label_width = size * ENCODER_LABEL_WIDTH_RATIO;
+    let label_y = y - ENCODER_LABEL_VERTICAL_OFFSET;
+    let counter_clockwise = if encoder.counter_clockwise.is_empty() {
+        String::new()
+    } else {
+        format!("← {}", encoder.counter_clockwise.join(" "))
+    };
+    let clockwise = if encoder.clockwise.is_empty() {
+        String::new()
+    } else {
+        format!("{} →", encoder.clockwise.join(" "))
+    };
+    let press = if encoder.press.is_empty() {
+        String::new()
+    } else {
+        format!("P {}", encoder.press)
+    };
+    unsafe {
+        draw_text(
+            graphics,
+            &counter_clockwise,
+            RectF {
+                X: center_x - label_width - ENCODER_LABEL_GAP / 2.0,
+                Y: label_y,
+                Width: label_width,
+                Height: ENCODER_LABEL_HEIGHT,
+            },
+            font,
+            StringAlignmentCenter,
+            text_brush,
+        )?;
+        draw_text(
+            graphics,
+            &clockwise,
+            RectF {
+                X: center_x + ENCODER_LABEL_GAP / 2.0,
+                Y: label_y,
+                Width: label_width,
+                Height: ENCODER_LABEL_HEIGHT,
+            },
+            font,
+            StringAlignmentCenter,
+            text_brush,
+        )?;
+        draw_text(
+            graphics,
+            &press,
+            RectF {
+                X: x,
+                Y: y,
+                Width: size,
+                Height: size,
+            },
+            font,
+            StringAlignmentCenter,
+            text_brush,
+        )
+    }
+}
+
+unsafe fn draw_text(
+    graphics: *mut GpGraphics,
+    text: &str,
+    rectangle: RectF,
+    font: *mut GpFont,
+    alignment: windows::Win32::Graphics::GdiPlus::StringAlignment,
+    brush: *mut GpSolidFill,
+) -> Result<()> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+    let mut format: *mut GpStringFormat = std::ptr::null_mut();
+    check_gdi_plus(
+        unsafe { GdipCreateStringFormat(0, 0, &mut format) },
+        "create a text format",
+    )?;
+    let result = (|| {
+        check_gdi_plus(
+            unsafe { GdipSetStringFormatAlign(format, alignment) },
+            "align text horizontally",
+        )?;
+        check_gdi_plus(
+            unsafe { GdipSetStringFormatLineAlign(format, StringAlignmentCenter) },
+            "align text vertically",
+        )?;
+        check_gdi_plus(
+            unsafe {
+                GdipDrawString(
+                    graphics,
+                    PCWSTR(wide.as_ptr()),
+                    -1,
+                    font,
+                    &rectangle,
+                    format,
+                    brush.cast(),
+                )
+            },
+            "draw text",
+        )
+    })();
+    unsafe {
+        let _ = GdipDeleteStringFormat(format);
+    }
+    result
+}
+
+fn visible_window_bounds(model: &OverlayModel) -> WindowBounds {
+    let (logical_width, logical_height) = window_size(model);
+    let mut cursor = POINT::default();
+    if unsafe { GetCursorPos(&mut cursor) }.is_err() {
+        return WindowBounds {
+            x: 0,
+            y: 0,
+            width: logical_width,
+            height: logical_height,
+            scale: 1.0,
+        };
+    }
+    let monitor = unsafe { MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST) };
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if !unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        return WindowBounds {
+            x: 0,
+            y: 0,
+            width: logical_width,
+            height: logical_height,
+            scale: 1.0,
+        };
+    }
+    let mut dpi_x = 96;
+    let mut dpi_y = 96;
+    let scale = if unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) }
+        .is_ok()
+    {
+        dpi_x as f32 / 96.0
+    } else {
+        1.0
+    };
+    centered_window_bounds(info.rcWork, logical_width, logical_height, scale)
+}
+
+fn centered_window_bounds(
+    work_area: RECT,
+    logical_width: i32,
+    logical_height: i32,
+    scale: f32,
+) -> WindowBounds {
+    let width = (logical_width as f32 * scale).round() as i32;
+    let height = (logical_height as f32 * scale).round() as i32;
+    WindowBounds {
+        x: work_area.left + (work_area.right - work_area.left - width) / 2,
+        y: work_area.top + (work_area.bottom - work_area.top - height) / 2,
+        width,
+        height,
+        scale,
+    }
+}
+
+fn check_gdi_plus(
+    status: windows::Win32::Graphics::GdiPlus::Status,
+    action: &'static str,
+) -> Result<()> {
+    if status == GDI_PLUS_OK {
+        Ok(())
+    } else {
+        Err(gdi_plus_error(status, action))
+    }
+}
+
+fn gdi_plus_error(
+    status: windows::Win32::Graphics::GdiPlus::Status,
+    action: &'static str,
+) -> anyhow::Error {
+    anyhow!("GDI+ could not {action} (status {})", status.0)
 }
 
 /// Records native presentation transitions for the Windows E2E harness.
@@ -303,167 +1019,12 @@ fn write_e2e_state_to(
     }
 }
 
-unsafe fn paint(window: HWND) {
-    let mut paint = PAINTSTRUCT::default();
-    let context = unsafe { BeginPaint(window, &mut paint) };
-    let background = unsafe { CreateSolidBrush(COLOR_KEY) };
-    unsafe { FillRect(context, &paint.rcPaint, background) };
-    let state = unsafe { state_from_window(window) };
-    if let Some(model) = state
-        .current
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_ref()
-    {
-        let vertical_offset = if model.encoders.is_empty() {
-            0
-        } else {
-            ENCODER_LABEL_MARGIN
-        };
-        for key in &model.keys {
-            let colour = if key.held {
-                COLORREF(0x00DDDDFF)
-            } else {
-                COLORREF(0x00F4F1E0)
-            };
-            let brush = unsafe { CreateSolidBrush(colour) };
-            let rect = RECT {
-                left: key.x as i32 + WINDOW_EDGE,
-                top: key.y as i32 + WINDOW_EDGE + vertical_offset,
-                right: (key.x + key.width) as i32 + WINDOW_EDGE,
-                bottom: (key.y + key.height) as i32 + WINDOW_EDGE + vertical_offset,
-            };
-            unsafe { FillRect(context, &rect, brush) };
-            unsafe {
-                let _ = DeleteObject(brush.into());
-            };
-            unsafe {
-                draw_text(
-                    context,
-                    &key.label.join("\n"),
-                    rect.left,
-                    rect.top,
-                    rect.right,
-                    rect.bottom,
-                );
-            }
-        }
-        for encoder in &model.encoders {
-            let colour = if encoder.held {
-                COLORREF(0x00DDDDFF)
-            } else {
-                COLORREF(0x00F4F1E0)
-            };
-            let brush = unsafe { CreateSolidBrush(colour) };
-            let rect = RECT {
-                left: encoder.x as i32 + WINDOW_EDGE,
-                top: encoder.y as i32 + WINDOW_EDGE + vertical_offset,
-                right: (encoder.x + encoder.size) as i32 + WINDOW_EDGE,
-                bottom: (encoder.y + encoder.size) as i32 + WINDOW_EDGE + vertical_offset,
-            };
-            let previous_brush = unsafe { SelectObject(context, brush.into()) };
-            unsafe {
-                let _ = Ellipse(context, rect.left, rect.top, rect.right, rect.bottom);
-            };
-            unsafe { SelectObject(context, previous_brush) };
-            unsafe {
-                let _ = DeleteObject(brush.into());
-            };
-            unsafe {
-                draw_text(
-                    context,
-                    &encoder.counter_clockwise.join("\n"),
-                    rect.left,
-                    rect.top - ENCODER_LABEL_MARGIN,
-                    rect.right,
-                    rect.top,
-                );
-                draw_text(
-                    context,
-                    &encoder.clockwise.join("\n"),
-                    rect.left,
-                    rect.bottom,
-                    rect.right,
-                    rect.bottom + ENCODER_LABEL_MARGIN,
-                );
-                draw_text(
-                    context,
-                    &encoder.press,
-                    rect.left,
-                    rect.top,
-                    rect.right,
-                    rect.bottom,
-                );
-            }
-        }
-    }
-    unsafe {
-        let _ = DeleteObject(background.into());
-    };
-    unsafe {
-        let _ = EndPaint(window, &paint);
-    };
-}
-
-/// Returns the popup dimensions, including the transparent one-pixel edge
-/// and, when the model has encoders, the vertical margin their
-/// counter-clockwise and clockwise labels need above and below the canvas.
+/// Returns the popup dimensions, including the one-pixel overlay border.
 fn window_size(model: &OverlayModel) -> (i32, i32) {
-    let vertical_margin = if model.encoders.is_empty() {
-        0
-    } else {
-        ENCODER_LABEL_MARGIN * 2
-    };
     (
         model.width as i32 + WINDOW_EDGE * 2,
-        model.height as i32 + WINDOW_EDGE * 2 + vertical_margin,
+        model.height as i32 + WINDOW_EDGE * 2,
     )
-}
-
-/// Draws a centered, multiline label in a GDI rectangle.
-///
-/// `DT_VCENTER` only centers single-line text, so multiline labels are
-/// centered manually: a `DT_CALCRECT` pass measures the wrapped text, then
-/// the real draw starts at the vertically centered offset.
-unsafe fn draw_text(
-    context: windows::Win32::Graphics::Gdi::HDC,
-    text: &str,
-    left: i32,
-    top: i32,
-    right: i32,
-    bottom: i32,
-) {
-    let mut wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-    let mut measured = RECT {
-        left,
-        top,
-        right,
-        bottom: top,
-    };
-    unsafe {
-        DrawTextW(
-            context,
-            &mut wide,
-            &mut measured,
-            DRAW_TEXT_FORMAT(DT_CENTER | DT_CALCRECT),
-        )
-    };
-    let mut rect = RECT {
-        left,
-        top: centered_top(top, bottom, measured.bottom - measured.top),
-        right,
-        bottom,
-    };
-    unsafe { SetBkMode(context, TRANSPARENT) };
-    unsafe { SetTextColor(context, COLORREF(0x00202020)) };
-    unsafe { DrawTextW(context, &mut wide, &mut rect, DRAW_TEXT_FORMAT(DT_CENTER)) };
-}
-
-/// Vertical offset from `top` that centers `text_height` pixels of text
-/// within `[top, bottom)`, without moving text taller than the space.
-fn centered_top(top: i32, bottom: i32, text_height: i32) -> i32 {
-    let available = (bottom - top).max(0);
-    top + (available - text_height).max(0) / 2
 }
 
 unsafe fn state_from_window(window: HWND) -> &'static State {
@@ -533,30 +1094,34 @@ mod tests {
     }
 
     #[test]
-    fn window_size_reserves_margin_for_encoder_direction_labels() {
+    fn window_size_keeps_encoder_labels_inside_model_canvas() {
         let model = model(180, 140, vec![], vec![encoder(50, 60, 50)]);
-        assert_eq!(
-            window_size(&model),
-            (
-                180 + WINDOW_EDGE * 2,
-                140 + WINDOW_EDGE * 2 + ENCODER_LABEL_MARGIN * 2,
-            )
+        assert_eq!(window_size(&model), (182, 142));
+    }
+
+    #[test]
+    fn centered_window_bounds_scale_and_center_on_monitor_work_area() {
+        let bounds = centered_window_bounds(
+            RECT {
+                left: 1920,
+                top: 0,
+                right: 4480,
+                bottom: 1400,
+            },
+            182,
+            142,
+            1.5,
         );
-    }
-
-    #[test]
-    fn centered_top_centers_shorter_text_in_the_available_space() {
-        assert_eq!(centered_top(0, 40, 20), 10);
-    }
-
-    #[test]
-    fn centered_top_does_not_move_text_that_exactly_fills_the_space() {
-        assert_eq!(centered_top(0, 40, 40), 0);
-    }
-
-    #[test]
-    fn centered_top_never_returns_a_negative_offset_for_oversized_text() {
-        assert_eq!(centered_top(0, 10, 40), 0);
+        assert_eq!(
+            bounds,
+            WindowBounds {
+                x: 3063,
+                y: 593,
+                width: 273,
+                height: 213,
+                scale: 1.5,
+            }
+        );
     }
 
     #[test]
