@@ -5,8 +5,10 @@ edition = "2024"
 license.workspace = true
 repository.workspace = true
 
-# This is an experimental pure-Rust WinUI 3 frontend. The WPF frontend remains
-# the release implementation until this has passed the physical focus test.
+# Experimental WinUI frontend. The released backend lives in ../win32.
+[[bin]]
+name = "keymap-overlay-winui"
+path = "src/main.rs"
 [target.'cfg(target_os = "windows")'.dependencies]
 anyhow = "1.0"
 keymap-overlay-runtime = { path = "../../../keymap-overlay-runtime" }

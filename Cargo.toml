@@ -6,8 +6,8 @@ members = [
   "overlay/platforms/macos/appkit",
   "overlay/platforms/linux/daemon",
   "overlay/platforms/linux/protocol",
-  "overlay/platforms/windows/bridge",
   "overlay/platforms/windows/winui",
+  "overlay/platforms/windows/win32",
   "tools/keymap-overlay-hil",
 ]
 resolver = "2"

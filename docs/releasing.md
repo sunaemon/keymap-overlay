@@ -29,10 +29,11 @@ Releases are beta until the project explicitly declares 1.0 stability.
    `make test-release-acceptance-linux` does the same with both Linux E2E
    halves.
 
-   On Windows PowerShell, also run this before creating the release tag:
+   On Windows PowerShell, run the native release-acceptance workflow before
+   creating the release tag:
 
    ```powershell
-   Invoke-Pester -Path installer/tests/install.Tests.ps1 -CI
+   .\tools\windows.ps1 -Task test-release-acceptance
    ```
 
 3. Open a release preparation PR with

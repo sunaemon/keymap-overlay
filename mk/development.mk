@@ -14,19 +14,11 @@ generate-contracts:
 .PHONY: setup
 setup:
 	@$(MAKE) _setup_toolchain_$(OS_FAMILY)
-ifneq ($(OS_FAMILY),windows)
 	@$(MAKE) setup-firmware
-endif
 	$(MISE) trust
-ifeq ($(OS_FAMILY),windows)
-	# Assets are generated in WSL. Installing just Rust and lefthook keeps the
-	# native Windows setup independent of QMK and Python tooling.
-	$(MISE) install rust dotnet lefthook
-else
 # The dev tools come too: the git hooks installed below run format and lint.
 	$(MISE_DEV) install
 	$(UV) sync
-endif
 	@$(MAKE) install-hooks
 
 # Resolve nested dependencies from the configured processors. Unknown
@@ -34,9 +26,6 @@ endif
 # safer than guessing and leaving a newly added keyboard unable to compile.
 .PHONY: setup-firmware
 setup-firmware:
-ifeq ($(OS_FAMILY),windows)
-	$(error setup-firmware $(WINDOWS_FIRMWARE_ERROR))
-endif
 	git submodule update --init --checkout --depth 1 "$(QMK_HOME)"
 	@submodules="$$( $(UV) run python -m firmware.tools.resolve_qmk_submodules "$(KEYBOARDS_DIR)" )" || exit 1; \
 	case "$$submodules" in \
@@ -77,26 +66,6 @@ _setup_toolchain_linux:
 		echo "LayerShellQt by hand, then run the rest of 'make setup'."; \
 		exit 1; \
 	fi
-
-# There is no QMK toolchain to install here: firmware is built elsewhere (see
-# the note this prints). What this does check is the two things every other
-# Windows target assumes — cygpath, to hand native paths to native programs,
-# and powershell, which writes the current user's login Run key.
-.PHONY: _setup_toolchain_windows
-_setup_toolchain_windows:
-	@missing=""; \
-	for tool in cygpath powershell; do \
-		command -v "$$tool" >/dev/null || missing="$$missing $$tool"; \
-	done; \
-	if [ -n "$$missing" ]; then \
-		echo "ERROR: missing required command(s):$$missing"; \
-		echo "Run 'make setup' from an MSYS2 UCRT64 shell on Windows, with"; \
-		echo "the Windows PowerShell directory on PATH."; \
-		exit 1; \
-	fi
-	@echo "NOTE: firmware and QMK source processing do not run in this shell."
-	@echo "      Use WSL, macOS or Linux for 'make compile', 'make flash', and"
-	@echo "      other QMK-backed targets; native Raw HID targets run here."
 
 .PHONY: doctor
 doctor:

@@ -244,7 +244,7 @@ pub fn write_notice(text: &str) -> Result<()> {
 /// The listener runs on its own thread while the platform backend owns the main
 /// one, so delivering an event also has to wake whatever loop that backend
 /// runs. Each does it differently — an AppKit channel, a Linux D-Bus service,
-/// or a WPF dispatcher callback — and this is the seam between them.
+/// or a Windows component sender — and this is the seam between them.
 ///
 /// Cloneable because each device gets its own reader thread.
 pub trait LayerEventSink: Clone + Send {

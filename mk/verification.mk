@@ -35,7 +35,7 @@ check-contracts:
 
 .PHONY: test-rust
 test-rust: check-contracts
-	$(CARGO) test --workspace
+	$(CARGO) test --workspace --exclude keymap-overlay-winui
 
 # Linux's release go/no-go gate. The installer test covers upgrade rollback;
 # the two E2E halves meet at the typed D-Bus contract the project owns.
@@ -48,18 +48,7 @@ test-release-acceptance-linux: test-installer-sh test-hid-to-dbus-e2e-linux test
 test-release-acceptance-macos: test-installer-sh test-appkit-e2e-macos
 
 # Windows's release go/no-go gate. The installer test covers upgrade rollback;
-# the simulated E2E test covers the native WPF presentation path.
-.PHONY: test-release-acceptance-windows
-test-release-acceptance-windows: test-installer-ps test-wpf-e2e-windows
-
-.PHONY: test-wpf-e2e-windows
-test-wpf-e2e-windows: build-overlay
-ifeq ($(OS_FAMILY),windows)
-	powershell -NoProfile -ExecutionPolicy Bypass -File overlay/platforms/windows/tests/test_wpf_e2e.ps1
-else
-	$(error test-wpf-e2e-windows is only available on Windows)
-endif
-
+# the simulated E2E test covers the native Rust presentation path.
 .PHONY: test-appkit-e2e-macos
 test-appkit-e2e-macos: build-overlay
 ifeq ($(OS_FAMILY),macos)
@@ -212,7 +201,7 @@ coverage-python:
 # from Linux, macOS, and Windows so Codecov can merge the native backends.
 .PHONY: coverage-rust
 coverage-rust:
-	$(CARGO_LLVM_COV) --workspace --all-targets --no-report
+	$(CARGO_LLVM_COV) --workspace --exclude keymap-overlay-winui --all-targets --no-report
 ifeq ($(OS_FAMILY),linux)
 	@if [ -r /dev/uhid ] && [ -w /dev/uhid ]; then \
 		$(MAKE) coverage-rust-hid-to-dbus-e2e-linux; \

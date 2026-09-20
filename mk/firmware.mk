@@ -14,9 +14,6 @@ endif
 
 .PHONY: compile
 compile:
-ifeq ($(OS_FAMILY),windows)
-	$(error compile $(WINDOWS_FIRMWARE_ERROR))
-endif
 ifdef KEYBOARD_ID
 	@$(MAKE) _copy_firmware
 	$(QMK) compile -kb $(QMK_KEYBOARD) -km $(QMK_KEYMAP) $(QMK_FLAGS)
@@ -26,9 +23,6 @@ endif
 
 .PHONY: flash
 flash:
-ifeq ($(OS_FAMILY),windows)
-	$(error flash $(WINDOWS_FIRMWARE_ERROR))
-endif
 ifndef KEYBOARD_ID
 	$(error KEYBOARD_ID is required for flash)
 endif

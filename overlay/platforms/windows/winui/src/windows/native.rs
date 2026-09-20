@@ -1,4 +1,4 @@
-//! Audited Win32 boundary for the experimental WinUI overlay window.
+//! Audited Win32 boundary for the Rust overlay window.
 
 use keymap_overlay_runtime::{LayerEventSourceHandle, PendingTransition, Transition};
 use std::cell::Cell;
@@ -21,7 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows_core::HRESULT;
 use windows_reactor::{LocalSender, WindowSize};
 
-pub(super) const WINDOW_TITLE: &str = "Keymap Overlay WinUI Prototype";
+pub(super) const WINDOW_TITLE: &str = "Keymap Overlay";
 
 const DBT_DEVNODES_CHANGED: usize = 0x0007;
 const WM_OVERLAY_TRANSITION: u32 = WM_APP + 1;
@@ -54,7 +54,7 @@ pub(super) fn configure_window(
     let window = unsafe {
         FindWindowW(
             windows::core::PCWSTR::null(),
-            windows::core::w!("Keymap Overlay WinUI Prototype"),
+            windows::core::w!("Keymap Overlay"),
         )
     }
     .map_err(map_windows_error)?;

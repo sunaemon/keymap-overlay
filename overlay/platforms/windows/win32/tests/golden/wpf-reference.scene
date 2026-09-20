@@ -1,0 +1,11 @@
+canvas width=262 height=182
+round-rect rect=(0.50,0.50,261.00,181.00) radius=16.00 fill=#E8D8E0EA border=#70606773 width=1.00
+text rect=(21.00,15.00,220.00,30.00) font="Segoe UI" size=14.00 align=near/center color=#FF20242C value="L2"
+round-rect rect=(21.50,61.50,59.00,49.00) radius=11.00 fill=#FFFFDDDD border=#6020242C width=1.00
+text rect=(21.00,61.00,60.00,50.00) font="Segoe UI" size=10.00 align=center/center color=#FF20242C value="E2E"
+round-rect rect=(91.50,61.50,59.00,49.00) radius=11.00 fill=#E0F1F4F8 border=#6020242C width=1.00
+text rect=(91.00,61.00,60.00,50.00) font="Segoe UI" size=10.00 align=center/center color=#FF20242C value="ENTER"
+ellipse rect=(181.50,91.50,49.00,49.00) fill=#E0F1F4F8 border=#6020242C width=1.00
+text rect=(169.50,61.00,35.00,26.00) font="Segoe UI" size=9.00 align=center/center color=#FF20242C value="← VOL DOWN"
+text rect=(207.50,61.00,35.00,26.00) font="Segoe UI" size=9.00 align=center/center color=#FF20242C value="VOL UP →"
+text rect=(181.00,91.00,50.00,50.00) font="Segoe UI" size=9.00 align=center/center color=#FF20242C value="P MUTE"

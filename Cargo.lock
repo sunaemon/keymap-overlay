@@ -841,13 +841,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "keymap-overlay-windows-bridge"
+name = "keymap-overlay-windows"
 version = "0.0.8"
 dependencies = [
  "anyhow",
  "keymap-overlay-runtime",
- "serde",
- "serde_json",
+ "log",
+ "tempfile",
+ "windows",
 ]
 
 [[package]]

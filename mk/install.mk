@@ -3,9 +3,6 @@
 .PHONY: install-overlay
 install-overlay: build-overlay
 	@mkdir -p "$(KEYMAP_OVERLAY_BIN_DIR)" "$(KEYMAP_OVERLAY_LOG_DIR)"
-# Windows holds an open executable locked, so the running overlay has to go
-# before its binary can be replaced. The other two systems replace the file
-# underneath the running process and stop it as part of installing the service.
 	@$(MAKE) _stop_service_$(OS_FAMILY)
 	install -C "$(OVERLAY_BUILD_BINARY)" "$(KEYMAP_OVERLAY_BINARY)"
 	@$(MAKE) _install_renderer_$(OS_FAMILY)
@@ -23,10 +20,6 @@ _stop_service_macos:
 _stop_service_linux:
 	@:
 
-.PHONY: _stop_service_windows
-_stop_service_windows:
-	@$(STOP_KEYMAP_OVERLAY_PROCESS)
-
 .PHONY: _install_renderer_macos
 _install_renderer_macos:
 	@:
@@ -38,10 +31,6 @@ _install_renderer_linux:
 	install -m 0644 "$(GNOME_EXTENSION_SOURCE)/metadata.json" "$(GNOME_EXTENSION_DIR)/metadata.json"
 	install -m 0644 "$(GNOME_EXTENSION_SOURCE)/extension.js" "$(GNOME_EXTENSION_DIR)/extension.js"
 	install -m 0644 "$(GNOME_EXTENSION_SOURCE)/stylesheet.css" "$(GNOME_EXTENSION_DIR)/stylesheet.css"
-
-.PHONY: _install_renderer_windows
-_install_renderer_windows:
-	@:
 
 # launchd never rotates what it redirects, so the overlay owns its own log file
 # here. Both paths are arguments because the Windows Run key carries arguments
@@ -141,31 +130,6 @@ _install_service_linux:
 			echo "NOTE: log out and back in, then enable $(GNOME_EXTENSION_UUID)."; \
 	fi
 
-# The current user's Run key starts the overlay at sign-in without requiring an
-# administrator to create a Task Scheduler entry.
-#
-# The Windows frontend is WPF, which reaches the shared runtime through a C ABI
-# that deliberately carries no strings, so it cannot be handed a `--log-out`
-# path the way the plist hands one to the native binary. It writes to the
-# default file under %LOCALAPPDATA% instead, which is where this variable
-# points unless it was overridden.
-.PHONY: _install_service_windows
-_install_service_windows:
-	@if [ "$(KEYMAP_OVERLAY_LOG_DIR)" != "$(WINDOWS_LOCAL_APP_DATA)/keymap-overlay/logs" ]; then \
-		echo "ERROR: KEYMAP_OVERLAY_LOG_DIR cannot be honoured on Windows."; \
-		echo "The WPF frontend takes no log argument, so the overlay would keep"; \
-		echo "logging to its default directory. Leave the variable unset."; \
-		exit 1; \
-	fi
-# set -e so a failing cygpath does not hand an empty path to the registry, and
-# $ErrorActionPreference so PowerShell's non-terminating errors become failures
-# make can see: without it, Set-ItemProperty or Start-Process can fail while
-# powershell.exe still exits 0 and install-overlay reports success.
-	@set -e; \
-	binary="$$(cygpath -w "$(KEYMAP_OVERLAY_BINARY)")"; \
-	env KEYMAP_OVERLAY_BINARY="$$binary" MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'$$ErrorActionPreference = "Stop"; $$quote = [char]34; $$command = $$quote + $$env:KEYMAP_OVERLAY_BINARY + $$quote; Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -Value $$command; Start-Process -FilePath $$env:KEYMAP_OVERLAY_BINARY'
-
 .PHONY: uninstall-overlay
 uninstall-overlay:
 	@$(MAKE) _uninstall_service_$(OS_FAMILY)
@@ -180,11 +144,6 @@ uninstall-overlay:
 _remove_legacy_cache_macos _remove_legacy_cache_linux:
 	rm -rf "$(HOME)/.cache/keymap-overlay"
 
-.PHONY: _remove_legacy_cache_windows
-_remove_legacy_cache_windows:
-	rm -f "$(WINDOWS_LOCAL_APP_DATA)/keymap-overlay"/*.png
-	rm -f "$(WINDOWS_LOCAL_APP_DATA)/keymap-overlay"/[0-9]*.json
-
 .PHONY: _uninstall_service_macos
 _uninstall_service_macos:
 	@$(BOOTOUT_KEYMAP_OVERLAY)
@@ -198,12 +157,6 @@ _uninstall_service_linux:
 	rm -f "$(KEYMAP_OVERLAY_QT_UNIT)"
 	systemctl --user daemon-reload
 
-.PHONY: _uninstall_service_windows
-_uninstall_service_windows:
-	@$(STOP_KEYMAP_OVERLAY_PROCESS)
-	@MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-		'Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "$(KEYMAP_OVERLAY_RUN_VALUE)" -ErrorAction SilentlyContinue; exit 0'
-
 .PHONY: _uninstall_renderer_macos
 _uninstall_renderer_macos:
 	@:
@@ -212,10 +165,6 @@ _uninstall_renderer_macos:
 _uninstall_renderer_linux:
 	rm -f "$(KEYMAP_OVERLAY_QT_BINARY)"
 	rm -rf "$(GNOME_EXTENSION_DIR)"
-
-.PHONY: _uninstall_renderer_windows
-_uninstall_renderer_windows:
-	@:
 
 # Linux only: macOS asks for Input Monitoring permission instead, which is
 # granted in System Settings rather than by a file, and Windows needs no

@@ -4,7 +4,7 @@ $projectDirectory = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")).Path
 $overlay = if ($env:KEYMAP_OVERLAY_E2E_OVERLAY) {
     $env:KEYMAP_OVERLAY_E2E_OVERLAY
 } else {
-    Join-Path $projectDirectory "target\wpf-publish\keymap-overlay.exe"
+    Join-Path $projectDirectory "target\release\keymap-overlay.exe"
 }
 $testDirectory = Join-Path ([IO.Path]::GetTempPath()) ("keymap-overlay-e2e-" + [guid]::NewGuid())
 $stateFile = Join-Path $testDirectory "state"
@@ -14,7 +14,7 @@ $process = $null
 $stateWaitAttempts = 300
 
 function Fail-Test([string]$message) {
-    Write-Error "WPF E2E failure: $message"
+    Write-Error "Windows E2E failure: $message"
 }
 
 function Wait-ForState([string]$description, [string]$pattern, [int]$count = 1) {
@@ -39,7 +39,7 @@ New-Item -ItemType Directory -Path $testDirectory | Out-Null
 try {
     $legacyGenerator = Join-Path (Split-Path -Parent $overlay) "keymap-overlay-generator.exe"
     if (Test-Path -LiteralPath $legacyGenerator -PathType Leaf) {
-        Fail-Test "legacy model generator must not be installed beside the WPF executable"
+        Fail-Test "legacy model generator must not be installed beside the Windows executable"
     }
     $env:KEYMAP_OVERLAY_E2E_STATE_FILE = $stateFile
 
@@ -54,9 +54,9 @@ try {
         "show keyboard=1 layers=[2] size=162x122 keys=2 encoders=0 held=1" 2
 
     if ($process.HasExited) {
-        Fail-Test "overlay exited while processing WPF state transitions"
+        Fail-Test "overlay exited while processing Windows state transitions"
     }
-    Write-Output "Windows WPF E2E test passed"
+    Write-Output "Windows native E2E test passed"
 } catch {
     if (Test-Path $outputFile) {
         Write-Warning "Overlay output:`n$((Get-Content -Raw $outputFile))"
@@ -65,7 +65,7 @@ try {
         Write-Warning "Overlay errors:`n$((Get-Content -Raw $errorFile))"
     }
     if (Test-Path $stateFile) {
-        Write-Error "Observed WPF states:`n$((Get-Content -Raw $stateFile))"
+        Write-Error "Observed Windows states:`n$((Get-Content -Raw $stateFile))"
     }
     throw
 } finally {
