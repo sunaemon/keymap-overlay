@@ -63,10 +63,11 @@ EEPROM. Only the overlay resolves transparency, in memory.
 
 The generator produces a platform-neutral model from QMK `keyboard.json`;
 encoder positions come from each keyboard's project `config.json`, because QMK
-describes encoder pins but not their physical layout. All three systems
-install JSON and draw the model with AppKit, GNOME Shell, Qt Quick, or Win32. An
-encoder placed at a matrix position replaces that push key with one circular
-control showing counter-clockwise, clockwise, and push actions.
+describes encoder pins but not their physical layout. All three systems read
+models from connected keyboards into memory before drawing them with AppKit,
+GNOME Shell, Qt Quick, or Win32. An encoder placed at a matrix position replaces
+that push key with one circular control showing counter-clockwise, clockwise,
+and push actions.
 
 ### 4. Native Overlay (`overlay/`)
 
