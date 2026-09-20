@@ -116,8 +116,8 @@ jobs:
       - name: Check third-party license notices
         run: make check-licenses
 
-      # x86_64 includes the real generator startup path in Rust coverage. The
-      # release-acceptance suite uses the same kernel fixture on both runners.
+      # x86_64 includes both daemon E2E paths in Rust coverage. The
+      # HID-to-D-Bus half uses the same kernel fixture as release acceptance.
       - name: Enable the virtual Raw HID test device
         if: matrix.architecture == 'x86_64' || needs.changes.outputs.release-acceptance == 'true'
         run: |
@@ -202,11 +202,12 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Run Tests
+      - name: Run Python Tests
         run: make test
 
-      # The AppKit implementation is only compiled on macOS. Uploading its
-      # Rust report lets Codecov merge it with the Linux baseline.
+      # The AppKit implementation and simulated native E2E path run only on
+      # macOS. Uploading their Rust report lets Codecov merge it with the Linux
+      # baseline.
       - name: Run Rust Tests with Coverage
         run: make coverage-rust
 
@@ -276,7 +277,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Run Tests
+      - name: Run Python Tests
         run: .\tools\windows.ps1 -Task test
 
       - name: Cache Pester
@@ -291,14 +292,17 @@ jobs:
         shell: powershell
         run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
 
-      - name: Run Rust Tests
-        run: >-
-          .\tools\windows.ps1
-          -Task $(if ('${{ matrix.architecture }}' -eq 'x86_64') { 'coverage-rust' } else { 'test-rust' })
+      - name: Run Rust Tests with Coverage
+        if: matrix.architecture == 'x86_64'
+        run: .\tools\windows.ps1 -Task coverage-rust
 
-      # Builds the native Rust executable, then exercises simulated runtime
-      # events through the component sender, model composition, and native
-      # presentation state.
+      - name: Run Rust Tests
+        if: matrix.architecture != 'x86_64'
+        run: .\tools\windows.ps1 -Task test-rust
+
+      # Coverage already exercises this simulated path through an instrumented
+      # debug binary on x86_64. Release acceptance repeats it against the
+      # executable that would ship and pairs it with installer rollback.
       - name: Run Windows release acceptance
         if: needs.changes.outputs.release-acceptance == 'true'
         run: .\tools\windows.ps1 -Task test-release-acceptance

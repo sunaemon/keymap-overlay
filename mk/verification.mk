@@ -208,6 +208,9 @@ ifeq ($(OS_FAMILY),linux)
 	else \
 		echo 'Skipping virtual HID coverage: /dev/uhid is not readable and writable'; \
 	fi
+	$(MAKE) coverage-rust-dbus-to-renderer-e2e-linux
+else ifeq ($(OS_FAMILY),macos)
+	$(MAKE) coverage-rust-appkit-e2e-macos
 endif
 	$(CARGO_LLVM_COV) report --lcov --output-path coverage-rust.lcov
 	$(CARGO_LLVM_COV) report --summary-only
@@ -216,10 +219,35 @@ endif
 coverage-rust-hid-to-dbus-e2e-linux:
 ifeq ($(OS_FAMILY),linux)
 	@export CARGO_TARGET_DIR="$(abspath target/llvm-cov-target)"; \
-		eval "$$($(CARGO_LLVM_COV) show-env --sh)"; \
-		$(CARGO) build --package keymap-overlay-linux-daemon; \
-		KEYMAP_OVERLAY_E2E_DAEMON="$(abspath target/llvm-cov-target/debug/keymap-overlay)" \
-		$(MAKE) run-hid-to-dbus-e2e-linux
+	eval "$$($(CARGO_LLVM_COV) show-env --sh)"; \
+	$(CARGO) build --package keymap-overlay-linux-daemon; \
+	KEYMAP_OVERLAY_E2E_DAEMON="$(abspath target/llvm-cov-target/debug/keymap-overlay)" \
+	$(MAKE) run-hid-to-dbus-e2e-linux
 else
 	$(error coverage-rust-hid-to-dbus-e2e-linux is only available on Linux)
+endif
+
+.PHONY: coverage-rust-dbus-to-renderer-e2e-linux
+coverage-rust-dbus-to-renderer-e2e-linux: build-qt-renderer
+ifeq ($(OS_FAMILY),linux)
+	@export CARGO_TARGET_DIR="$(abspath target/llvm-cov-target)"; \
+	eval "$$($(CARGO_LLVM_COV) show-env --sh)"; \
+	$(CARGO) build --package keymap-overlay-linux-daemon; \
+	KEYMAP_OVERLAY_E2E_DAEMON="$(abspath target/llvm-cov-target/debug/keymap-overlay)" \
+	KEYMAP_OVERLAY_E2E_RENDERER="$(abspath target/release/keymap-overlay-qt)" \
+	dbus-run-session -- ./overlay/platforms/linux/tests/test_dbus_to_renderer_e2e.sh
+else
+	$(error coverage-rust-dbus-to-renderer-e2e-linux is only available on Linux)
+endif
+
+.PHONY: coverage-rust-appkit-e2e-macos
+coverage-rust-appkit-e2e-macos:
+ifeq ($(OS_FAMILY),macos)
+	@export CARGO_TARGET_DIR="$(abspath target/llvm-cov-target)"; \
+	eval "$$($(CARGO_LLVM_COV) show-env --sh)"; \
+	$(CARGO) build --package keymap-overlay-macos; \
+	KEYMAP_OVERLAY_E2E_OVERLAY="$(abspath target/llvm-cov-target/debug/keymap-overlay)" \
+	./overlay/platforms/macos/tests/test_appkit_e2e.sh
+else
+	$(error coverage-rust-appkit-e2e-macos is only available on macOS)
 endif

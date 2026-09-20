@@ -141,12 +141,54 @@ function Measure-RustCoverage {
         'exec', '--', 'cargo', 'llvm-cov', '--workspace',
         '--exclude', 'keymap-overlay-winui', '--all-targets', '--no-report'
     )
+    Measure-WindowsOverlayCoverage
     Invoke-Mise -DevelopmentTools @(
         'exec', '--', 'cargo', 'llvm-cov', 'report',
         '--lcov', '--output-path', 'coverage-rust.lcov'
     )
     Invoke-Mise -DevelopmentTools @(
         'exec', '--', 'cargo', 'llvm-cov', 'report', '--summary-only'
+    )
+}
+
+function Measure-WindowsOverlayCoverage {
+    $coverageEnvironment = Invoke-MiseForOutput -DevelopmentTools @(
+        'exec', '--', 'cargo', 'llvm-cov', 'show-env', '--cmd'
+    )
+    $coverageTargetDirectory = Join-Path $projectDirectory 'target\llvm-cov-target'
+    $coverageOverlay = Join-Path $coverageTargetDirectory 'debug\keymap-overlay.exe'
+    $e2eScript = Join-Path $projectDirectory 'overlay\platforms\windows\tests\test_win32_e2e.ps1'
+    $commandFile = Join-Path ([IO.Path]::GetTempPath()) (
+        'keymap-overlay-coverage-' + [guid]::NewGuid() + '.cmd'
+    )
+    try {
+        $commands = New-WindowsCoverageCommands `
+            $coverageEnvironment `
+            $coverageTargetDirectory `
+            $coverageOverlay `
+            $e2eScript
+        Set-Content -LiteralPath $commandFile -Encoding ASCII -Value $commands
+        Invoke-NativeCommand 'cmd.exe' @('/d', '/c', $commandFile)
+    }
+    finally {
+        Remove-Item -LiteralPath $commandFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function New-WindowsCoverageCommands(
+    [string]$CoverageEnvironment,
+    [string]$CoverageTargetDirectory,
+    [string]$CoverageOverlay,
+    [string]$E2eScript
+) {
+    return @(
+        '@echo off'
+        $CoverageEnvironment.Trim()
+        "set `"CARGO_TARGET_DIR=$CoverageTargetDirectory`""
+        'mise exec -- cargo build --package keymap-overlay-windows'
+        'if errorlevel 1 exit /b %errorlevel%'
+        "set `"KEYMAP_OVERLAY_E2E_OVERLAY=$CoverageOverlay`""
+        "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$E2eScript`""
     )
 }
 
@@ -174,6 +216,10 @@ function Test-Installer {
 
 function Test-WindowsOverlay {
     Build-Overlay
+    Invoke-WindowsOverlayE2e
+}
+
+function Invoke-WindowsOverlayE2e {
     Invoke-NativeCommand 'powershell.exe' @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
         'overlay/platforms/windows/tests/test_win32_e2e.ps1'
@@ -259,10 +305,23 @@ function Invoke-Mise {
 }
 
 function Invoke-MiseForOutput {
-    param([Parameter(Position = 0)][string[]]$Arguments)
-    $output = & mise @Arguments | Out-String
-    Confirm-LastExitCode 'mise'
-    return $output
+    param(
+        [Parameter(Position = 0)]
+        [string[]]$Arguments,
+        [switch]$DevelopmentTools
+    )
+    $previousEnvironment = $env:MISE_ENV
+    if ($DevelopmentTools) {
+        $env:MISE_ENV = 'dev'
+    }
+    try {
+        $output = & mise @Arguments | Out-String
+        Confirm-LastExitCode 'mise'
+        return $output
+    }
+    finally {
+        $env:MISE_ENV = $previousEnvironment
+    }
 }
 
 function Invoke-NativeCommand {

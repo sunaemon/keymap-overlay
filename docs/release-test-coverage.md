@@ -23,13 +23,15 @@ their required hardware evidence.
   D-Bus state. Linux x86_64 runs this same workflow against the
   coverage-instrumented daemon, covering the complete multi-device startup
   handoff through the real `hidraw` path without a second test runner.
-- Linux D-Bus-to-Qt E2E uses `--simulate`, proves show/hide/show state and
-  held-key metadata, and compares one offscreen software-rendered image. It
-  does not run under KDE, LayerShellQt, Wayland, X11, or a real display scale.
-- macOS AppKit and Windows Win32 E2E use `--simulate` and prove that native view
-  state transitions visible → hidden → visible again. They bypass physical HID
-  and Vial startup reads and do not prove focus, topmost, or click-through
-  behavior on an interactive desktop.
+- Linux D-Bus-to-Qt E2E runs its Rust daemon under coverage, uses `--simulate`,
+  proves show/hide/show state and held-key metadata, and compares one offscreen
+  software-rendered image. It does not run under KDE, LayerShellQt, Wayland,
+  X11, or a real display scale.
+- macOS AppKit and Windows Win32 E2E run their native Rust processes under
+  coverage with `--simulate` and prove that view state transitions visible →
+  hidden → visible again. They bypass physical HID and Vial startup reads and
+  do not prove focus, topmost, or click-through behavior on an interactive
+  desktop. Release acceptance repeats these scenarios against release builds.
 - Installer tests use temporary homes and stubbed service commands to cover
   install, upgrade, rollback, uninstall, service files, Run-key arguments, and
   legacy-cache cleanup. They do not exercise launchd, systemd, GNOME Shell, a
