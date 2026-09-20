@@ -13,8 +13,43 @@ $errorFile = Join-Path $testDirectory "overlay.err.log"
 $process = $null
 $stateWaitAttempts = 300
 
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class KeymapOverlayWindow {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string className, string windowName);
+
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr window, uint message, IntPtr parameter, IntPtr data);
+}
+'@
+
 function Fail-Test([string]$message) {
     Write-Error "Windows E2E failure: $message"
+}
+
+function Close-Overlay {
+    if ($process.HasExited) {
+        return
+    }
+    $window = [KeymapOverlayWindow]::FindWindow("KeymapOverlayWindow", "Keymap Overlay")
+    if ($window -ne [IntPtr]::Zero) {
+        [void][KeymapOverlayWindow]::PostMessage(
+            $window,
+            0x0010,
+            [IntPtr]::Zero,
+            [IntPtr]::Zero
+        )
+        if ($process.WaitForExit(5000)) {
+            return
+        }
+    }
+    if (-not $process.HasExited) {
+        Stop-Process -Id $process.Id -Force
+        $process.WaitForExit()
+    }
 }
 
 function Wait-ForState([string]$description, [string]$pattern, [int]$count = 1) {
@@ -56,6 +91,8 @@ try {
     if ($process.HasExited) {
         Fail-Test "overlay exited while processing Windows state transitions"
     }
+    Close-Overlay
+    $process = $null
     Write-Output "Windows native E2E test passed"
 } catch {
     if (Test-Path $outputFile) {
@@ -71,8 +108,7 @@ try {
 } finally {
     Remove-Item Env:KEYMAP_OVERLAY_E2E_STATE_FILE -ErrorAction SilentlyContinue
     if ($null -ne $process -and -not $process.HasExited) {
-        Stop-Process -Id $process.Id -Force
-        $process.WaitForExit()
+        Close-Overlay
     }
     Remove-Item -LiteralPath $testDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }

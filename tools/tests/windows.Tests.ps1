@@ -6,6 +6,50 @@ BeforeAll {
 }
 
 Describe 'Windows development workflow' {
+    It 'runs the native overlay E2E path inside Rust coverage' {
+        Mock Invoke-Mise
+        Mock Invoke-MiseForOutput { 'set "LLVM_PROFILE_FILE=coverage.profraw"' }
+        Mock Set-Content
+        Mock Invoke-NativeCommand
+        Mock Remove-Item
+
+        Measure-RustCoverage
+
+        Should -Invoke Invoke-Mise -Times 3
+        Should -Invoke Invoke-MiseForOutput -Times 1 -ParameterFilter {
+            $DevelopmentTools -and $Arguments -contains 'show-env' -and
+            $Arguments -contains '--cmd'
+        }
+        Should -Invoke Invoke-NativeCommand -Times 1 -ParameterFilter {
+            $Command -eq 'cmd.exe' -and $Arguments -contains '/c'
+        }
+    }
+
+    It 'builds coverage commands for the instrumented native E2E binary' {
+        $commands = New-WindowsCoverageCommands `
+            'set "LLVM_PROFILE_FILE=coverage.profraw"' `
+            'C:\coverage-target' `
+            'C:\coverage-target\debug\keymap-overlay.exe' `
+            'C:\src\test_win32_e2e.ps1'
+
+        ($commands -join "`n") | Should -Match 'LLVM_PROFILE_FILE=coverage.profraw'
+        ($commands -join "`n") | Should -Match 'cargo build --package keymap-overlay-windows'
+        ($commands -join "`n") | Should -Match (
+            [regex]::Escape('KEYMAP_OVERLAY_E2E_OVERLAY=C:\coverage-target')
+        )
+        ($commands -join "`n") | Should -Match 'test_win32_e2e.ps1'
+    }
+
+    It 'builds the release overlay before its acceptance E2E path' {
+        Mock Build-Overlay
+        Mock Invoke-WindowsOverlayE2e
+
+        Test-WindowsOverlay
+
+        Should -Invoke Build-Overlay -Times 1
+        Should -Invoke Invoke-WindowsOverlayE2e -Times 1
+    }
+
     It 'installs one native executable with startup refresh arguments' {
         Mock Build-Overlay
         Mock Stop-Overlay

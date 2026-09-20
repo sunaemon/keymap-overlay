@@ -36,18 +36,34 @@ wait_for_state() {
   count=${3:-1}
   attempts=0
   while [ "$attempts" -lt 100 ]; do
-    if ! kill -0 "$OVERLAY_PID" 2>/dev/null; then
-      fail "overlay exited while waiting for $description"
-    fi
     matches=$(grep -F -c "$pattern" "$STATE_FILE" 2>/dev/null || true)
     matches=${matches:-0}
     if [ "$matches" -ge "$count" ]; then
       return 0
     fi
+    if ! kill -0 "$OVERLAY_PID" 2>/dev/null; then
+      fail "overlay exited while waiting for $description"
+    fi
     attempts=$((attempts + 1))
     sleep 0.05
   done
   fail "timed out waiting for $description"
+}
+
+wait_for_exit() {
+  description=$1
+  attempts=0
+  while kill -0 "$OVERLAY_PID" 2>/dev/null; do
+    if [ "$attempts" -ge 100 ]; then
+      fail "timed out waiting for overlay to exit after $description"
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.05
+  done
+  if ! wait "$OVERLAY_PID"; then
+    fail "overlay exited unsuccessfully after $description"
+  fi
+  OVERLAY_PID=''
 }
 
 run_case() {
@@ -57,6 +73,7 @@ run_case() {
   LOG_FILE="$TEST_DIRECTORY/$name.log"
 
   KEYMAP_OVERLAY_E2E_STATE_FILE="$STATE_FILE" \
+    KEYMAP_OVERLAY_E2E_EXIT_AFTER_SHOWS=2 \
     KEYMAP_OVERLAY_E2E_FORCE_VISUAL_EFFECT="$force_visual_effect" \
     "$OVERLAY" --simulate 1:2 \
     >"$LOG_FILE" 2>&1 &
@@ -69,13 +86,7 @@ run_case() {
   wait_for_state 'the next simulated press to attach the layer again' \
     'show keyboard=1 layers=[2] size=160x120 subviews=1 native_subviews=5' 2
 
-  if ! kill -0 "$OVERLAY_PID" 2>/dev/null; then
-    fail "overlay exited while processing the $name AppKit state transitions"
-  fi
-
-  kill "$OVERLAY_PID"
-  wait "$OVERLAY_PID" 2>/dev/null || true
-  OVERLAY_PID=''
+  wait_for_exit "processing the $name AppKit state transitions"
 }
 
 run_case native 0

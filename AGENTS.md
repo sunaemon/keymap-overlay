@@ -249,9 +249,10 @@ Python and Rust unit suites, `check-licenses`, and
 against the release overlay), then failing if formatting or linting produced a
 diff. The x86_64 Linux job runs the unit suites through `coverage`, while ARM64
 uses `test` and `test-rust`; macOS ARM64 and Windows x86_64 run their Rust unit
-suites through `coverage-rust`. All three upload their platform reports for
-Codecov to merge; project and patch checks are initially informational. The
-`mac-arm64` job runs `test`, `coverage-rust`, and
+suites and native simulated E2E paths through `coverage-rust`. Linux x86_64
+also runs both daemon E2E paths under Rust coverage. All three upload their
+platform reports for Codecov to merge; project and patch checks are initially
+informational. The `mac-arm64` job runs `test`, `coverage-rust`, and
 `test-release-acceptance-macos` (installer rollback plus the simulated AppKit
 E2E test). On Windows it runs the native PowerShell workflow for `test`, the
 `install.ps1` Pester suite, `coverage-rust` on x86_64 or `test-rust` on ARM64,
