@@ -153,11 +153,10 @@ must not draw a second overlay. Repeat the common physical checks below.
 
 ### Windows
 
-Run this subsection on x86_64, using the MSYS2 UCRT64 shell described in the
-README:
+Run this subsection on x86_64 in a non-administrator PowerShell:
 
-```bash
-make install-overlay
+```powershell
+.\tools\windows.ps1 -Task install
 ```
 
 Then run these checks in a non-administrator PowerShell:
@@ -172,9 +171,10 @@ $KmoRun
 Get-Content "$env:LOCALAPPDATA\keymap-overlay\logs\overlay.log" -Tail 100
 ```
 
-The process must be running. The Run value must contain only the quoted path to
-`keymap-overlay.exe`, with no `--asset-dir` or `--keyboard-config-dir`. The log
-must contain no HID-open or Vial-model error from this start.
+The process must be running. The Run value must contain the quoted path to
+`keymap-overlay.exe` and its `--log-out` path, with no `--asset-dir` or
+`--keyboard-config-dir`. The log must contain no HID-open or Vial-model error
+from this start.
 
 ## 3. Run the Common Physical Checks
 
@@ -342,8 +342,8 @@ make test-release-acceptance-macos
 # Linux x86_64
 make test-release-acceptance-linux
 
-# Windows x86_64, from MSYS2 UCRT64
-make test-release-acceptance-windows
+# Windows x86_64, from PowerShell
+.\tools\windows.ps1 -Task test-release-acceptance
 ```
 
 Finally exercise the live uninstall and verify that the process, login entry,
@@ -369,15 +369,17 @@ test ! -e ~/.config/systemd/user/keymap-overlay-qt.service
 make install-overlay
 ```
 
-On Windows, run `make uninstall-overlay` and `make install-overlay` in MSYS2
-UCRT64. Between them, verify removal in a non-administrator PowerShell:
+On Windows, run the following in a non-administrator PowerShell, verify the
+removal, and then reinstall the candidate:
 
 ```powershell
+.\tools\windows.ps1 -Task uninstall
 if (Get-Process keymap-overlay -ErrorAction SilentlyContinue) { throw 'process remains' }
 $RunPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 if (Get-ItemProperty -Path $RunPath -Name KeymapOverlay -ErrorAction SilentlyContinue) { throw 'Run entry remains' }
 $KmoExe = "$env:LOCALAPPDATA\Programs\keymap-overlay\keymap-overlay.exe"
 if (Test-Path $KmoExe) { throw 'binary remains' }
+.\tools\windows.ps1 -Task install
 ```
 
 ## 5. Record the Gate

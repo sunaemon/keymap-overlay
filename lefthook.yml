@@ -1,4 +1,5 @@
-# Git hooks, installed by `make setup` or `make install-hooks`.
+# Git hooks, installed by `make setup` on macOS/Linux or
+# `tools/windows.ps1 -Task setup` on Windows.
 #
 # The hooks call the same make targets CI runs, so a commit that passes here
 # passes the pipeline. Set LEFTHOOK=0 to skip them for a single command, e.g.
@@ -29,16 +30,16 @@ pre-commit:
   # restage what they touched.
   jobs:
     - name: format
-      run: make format
+      run: mise exec -- python tools/run_dev_task.py format
       stage_fixed: true
     - name: lint
-      run: make lint
+      run: mise exec -- python tools/run_dev_task.py lint
       stage_fixed: true
     # The report changes with dependencies, package metadata, workspace
     # versions, cargo-about itself, and its rendering configuration. Keep this
     # check non-mutating so a hook never adds an unstaged generated file.
     - name: license-notices
-      run: make check-licenses
+      run: mise exec -- python tools/run_dev_task.py check-licenses
       glob:
         - Cargo.lock
         - Cargo.toml
@@ -55,7 +56,7 @@ commit-msg:
   jobs:
     - name: check-message
       # Quoted: git passes an absolute path, which may contain spaces.
-      run: make check-commit-message COMMIT_MSG_FILE="{1}"
+      run: mise exec -- python tools/run_dev_task.py check-commit-message "{1}"
 
 # Tests stay out of pre-commit: they are the slowest gate and nothing they
 # catch is worth blocking a local checkpoint commit over. lefthook skips these
@@ -64,6 +65,6 @@ commit-msg:
 pre-push:
   jobs:
     - name: test
-      run: make test
+      run: mise exec -- python tools/run_dev_task.py test
     - name: test-rust
-      run: make test-rust
+      run: mise exec -- python tools/run_dev_task.py test-rust

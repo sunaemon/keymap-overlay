@@ -246,10 +246,11 @@ until the new service starts, and restore them if installation fails. Their
 uninstall modes remove those installed files and the login entry while
 retaining logs. Upgrades remove legacy cached model JSON.
 
-Developers can instead use `make install-overlay`, which performs the following
+Developers can instead use `make install-overlay` on macOS/Linux or
+`tools/windows.ps1 -Task install` on Windows. Both perform the following
 source-build workflow:
 
-`make install-overlay` performs the following steps:
+The source installation performs these steps:
 
 1. Builds the platform executable. At each start it reads connected keyboards
    into memory before the Raw HID listener begins.
@@ -294,8 +295,9 @@ given the destination its supervisor handles best:
 A log the overlay owns rotates at 1 MiB and retains the current file plus three
 previous files.
 
-`make uninstall-overlay` stops and removes the login service and installed
-binary, and cleans up legacy cached models. It keeps logs for troubleshooting.
+`make uninstall-overlay` on macOS/Linux and `tools/windows.ps1 -Task uninstall`
+on Windows stop and remove the login service and installed binary, and clean up
+legacy cached models. They keep logs for troubleshooting.
 
 ## Firmware Workflow
 
@@ -318,10 +320,9 @@ and supplies the EEPROM-epoch comparison. Each keyboard calls it from
 which clears all QMK and Vial EEPROM. Its `eeconfig_init_user` hook then saves
 the new epoch so ordinary rebooting does not reset a Vial-edited keymap.
 
-QMK source processing and firmware deployment do not run from the overlay's
-Windows shell. QMK's toolchain there is QMK MSYS, separate from the MSYS2
-UCRT64 shell that builds the overlay, so `compile` and `flash` point at WSL,
-macOS, or Linux. Raw HID is not subject to that boundary: startup refresh reads
+QMK source processing and firmware deployment do not run from native Windows
+PowerShell, so `compile` and `flash` point at WSL, macOS, or Linux. Raw HID is
+not subject to that boundary: startup refresh reads
 the device natively on every platform. This does not prevent manual flashing
 of an already-built `.uf2`: Windows can mount the bootloader's `RPI-RP2` volume
 and copy the file onto it in Explorer.

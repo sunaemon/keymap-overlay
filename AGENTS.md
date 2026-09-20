@@ -138,7 +138,8 @@ between 0 and 255; the Makefile and `layer_notify.h` both enforce this.
 - **Rust/C++/GJS**: the overlay (AppKit on macOS, Win32 on Windows, GNOME
   Shell or Qt Quick plus KDE LayerShellQt on Linux, and `hidapi`), and the
   native display-model library (`overlay/keymap-overlay-generator`).
-- **Makefile**: orchestrates build, installation, and flashing.
+- **Makefile/PowerShell**: Make orchestrates macOS/Linux workflows;
+  `tools/windows.ps1` orchestrates native Windows workflows.
 - **mise**: pins every tool version, including formatters and linters.
 - **lefthook**: manages the git hooks declared in `lefthook.yml`.
 - **QMK Firmware**: the keyboard firmware, vendored as a submodule.
@@ -158,16 +159,10 @@ startup (Startup Refresh in `docs/design.md`). A disconnected keyboard has no
 model until the process is restarted with it connected. Release archives ship
 neither keyboard definitions nor model caches.
 
-`make setup` and everything that installs or starts the overlay dispatch on
-`OS_FAMILY`, derived from `uname -s` at the top of the Makefile — `windows`
-covers the `MINGW*` and `MSYS*` that MSYS2 UCRT64 and the Windows CI shell
-report. A target that differs between the systems gets an
-`_<action>_$(OS_FAMILY)` helper rather than a shell conditional inside one
-recipe.
-
-Windows adds one such helper the other two do not need: `_stop_service_windows`,
-because a running executable is locked there and has to go before the binary is
-replaced. Its macOS and Linux siblings are deliberately empty.
+Make dispatches macOS/Linux behavior from `OS_FAMILY`, derived from `uname -s`.
+Windows uses `tools/windows.ps1` directly; do not add a Windows Make branch or
+reintroduce MSYS2. The PowerShell source-install workflow stops the running
+process before replacing its locked executable.
 
 ### Firmware Development
 
@@ -183,9 +178,9 @@ deploys to a volume something else already mounted; see `mount_uf2_volume.py`.
 It reads `BOOTLOADER` out of `keyboard.json` the same lazy way as `DEVICE_PID`,
 so targets that never flash do not pay for the lookup.
 
-The overlay build shell on Windows is MSYS2 UCRT64, not QMK MSYS, so
-`make compile`, `make flash`, and other QMK-backed targets deliberately stop
-there. Native Raw HID startup still reads the device. This does not
+QMK-backed workflows do not run in native Windows PowerShell. Use WSL, macOS,
+or Linux for `make compile`, `make flash`, and related targets. Native Raw HID
+startup still reads the device. This does not
 prevent manual flashing of an already-built `.uf2`: put the keyboard in its
 bootloader and copy the file onto the mounted `RPI-RP2` volume in Explorer.
 
@@ -206,6 +201,11 @@ make audit        # cargo-audit against the RustSec advisory database
 make check-licenses # verify release third-party license notices without changing them
 make licenses     # regenerate release third-party license notices
 ```
+
+On Windows use the corresponding `tools/windows.ps1 -Task <task>` commands.
+The Windows entry point covers setup, formatting, linting, Python and Rust
+tests, Rust coverage, build/run, release acceptance, source installation, and
+uninstallation without MSYS2 or GNU Make.
 
 The installed hooks own the common local verification gates. When publishing a
 change, do not run `make format`, `make lint`, `make test`, or `make test-rust`
@@ -252,9 +252,9 @@ suites through `coverage-rust`. All three upload their platform reports for
 Codecov to merge; project and patch checks are initially informational. The
 `mac-arm64` job runs `test`, `coverage-rust`, and
 `test-release-acceptance-macos` (installer rollback plus the simulated AppKit
-E2E test). On Windows it runs `test`, the `install.ps1` Pester suite,
-`coverage-rust` on x86_64 or `test-rust` on ARM64, and `build-overlay`; the
-other Windows steps set `shell: bash` so the Makefile runs under Git Bash.
+E2E test). On Windows it runs the native PowerShell workflow for `test`, the
+`install.ps1` Pester suite, `coverage-rust` on x86_64 or `test-rust` on ARM64,
+and the native overlay build.
 Each job builds only its own native backend,
 so `ui/appkit.rs` is compiled by the macOS job, the Rust Win32 frontend by the
 Windows job, and the D-Bus daemon and Qt renderer by the Linux job. A fourth
@@ -295,15 +295,15 @@ this backend is built around only appears from the _second_ show onward.
 
 ### Git Hooks
 
-`lefthook` manages the hooks, and `make setup` installs them. Run
-`make install-hooks` on its own if they are missing, `make uninstall-hooks` to
-remove them.
+`lefthook` manages the hooks. `make setup` installs them on macOS/Linux and
+`tools/windows.ps1 -Task setup` installs them on Windows. The hook dispatcher
+selects Make or PowerShell from the host platform.
 
-| Hook         | Runs                          |
-| ------------ | ----------------------------- |
-| `pre-commit` | `make format`, `make lint`    |
-| `commit-msg` | `make check-commit-message`   |
-| `pre-push`   | `make test`, `make test-rust` |
+| Hook         | Runs                        |
+| ------------ | --------------------------- |
+| `pre-commit` | format, lint                |
+| `commit-msg` | commit-message validation   |
+| `pre-push`   | Python and Rust test suites |
 
 `pre-commit` restages only files that were already staged, so a commit never
 picks up unrelated files that `make format` happened to touch. `pre-push`

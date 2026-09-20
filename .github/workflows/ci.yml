@@ -258,7 +258,7 @@ jobs:
 
     defaults:
       run:
-        shell: bash
+        shell: powershell
 
     steps:
       - name: Checkout repo
@@ -277,7 +277,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Tests
-        run: make test
+        run: .\tools\windows.ps1 -Task test
 
       - name: Cache Pester
         id: cache-pester
@@ -292,19 +292,16 @@ jobs:
         run: Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
 
       - name: Run Rust Tests
-        run: |
-          if [ "${{ matrix.architecture }}" == "x86_64" ]; then
-            make coverage-rust
-          else
-            make test-rust
-          fi
+        run: >-
+          .\tools\windows.ps1
+          -Task $(if ('${{ matrix.architecture }}' -eq 'x86_64') { 'coverage-rust' } else { 'test-rust' })
 
       # Builds the native Rust executable, then exercises simulated runtime
       # events through the component sender, model composition, and native
       # presentation state.
       - name: Run Windows release acceptance
         if: needs.changes.outputs.release-acceptance == 'true'
-        run: make test-release-acceptance-windows
+        run: .\tools\windows.ps1 -Task test-release-acceptance
 
       - name: Upload Windows Coverage
         if: matrix.architecture == 'x86_64'
@@ -317,7 +314,7 @@ jobs:
           use_oidc: true
 
       - name: Check the Windows frontend
-        run: cargo check -p keymap-overlay-windows
+        run: mise exec -- cargo check --package keymap-overlay-windows
 
   # Audits Cargo.lock against the RustSec advisory database. Unlike the other
   # jobs this one can start failing without anything here changing, because the

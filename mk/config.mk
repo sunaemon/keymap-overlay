@@ -4,9 +4,8 @@
 # service, the toolchain packages, and the firmware workflow are not. Every
 # target that differs between the systems dispatches on this.
 #
-# Windows development uses MSYS2 UCRT64 to drive a native Windows build.
-# `uname -s` there reports MINGW64_NT-10.0-…, which no `ifeq` can match exactly,
-# hence findstring. The MSYS match also keeps the recipes usable in CI.
+# Windows uses tools/windows.ps1 instead of Make. Keeping this entry point to
+# POSIX hosts avoids a second path and shell dialect throughout these recipes.
 # Compiling and flashing firmware is not supported on Windows — see
 # `_setup_toolchain_windows`.
 UNAME_S := $(shell uname -s)
@@ -14,12 +13,8 @@ ifeq ($(UNAME_S),Darwin)
 OS_FAMILY := macos
 else ifeq ($(UNAME_S),Linux)
 OS_FAMILY := linux
-else ifneq (,$(findstring MINGW,$(UNAME_S)))
-OS_FAMILY := windows
-else ifneq (,$(findstring MSYS,$(UNAME_S)))
-OS_FAMILY := windows
 else
-$(error keymap-overlay supports macOS, Linux and Windows, not '$(UNAME_S)')
+$(error Make supports macOS and Linux; on Windows use tools/windows.ps1)
 endif
 
 # Development model generation targets the current host.
@@ -30,16 +25,7 @@ endif
 
 # Cargo names the binary after the target, and the login service needs the name
 # that exists on disk.
-ifeq ($(OS_FAMILY),windows)
-EXE_SUFFIX := .exe
-else
 EXE_SUFFIX :=
-endif
-
-# QMK's Windows toolchain is QMK MSYS, a separate environment from the one that
-# builds the overlay. Keep QMK source processing and firmware deployment there;
-# native Raw HID reads and writes use the portable Rust tooling below.
-WINDOWS_FIRMWARE_ERROR := is not supported on Windows; compile and flash from WSL, macOS or Linux (see Platform Support in README.md)
 
 # ================= VIA CONFIGURATION =================
 
@@ -145,24 +131,6 @@ if [ -f "$(KEYMAP_OVERLAY_QT_UNIT)" ]; then \
 	fi
 endef
 
-# The Windows Run key is per-user, so it needs no administrator access. Stop
-# the previous process before replacing its executable, if it is running. The
-# command is single-quoted so that the shell leaves PowerShell's $ alone, and
-# MSYS2_ARG_CONV_EXCL stops MSYS2 rewriting the arguments as paths.
-#
-# Run through `env` so the line does not open with NAME=VALUE, which the
-# Makefile formatter rewrites to NAME = VALUE — turning the variable this needs
-# in the environment into a command it would try to run.
-#
-# Stop-Process only asks the process to terminate; Windows holds the image lock
-# until it is gone, so the caller has to wait or the copy that follows hits a
-# sharing violation. Wait-Process supplies the wait, and the whole pipeline is
-# a no-op when nothing is running.
-define STOP_KEYMAP_OVERLAY_PROCESS
-env MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command \
-	'Get-Process -Name "keymap-overlay" -ErrorAction SilentlyContinue | Stop-Process -PassThru | Wait-Process -Timeout 10; exit 0'
-endef
-
 # ================= QMK CONFIGURATION =================
 QMK_HOME := firmware/vendor/vial-qmk
 export QMK_HOME := $(QMK_HOME)
@@ -244,43 +212,16 @@ CONSOLIDATED_ASSET := $(ASSET_BUILD_DIR)/$(KEYBOARD_ID).$(ASSET_EXTENSION)
 endif
 
 # ================= OVERLAY CONFIGURATION =================
-ifeq ($(OS_FAMILY),windows)
-# MSYS2's HOME is private to MSYS2, so installed paths come from the Windows
-# environment instead. Expanded on every invocation, not just `make setup`, so
-# they cannot lean on _setup_toolchain_windows having checked for cygpath: left
-# empty they would root every path at /, and `make uninstall-overlay` would
-# delete from /keymap-overlay.
-WINDOWS_USER_HOME := $(shell cygpath -u "$$USERPROFILE" 2>/dev/null)
-ifeq ($(strip $(WINDOWS_USER_HOME)),)
-$(error Could not resolve USERPROFILE with cygpath; run make from an MSYS2 UCRT64 shell)
-endif
-# Local rather than roaming %APPDATA%, because the log describes one machine.
-WINDOWS_LOCAL_APP_DATA := $(shell cygpath -u "$$LOCALAPPDATA" 2>/dev/null)
-ifeq ($(strip $(WINDOWS_LOCAL_APP_DATA)),)
-WINDOWS_LOCAL_APP_DATA := $(WINDOWS_USER_HOME)/AppData/Local
-endif
-KEYMAP_OVERLAY_LOG_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/keymap-overlay/logs
-# Where a per-user install puts an executable on Windows, the same place VS Code
-# and Slack use. The Run key names it by absolute path, so it need not be on
-# PATH.
-KEYMAP_OVERLAY_BIN_DIR ?= $(WINDOWS_LOCAL_APP_DATA)/Programs/keymap-overlay
-else
 KEYMAP_OVERLAY_LOG_DIR := $(HOME)/.local/var/log/keymap-overlay
 # systemd puts this on PATH for user services and the distro profiles add it for
 # login shells, so `keymap-overlay-qt` can be run by hand to diagnose the
 # renderer instead of only by absolute path out of its unit.
 KEYMAP_OVERLAY_BIN_DIR := $(HOME)/.local/bin
-endif
 KEYMAP_OVERLAY_LOG_FILE := $(KEYMAP_OVERLAY_LOG_DIR)/overlay.log
 KEYMAP_OVERLAY_BINARY := $(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay$(EXE_SUFFIX)
 KEYMAP_OVERLAY_QT_BINARY := $(KEYMAP_OVERLAY_BIN_DIR)/keymap-overlay-qt
-WINDOWS_PACKAGE := keymap-overlay-windows
 QT_RENDERER_SOURCE := overlay/platforms/linux/qt
 QT_RENDERER_BUILD_DIR := target/qt-release
-ifeq ($(OS_FAMILY),windows)
-OVERLAY_BUILD_BINARY := target/release/keymap-overlay.exe
-KEYMAP_OVERLAY ?= "$(OVERLAY_BUILD_BINARY)"
-else
 ifeq ($(OS_FAMILY),macos)
 OVERLAY_PACKAGE := keymap-overlay-macos
 else
@@ -288,7 +229,6 @@ OVERLAY_PACKAGE := keymap-overlay-linux-daemon
 endif
 OVERLAY_BUILD_BINARY := target/release/keymap-overlay
 KEYMAP_OVERLAY ?= $(CARGO) run -p $(OVERLAY_PACKAGE) --
-endif
 KEYMAP_OVERLAY_LABEL := com.sunaemon.keymap-overlay
 KEYMAP_OVERLAY_PLIST := $(HOME)/Library/LaunchAgents/$(KEYMAP_OVERLAY_LABEL).plist
 KEYMAP_OVERLAY_UNIT_NAME := keymap-overlay.service
@@ -298,9 +238,6 @@ KEYMAP_OVERLAY_QT_UNIT := $(HOME)/.config/systemd/user/$(KEYMAP_OVERLAY_QT_UNIT_
 GNOME_EXTENSION_UUID := keymap-overlay@sunaemon
 GNOME_EXTENSION_SOURCE := overlay/platforms/linux/gnome-shell/$(GNOME_EXTENSION_UUID)
 GNOME_EXTENSION_DIR := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID)
-# The registry value under the current user's Run key that starts the overlay
-# when they sign in. It is intentionally a user-level autostart, not a service.
-KEYMAP_OVERLAY_RUN_VALUE := KeymapOverlay
 # One rule per keyboard, tagged uaccess so the logged-in user may open the Raw
 # HID node; without it the overlay enumerates the keyboards but cannot read
 # from them.

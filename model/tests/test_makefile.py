@@ -8,9 +8,10 @@ from pathlib import Path
 
 import pytest
 
-if (make := shutil.which("make")) is None:
-    raise RuntimeError("make is required to test the Makefile")
-MAKE: str = make
+MAKE = shutil.which("make") or "make"
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="Make is the macOS/Linux task runner"
+)
 
 
 def test_makefile_keeps_one_public_entry_point_with_concern_fragments() -> None:
@@ -96,31 +97,6 @@ def test_recursive_clone_skips_firmware_submodule() -> None:
     )
 
     assert result.stdout.strip() == "none"
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows Run-key wiring")
-def test_windows_source_install_wires_startup_refresh() -> None:
-    """Install one Windows overlay without persistent model arguments."""
-    root = Path(__file__).parents[2]
-    install = subprocess.run(
-        [MAKE, "-n", "install-overlay", "MAKE=echo"],
-        check=True,
-        capture_output=True,
-        text=True,
-        cwd=root,
-    )
-    service = subprocess.run(
-        [MAKE, "-n", "_install_service_windows"],
-        check=True,
-        capture_output=True,
-        text=True,
-        cwd=root,
-    )
-
-    assert "keymap-overlay-generator.exe" not in install.stdout
-    assert "no layer JSON models found" not in install.stdout
-    assert "--asset-dir" not in service.stdout
-    assert "--keyboard-config-dir" not in service.stdout
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Firmware builds are unsupported")

@@ -49,17 +49,6 @@ test-release-acceptance-macos: test-installer-sh test-appkit-e2e-macos
 
 # Windows's release go/no-go gate. The installer test covers upgrade rollback;
 # the simulated E2E test covers the native Rust presentation path.
-.PHONY: test-release-acceptance-windows
-test-release-acceptance-windows: test-installer-ps test-windows-e2e
-
-.PHONY: test-windows-e2e
-test-windows-e2e: build-overlay
-ifeq ($(OS_FAMILY),windows)
-	powershell -NoProfile -ExecutionPolicy Bypass -File overlay/platforms/windows/tests/test_wpf_e2e.ps1
-else
-	$(error test-windows-e2e is only available on Windows)
-endif
-
 .PHONY: test-appkit-e2e-macos
 test-appkit-e2e-macos: build-overlay
 ifeq ($(OS_FAMILY),macos)

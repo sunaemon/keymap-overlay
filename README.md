@@ -529,10 +529,10 @@ Tools Command Prompt for VS 2022` on x64). Then run:
 ```powershell
 git clone https://github.com/sunaemon/keymap-overlay.git
 Set-Location keymap-overlay
-mise install rust
-cargo build --release --package keymap-overlay-windows
-cargo run --release --package keymap-overlay-windows -- --simulate 1:2
-cargo test --workspace
+.\tools\windows.ps1 -Task setup
+.\tools\windows.ps1 -Task build
+.\tools\windows.ps1 -Task run -Simulate 1:2
+.\tools\windows.ps1 -Task test-rust
 ```
 
 The native build follows the host architecture. Confirm it before building:
@@ -545,19 +545,26 @@ It must be `x86_64-pc-windows-msvc` on x64 or `aarch64-pc-windows-msvc` on
 Windows on Arm. The Visual Studio install command above includes both x64 and
 ARM64 C++ tools so either build has the MSVC linker and Windows SDK it needs.
 
-The release installer remains PowerShell because it downloads and verifies a
-published archive. Source builds run directly from Cargo. At startup, the
-overlay reads every connected self-describing Vial keyboard into memory;
-disconnected keyboards require a restart after they are connected.
+The release installer remains a separate PowerShell entry point because it
+downloads and verifies a published archive. The development script invokes
+Cargo, uv, Pester, and mise directly without a Unix compatibility layer. At
+startup, the overlay reads every connected self-describing Vial keyboard into
+memory; disconnected keyboards require a restart after they are connected.
 
-For the Windows Rust frontend, use Cargo for the local verification loop:
+For the complete Windows verification and source-install workflows:
 
 ```powershell
-cargo fmt --check
-cargo clippy --package keymap-overlay-windows -- -D warnings
-cargo check --package keymap-overlay-windows
-cargo test --workspace
+.\tools\windows.ps1 -Task format
+.\tools\windows.ps1 -Task lint
+.\tools\windows.ps1 -Task test
+.\tools\windows.ps1 -Task test-rust
+.\tools\windows.ps1 -Task test-release-acceptance
+.\tools\windows.ps1 -Task install
 ```
+
+Use `-Task uninstall` to remove the source installation while retaining logs.
+QMK firmware builds remain unsupported in native Windows PowerShell; use WSL,
+macOS, or Linux for firmware compilation and flashing.
 
 ### Verification
 
