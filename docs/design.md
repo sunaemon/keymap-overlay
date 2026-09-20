@@ -146,9 +146,9 @@ No synthetic function-key events or Hammerspoon configuration are required.
 
 On **Windows**, `overlay/platforms/windows/win32` owns the Rust process and
 uses stable Win32 APIs through `windows-rs`. It calls the shared listener, core
-reducer, model loader, and composer directly; there is no .NET host or C ABI
-bridge. `overlay/platforms/windows/winui` remains an experimental Reactor
-frontend and is not selected for normal builds or releases.
+reducer, model loader, and composer directly.
+`overlay/platforms/windows/winui` remains an experimental Reactor frontend and
+is not selected for normal builds or releases.
 
 The transparent native window is mapped once and shrinks to one pixel while idle.
 Its HWND uses `WS_EX_NOACTIVATE`, `WS_EX_TOOLWINDOW`, and click-through styling,
@@ -217,8 +217,7 @@ at custom scales.
 ### Requirements on Windows
 
 - Normal release installation through `install.ps1` requires only PowerShell.
-  Source development uses Cargo from a Visual Studio developer command prompt;
-  it does not require MSYS2, GNU Make, .NET, or WPF.
+  Source development uses Cargo from a Visual Studio developer command prompt.
 - Nothing has to be granted to read the keyboard: a vendor-defined HID
   interface is open to any process, unlike macOS Input Monitoring or the
   `hidraw` node on Linux. hidapi is built on its own Windows backend, which

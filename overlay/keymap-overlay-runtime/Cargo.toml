@@ -22,9 +22,9 @@ env_logger = "0.11.11"
 hidapi = { version = "2.6.6", features = ["macos-shared-device"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-# The pure-Rust Windows backend rather than hidapi's bundled C one, so that
-# building from an MSYS2 shell needs no C compiler and no path translation for
-# it. Both report the usage page the Raw HID interface is selected by.
+# The pure-Rust Windows backend rather than hidapi's bundled C one keeps the
+# native PowerShell build independent of a separate C compiler. Both report the
+# usage page the Raw HID interface is selected by.
 hidapi = { version = "2.6.6", default-features = false, features = [
   "windows-native",
 ] }

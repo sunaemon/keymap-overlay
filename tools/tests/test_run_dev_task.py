@@ -6,7 +6,7 @@ from tools.run_dev_task import build_command
 
 
 def test_windows_hooks_use_the_native_powershell_workflow() -> None:
-    """Keep Windows hooks independent of Make and MSYS2."""
+    """Keep Windows hooks on the native PowerShell workflow."""
     root = Path("C:/src/keymap-overlay")
 
     command = build_command("test-rust", [], root=root, platform="win32")

@@ -18,7 +18,7 @@ software behavior; guided physical checks retain the hardware boundaries.
 ## Required Test Matrix
 
 The proposed macOS, KDE Plasma, and Windows runs cover AppKit, Qt/LayerShellQt,
-and WPF. They do not cover GNOME Shell, which is a separate Linux renderer. The
+and Win32. They do not cover GNOME Shell, which is a separate Linux renderer. The
 baseline release matrix is therefore:
 
 | Platform ID                  | Architecture | Session and renderer                      | Required hardware coverage |
@@ -26,7 +26,7 @@ baseline release matrix is therefore:
 | `macos-arm64-appkit`         | arm64        | AppKit on macOS                           | One supported keyboard     |
 | `linux-x86_64-kde-wayland`   | x86_64       | KDE Plasma on Wayland, Qt/LayerShellQt    | One supported keyboard     |
 | `linux-x86_64-gnome-wayland` | x86_64       | GNOME 45 or newer on Wayland, GNOME Shell | One supported keyboard     |
-| `windows-x86_64-wpf`         | x86_64       | WPF on Windows 11                         | One supported keyboard     |
+| `windows-x86_64-win32`       | x86_64       | Win32 on Windows 11                       | One supported keyboard     |
 
 Linux daemon and physical-device checks are shared on x86_64; KDE and GNOME
 keep independent renderer/session checks. macOS and Windows keep their

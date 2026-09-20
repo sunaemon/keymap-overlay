@@ -24,7 +24,7 @@ and IDs with commas.
 | macos-arm64-appkit         | arm64        | Pending    | AppKit / Aqua        | Pending     | Pending          | Pending              |
 | linux-x86_64-kde-wayland   | x86_64       | Pending    | KDE Plasma / Wayland | Pending     | Pending          | Pending              |
 | linux-x86_64-gnome-wayland | x86_64       | Pending    | GNOME / Wayland      | Pending     | Pending          | Pending              |
-| windows-x86_64-wpf         | x86_64       | Pending    | WPF / desktop        | Pending     | Pending          | Pending              |
+| windows-x86_64-win32       | x86_64       | Pending    | Win32 / desktop      | Pending     | Pending          | Pending              |
 
 ### Human-operation order and rationale
 
@@ -125,14 +125,14 @@ checks cannot be completed from another renderer's result.
 - [ ] **GNOME-06** — Result: PENDING — Size and position are correct on every affected display and scale factor in GNOME Shell.
 - [ ] **GNOME-10** — Result: PENDING — After sign-out and sign-in, the daemon and extension read the connected keyboard and handle the first physical layer press without a manual restart.
 
-### windows-x86_64-wpf checks
+### windows-x86_64-win32 checks
 
 - [ ] **WIN-01** — Result: PENDING — Native startup loads the in-memory model directly from the device, uses no host model/config arguments, and reports no device-open, Vial-read, model, or Raw HID errors.
 - [ ] **WIN-02** — Result: PENDING — Two held `MO` keys follow numeric precedence, restore the still-held lower layer, and hide after the final release.
 - [ ] **WIN-03** — Result: PENDING — Restarting after a live Vial edit rereads the model, with no device read on the layer-key hot path.
 - [ ] **WIN-04** — Result: PENDING — The overlay remains topmost and click-through without taking keyboard focus, including the second and later show.
-- [ ] **WIN-05** — Result: PENDING — Geometry, platform labels, custom glyphs, transparent keys, and the highlighted held key match the live Vial keymap in WPF.
-- [ ] **WIN-06** — Result: PENDING — Size and position are correct on every affected display and scale factor in WPF.
+- [ ] **WIN-05** — Result: PENDING — Geometry, platform labels, custom glyphs, transparent keys, and the highlighted held key match the live Vial keymap in Win32.
+- [ ] **WIN-06** — Result: PENDING — Size and position are correct on every affected display and scale factor in Win32.
 - [ ] **WIN-07** — Result: PENDING — The keyboard types normally before and after the run, and its USB identity and `KEYBOARD_ID` match its configuration directory.
 - [ ] **WIN-08** — Result: PENDING — Every `MO` key shows its layer while held and hides it on release; fast taps and ten repeated holds leave no stuck or stale overlay.
 - [ ] **WIN-09** — Result: PENDING — Unplugging while visible hides the overlay; reconnecting works when loaded at startup, while a keyboard absent at startup requires a restart.
@@ -144,11 +144,11 @@ Run the documented upgrade, local rollback-acceptance, and uninstall procedure
 on every listed platform. Each operation must be `PASS`; identify the saved local log,
 terminal transcript, or PR comment in `Evidence`.
 
-| Platform ID        | Upgrade | Rollback | Uninstall | Evidence |
-| ------------------ | ------- | -------- | --------- | -------- |
-| macos-arm64-appkit | PENDING | PENDING  | PENDING   | Pending  |
-| linux-x86_64       | PENDING | PENDING  | PENDING   | Pending  |
-| windows-x86_64-wpf | PENDING | PENDING  | PENDING   | Pending  |
+| Platform ID          | Upgrade | Rollback | Uninstall | Evidence |
+| -------------------- | ------- | -------- | --------- | -------- |
+| macos-arm64-appkit   | PENDING | PENDING  | PENDING   | Pending  |
+| linux-x86_64         | PENDING | PENDING  | PENDING   | Pending  |
+| windows-x86_64-win32 | PENDING | PENDING  | PENDING   | Pending  |
 
 Release exclusions: None.
 
