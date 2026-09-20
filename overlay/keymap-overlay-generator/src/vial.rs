@@ -261,8 +261,11 @@ fn read_keycodes(
         offset += chunk;
     }
     Ok(bytes
-        .chunks_exact(2)
-        .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .copied()
+        .map(u16::from_be_bytes)
         .collect())
 }
 
@@ -444,8 +447,11 @@ mod tests {
         let keycodes = [0x00, 0x04, 0x52, 0x21];
         assert_eq!(
             keycodes
-                .chunks_exact(2)
-                .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .copied()
+                .map(u16::from_be_bytes)
                 .collect::<Vec<_>>(),
             vec![0x0004, 0x5221]
         );
