@@ -10,7 +10,9 @@
 QMK Keymap Overlay shows the active momentary keyboard layer while its
 `MO(...)` key is held. QMK firmware reports layer changes over Raw HID, and a
 native overlay draws the matching keys, encoders, and labels on macOS, Linux,
-or Windows.
+or Windows. Release the layer key to hide the overlay or return to another
+held layer. The overlay stays above other windows without taking focus or
+intercepting clicks.
 
 ![The overlay showing layer 1 of salicylic_acid3/insixty_en while its layer key is held](docs/images/overlay.png)
 
@@ -28,10 +30,10 @@ or Windows.
   - [Finish setup on macOS](#finish-setup-on-macos)
   - [Finish setup on Linux](#finish-setup-on-linux)
   - [Enable GNOME](#gnome)
-  - [Enable KDE Plasma or another desktop](#kde-plasma-and-other-desktops)
+  - [Enable KDE Plasma, Cinnamon, or another desktop](#kde-plasma-cinnamon-and-other-desktops)
 - [Install on Windows](#install-on-windows)
 - [Update a keymap or the overlay](#everyday-operations)
-- [Use a VIAL keymap](#vial-keymaps)
+- [Use a Vial keymap](#vial-keymaps)
 - [Add your own keyboard](docs/custom-keyboards.md)
 - [Develop keymap-overlay](#development)
 
@@ -39,7 +41,8 @@ or Windows.
 
 Installation has two parts:
 
-1. Build QMK firmware that reports momentary layer changes over Raw HID.
+1. Build and flash QMK firmware that embeds the keyboard metadata and reports
+   momentary layer changes over Raw HID.
 2. Install the released native overlay and its login service. At startup the
    overlay reads each connected keyboard's Vial definition and keymap directly
    into memory.
@@ -48,6 +51,16 @@ Firmware comes from this source checkout. The native overlay comes from GitHub
 Releases, so a normal installation does not compile Rust locally. Release
 archives contain the executable, MIT license, and third-party notices. Keyboard
 definitions and generated layer models are not installed on the host.
+
+If your keyboard already runs compatible firmware, skip directly to the
+released overlay installer for [macOS/Linux](#3-install-the-released-overlay)
+or [Windows](#3-install-the-released-windows-overlay). On Linux, first complete
+the source setup to install runtime dependencies and provide the
+`make install-udev-rules` command used below; you can skip flashing.
+
+Connect your keyboards before starting the overlay. Restart it after editing
+a keymap in Vial or connecting a keyboard that was absent at startup. Only
+momentary `MO(...)` layers trigger the overlay; toggle and layer-tap keys do not.
 
 See [docs/design.md](docs/design.md) for the Raw HID protocol, data flow, layer
 composition rules, and native window design.
@@ -95,15 +108,18 @@ If the installed firmware cannot enter the bootloader:
 
 ### 1. Prepare the source checkout
 
+On macOS, `make setup` requires Homebrew (`brew`) to install the QMK toolchain.
+
 ```bash
 git clone https://github.com/sunaemon/keymap-overlay.git
 cd keymap-overlay
 curl https://mise.run | sh
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 See [Installing mise](https://mise.jdx.dev/installing-mise.html) for package
-manager alternatives. Start a new shell if `mise` is not yet on `PATH`, then
-install the pinned tools and QMK toolchain:
+manager alternatives and persistent shell setup. Install the pinned tools
+and QMK toolchain:
 
 ```bash
 make setup
@@ -130,9 +146,10 @@ Choose an ID from [Bundled keyboards](#bundled-keyboards):
 make flash KEYBOARD_ID=1
 ```
 
-`make flash` waits for the keyboard bootloader. On Linux, the Makefile mounts
-an rp2040 `RPI-RP2` volume at `/run/media/$USER/RPI-RP2`; set `SUDO=` if the
-desktop already mounts it, or set `UF2_VOLUME_LABEL` for another label.
+`make flash` waits for the keyboard bootloader. On Linux, it reuses a writable
+RP2040 bootloader volume or mounts it at `/run/media/$USER/RPI-RP2` with `sudo`.
+It also cleans up a remaining mount at that path after flashing. Set
+`UF2_VOLUME_LABEL` if your bootloader uses another volume label.
 
 ### 3. Install the released overlay
 
@@ -150,10 +167,10 @@ registers login services, and starts them. Keep the keyboard
 connected for the first start. When authenticated GitHub CLI is available, it
 also verifies the artifact attestation.
 
-On macOS and Linux the executable is installed to `~/.local/bin/keymap-overlay`,
-with the Qt renderer beside it. The login service names the binary by absolute path,
-so it works whether or not `~/.local/bin` is on your `PATH`; drop the directory
-prefix below once it is. Its license terms are built in:
+On macOS and Linux the executable is installed to `~/.local/bin/keymap-overlay`.
+Linux also installs the Qt renderer beside it. The login service uses an
+absolute path, so `~/.local/bin` does not need to be on your `PATH`.
+You can read the bundled license terms with:
 
 ```bash
 ~/.local/bin/keymap-overlay --license                 # this project's terms
@@ -164,6 +181,7 @@ prefix below once it is. Its license terms are built in:
 
 Grant the overlay Input Monitoring permission in System Settings when
 prompted. The overlay then appears whenever a QMK `MO(...)` key is held.
+If it does not appear after granting permission, [restart the overlay](#restart-the-overlay).
 
 ### Finish setup on Linux
 
@@ -172,6 +190,9 @@ Grant Raw HID access, then reconnect keyboards that are already plugged in:
 ```bash
 make install-udev-rules
 ```
+
+[Restart the overlay](#restart-the-overlay) after reconnecting so it can read
+the keyboard's model.
 
 The installer provides both Linux renderers. Complete only the subsection for
 your desktop.
@@ -222,7 +243,7 @@ systemctl --user restart keymap-overlay-qt.service
 
 ## Install on Windows
 
-Windows uses two environments:
+Building firmware and running the overlay on Windows use two environments:
 
 - **WSL `keymap-firmware`** builds and flashes QMK firmware.
 - **PowerShell** installs the released native overlay, which reads layer models
@@ -324,14 +345,24 @@ keyboard connected while the overlay runs.
 
 ## Everyday Operations
 
-### Update a keymap
+### Edit a keymap in Vial
 
-Edit `keymap.c`, flash it, then restart the overlay so it rereads the connected
-keyboard into memory:
+Edit the connected keyboard in the Vial app, then
+[restart the overlay](#restart-the-overlay) to display the changes. Vial edits
+persist across keyboard restarts; no firmware build is needed.
+
+### Update firmware or the source keymap
+
+To update the checkout and its firmware dependencies:
 
 ```bash
 git pull
 make setup-firmware
+```
+
+Edit the keyboard's `keymap.c` as needed, then build and flash it:
+
+```bash
 make flash KEYBOARD_ID=<keyboard-id>
 ```
 
@@ -339,7 +370,12 @@ make flash KEYBOARD_ID=<keyboard-id>
 firmware resets Vial's EEPROM-backed configuration and initializes the dynamic
 keymap from `keymap.c`; live Vial edits are therefore replaced by the source
 keymap. On Windows, build and flash in WSL (or copy the built `.uf2` from WSL
-to the bootloader volume in Explorer). Restart the runtime afterward:
+to the bootloader volume in Explorer). Restart the overlay afterward.
+
+### Restart the overlay
+
+Keep the keyboard connected while restarting. The overlay reads its current
+keymap into memory at startup.
 
 ```bash
 # macOS
@@ -414,12 +450,12 @@ powershell.exe -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\keymap-overlay\i
 Uninstalling removes the executables, license notices, login entry, and any
 legacy model cache. Rotated logs are retained.
 
-## VIAL Keymaps
+## Vial Keymaps
 
 The installed overlay reads the keymap currently stored in the connected
-keyboard's VIAL EEPROM at startup—including edits made live in the Vial app,
-not just what `keymap.c` last compiled to. Restart it after making live edits.
-For development, `make draw-layers` performs the same connected-device read.
+keyboard's Vial EEPROM at startup, including edits made in the Vial app.
+It reads the device without writing to it or polling for keymap changes.
+[Restart the overlay](#restart-the-overlay) after making live edits.
 
 To make `keymap.c` the keyboard's live keymap, use `make flash`; the firmware's
 fresh EEPROM epoch resets Vial state and initializes it from the compiled
@@ -434,8 +470,8 @@ an external configuration directory or a fork. The complete workflow is in
 
 ## Development
 
-Normal users can stop above. This section is for changing the Rust overlay,
-Python generators, Makefile, or installers.
+Use this section to build from source or change the Rust overlay, Python
+generators, Makefile, or installers.
 
 ### macOS and Linux
 
@@ -464,8 +500,8 @@ D-Bus-to-renderer half exercises the daemon and Qt renderer together, including
 a golden-image comparison of the rendered Qt Quick overlay. The HID half
 requires the `uhid` kernel module.
 
-To exercise the complete native overlay without a physical keyboard, name a
-generated keyboard and momentary layer:
+To exercise the native overlay with a built-in test model and simulated
+momentary layer events:
 
 ```bash
 make run-overlay SIMULATE=1:2
@@ -474,6 +510,17 @@ make run-overlay SIMULATE=1:2
 This shows keyboard 1 layer 2 for two seconds, hides it for one second, and
 repeats until interrupted. Simulation replaces Raw HID input and supplies an
 in-memory test model, so it works without a supported keyboard attached.
+
+To export a connected keyboard's live Vial keymap as a display model for
+inspection, clear generated files first so Make performs a fresh device read:
+
+```bash
+make clean
+make draw-layers KEYBOARD_ID=1
+```
+
+This development command writes JSON under `build/<keyboard-id>/assets/`; the installed
+overlay keeps its models in memory and does not read these files.
 
 ### Windows native overlay development
 
@@ -522,7 +569,14 @@ if (($userPath -split ";") -notcontains $miseBin) {
 
 Open the architecture-matching Visual Studio developer command prompt (`ARM64
 Native Tools Command Prompt for VS 2022` on Windows on Arm, or `x64 Native
-Tools Command Prompt for VS 2022` on x64). Then run:
+Tools Command Prompt for VS 2022` on x64). Start PowerShell from that prompt
+so it inherits the compiler environment:
+
+```cmd
+powershell.exe -NoProfile
+```
+
+Then run these commands in that PowerShell session:
 
 ```powershell
 git clone https://github.com/sunaemon/keymap-overlay.git
