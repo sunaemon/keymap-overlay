@@ -132,12 +132,12 @@ Update the arguments when devices, firmware, or session change. The keyboard
 list describes participating physical devices, not the virtual fixture used by
 the Linux integration test.
 
-| Platform                     | Helper / import profile                                  | Results imported               | Remaining tester work                                                                                                                                |
-| ---------------------------- | -------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `macos-arm64-appkit`         | physical reports + `make test-hardware-session-macos`    | `GLOBAL-03`, `MAC-01`–`MAC-04` | Visuals, displays, typing/USB identity, repeated transitions, disconnects, first physical press after login, coverage and lifecycle                  |
-| `linux-x86_64-kde-wayland`   | `make test-hardware-session-linux` / `linux-kde-session` | `LX-02`                        | Real Vial edit/restart, device checks, startup/log inspection, pointer/window order, visuals/displays and login; virtual Vial does not prove `LX-03` |
-| `linux-x86_64-gnome-wayland` | No complete-check import profile                         | None                           | GNOME startup, window safety, visuals/displays and login; cite shared Linux device results separately                                                |
-| `windows-x86_64-win32`       | No complete-check import profile                         | None                           | All Win32 checks, including typing through the second and later shows, and lifecycle                                                                 |
+| Platform                     | Helper / import profile                                  | Results imported               | Remaining tester work                                                                                                               |
+| ---------------------------- | -------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `macos-arm64-appkit`         | physical reports + `make test-hardware-session-macos`    | `GLOBAL-03`, `MAC-01`–`MAC-04` | Visuals, displays, typing/USB identity, repeated transitions, disconnects, first physical press after login, coverage and lifecycle |
+| `linux-x86_64-kde-wayland`   | `make test-hardware-session-linux` / `linux-kde-session` | `LX-02`, `LX-03`, `LX-08`      | Device checks, startup/log inspection, pointer/window order, visuals/displays and login                                             |
+| `linux-x86_64-gnome-wayland` | No complete-check import profile                         | None                           | GNOME startup, window safety, visuals/displays and login; cite shared Linux device results separately                               |
+| `windows-x86_64-win32`       | No complete-check import profile                         | None                           | All Win32 checks, including typing through the second and later shows, and lifecycle                                                |
 
 The physical-report helper supplies `GLOBAL-03`; deterministic session or
 manual backend evidence supplies each platform's `*-08`. The macOS login helper

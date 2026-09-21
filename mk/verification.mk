@@ -97,6 +97,14 @@ else
 	$(error build-hil-driver-macos is only available on macOS)
 endif
 
+.PHONY: build-hil-driver-linux
+build-hil-driver-linux:
+ifeq ($(OS_FAMILY),linux)
+	$(CARGO) build --release -p keymap-overlay-hil
+else
+	$(error build-hil-driver-linux is only available on Linux)
+endif
+
 .PHONY: build-hil-macos
 build-hil-macos: build-hil-driver-macos
 ifeq ($(OS_FAMILY),macos)

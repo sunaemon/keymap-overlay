@@ -137,9 +137,10 @@ into physical-switch evidence. The guided physical transcript supplies
 On Linux, `test-hardware-session-linux` uses a self-describing virtual Vial HID
 device in the real KDE session to exercise the installed daemon, D-Bus state,
 Qt renderer accessibility labels, focus retention, and deterministic layer
-ordering and repeated transitions. Virtual HID does not replace USB identity,
-encoder wiring, unplug/replug, display inspection, pointer click-through, or
-login evidence.
+ordering and repeated transitions. The same target uses the first-party HIL
+driver to make and restore a live Vial keycode edit across real daemon restarts.
+Virtual HID does not replace USB identity, encoder wiring, unplug/replug,
+display inspection, pointer click-through, or login evidence.
 
 The person merging the release preparation PR owns the gate. It passes only
 when every required coverage row is recorded, every applicable item passes,

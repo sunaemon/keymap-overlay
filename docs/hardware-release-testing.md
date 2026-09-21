@@ -208,10 +208,12 @@ make test-hardware-session-linux
 The first target uses a self-describing virtual Vial HID device with the
 installed daemon and Qt renderer. It proves startup model transport, layer
 precedence/restoration, repeated transitions, AT-SPI labels, absence of overlay
-focus, and focus retention. It does not replace visual comparison, monitor/scale
-inspection, pointer click-through, USB identity, unplug/replug, or sign-in
-evidence. The completed `GLOBAL-03` check supplies the release-wide physical
-switch-to-firmware proof.
+focus, and focus retention. Before creating the virtual device, it uses the
+first-party HIL driver to make a reversible live Vial edit and proves that the
+daemon reads the changed and restored models only across restarts. It does not
+replace visual comparison, monitor/scale inspection, pointer click-through, USB
+identity, unplug/replug, or sign-in evidence. The completed `GLOBAL-03` check
+supplies the release-wide physical switch-to-firmware proof.
 
 Perform shared Linux checks once on x86_64 (`LX`). Perform renderer checks in
 both listed sessions (`KDE` and `GNOME`). Before and after the shared run,

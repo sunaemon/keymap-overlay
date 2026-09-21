@@ -33,8 +33,8 @@ PROFILE_RESULTS = {
         "automated",
     ),
     "linux-kde-session": (
-        "PASS: installed Linux virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention",
-        ("LX-02",),
+        "PASS: Linux live Vial restart read, installed virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention",
+        ("LX-02", "LX-03", "LX-08"),
         "automated",
     ),
 }

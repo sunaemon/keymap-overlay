@@ -53,8 +53,9 @@ their required hardware evidence.
 - The Linux KDE session target runs the installed daemon and Qt renderer against
   the self-describing virtual Vial device in a real Wayland session. It checks
   D-Bus transitions, AT-SPI labels, absence of overlay focus, and retained accessibility
-  focus. Either guided physical-report target can supply the release-wide
-  `GLOBAL-03` physical `MO` switch proof.
+  focus. A Linux-only release run must separately execute and review
+  `test-hardware-physical-reports-linux` before using its transcript for the
+  release-wide `GLOBAL-03` physical `MO` switch proof.
 
 ## Manual Gate Mapping
 

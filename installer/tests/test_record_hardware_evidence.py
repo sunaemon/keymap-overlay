@@ -101,14 +101,14 @@ def test_invalid_output_suffix_preserves_transcript(
     assert not output.parent.exists()
 
 
-def test_kde_profile_does_not_claim_vial_edit_or_physical_startup(
+def test_kde_profile_imports_restart_and_transition_checks(
     tmp_path: Path,
 ) -> None:
-    """Virtual fixture output supplies only the complete layer-order check."""
+    """The Linux HIL supplies restart-read and deterministic transition checks."""
     transcript = tmp_path / "linux.log"
     transcript.write_text(
         f"Candidate: {CANDIDATE}\n"
-        "PASS: installed Linux virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention\n"
+        "PASS: Linux live Vial restart read, installed virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention\n"
     )
     record = build_record(
         candidate_sha=CANDIDATE,
@@ -121,7 +121,11 @@ def test_kde_profile_does_not_claim_vial_edit_or_physical_startup(
         lifecycle=None,
         profile="linux-kde-session",
     )
-    assert [check.check_id for check in record.checks] == ["LX-02"]
+    assert [check.check_id for check in record.checks] == [
+        "LX-02",
+        "LX-03",
+        "LX-08",
+    ]
 
 
 def test_builds_validated_record_from_compact_fields(tmp_path: Path) -> None:
