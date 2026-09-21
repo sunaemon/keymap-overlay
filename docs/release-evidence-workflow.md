@@ -23,6 +23,71 @@ substitute a newer checkout's SHA when recording an older run.
 
 ## 2. Capture each run and reuse its metadata
 
+### Guided collection
+
+From the clean candidate checkout, the guided command runs available session
+and physical-report helpers, then asks for the remaining local observations.
+It creates the portable bundles and summary automatically. Use a new directory
+outside the checkout for each attempt:
+
+```bash
+uv run python -m installer.release.run_hardware_checks \
+  --output "$HOME/kmo-evidence/current-attempt" \
+  --tester 'Your name' \
+  --keyboard 'Insixty|1|actual firmware revision' \
+  --keyboard 'DOIO KB16|2|actual firmware revision'
+```
+
+The same entry point runs in native Windows PowerShell:
+
+```powershell
+uv run python -m installer.release.run_hardware_checks `
+  --output "$env:USERPROFILE/kmo-evidence/current-attempt" `
+  --tester 'Your name' `
+  --keyboard 'Insixty|1|actual firmware revision'
+```
+
+Add `--plan` to preview the helper commands without running them or creating
+evidence. The runner detects the candidate SHA, OS, architecture, and Linux
+desktop/session. Keyboard names and firmware revisions are declarations: the
+HIL interface does not reliably expose a firmware commit. Confirm the USB/ID
+identity during the physical check. Match the existing helpers' `KMO_HIL_*`
+settings to the participating boards; defaults expect both bundled keyboards
+and physical reports `1:1 1:2 2:3`. The runner preserves those settings.
+
+On macOS it runs physical reports followed by the session HIL helper. On KDE
+it runs physical reports followed by the virtual-device session helper. On
+GNOME it runs physical reports and prompts for renderer observations. Windows
+uses the guided observation path because the HIL driver does not support it.
+No new renderer coverage is implied by wrapping these helpers.
+
+Complete the hardware procedure's prerequisites first: candidate HIL firmware
+and macOS permissions, Linux device access, and KDE `/dev/uhid` access. The
+runner confirms before starting helpers that install/restart services or
+temporarily edit and restore Vial bindings. Observe physical typing before
+starting and again afterward. It imports only complete checks after the
+helper exits successfully, including cleanup; physical-report helpers remain
+supporting evidence for the combined `*-08` observation.
+
+For each remaining local check, enter `PASS`, `FAIL`, or `SKIP` (the default).
+A recorded outcome requires a description of what you did and observed.
+Checklist wording comes from the release template. Skip anything not actually
+performed, especially login checks if you have not signed out and back in.
+Use the standalone recorder below for later observations. Firmware flashing,
+login, lifecycle operations, and release-wide keyboard coverage remain the
+explicit steps documented in the hardware procedure.
+
+Failures stop the run and preserve its transcripts and completed records.
+The summary marks interrupted runs as stopped. Changing the candidate or
+dirtying its checkout stops further recording. A completed prompting session
+does not mean the release gate passes: inspect missing items in `summary.md`.
+Transfer the entire run directory, including `helper-logs`, through steps 4–6.
+
+### Standalone recording
+
+Use the commands below for independently collected results, lifecycle logs,
+later login observations, or checks skipped during guided collection.
+
 Keep the command, exit status, tester name, date, platform/session, keyboard
 identity and firmware revision, and observations in the transcript. Existing
 HIL targets print their transcript path and candidate. Wait for the command to
