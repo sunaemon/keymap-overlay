@@ -33,6 +33,8 @@ $script:overlayInstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\keymap-o
 $script:overlayInstallPath = Join-Path $overlayInstallDirectory 'keymap-overlay.exe'
 $script:overlayLogDirectory = Join-Path $env:LOCALAPPDATA 'keymap-overlay\logs'
 $script:overlayLogPath = Join-Path $overlayLogDirectory 'overlay.log'
+$script:overlayCopyAttempts = 20
+$script:overlayCopyRetryMilliseconds = 250
 $script:runKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $script:runValueName = 'KeymapOverlay'
 
@@ -231,7 +233,7 @@ function Install-Overlay {
     Stop-Overlay
     New-Item -ItemType Directory -Path $overlayInstallDirectory -Force | Out-Null
     New-Item -ItemType Directory -Path $overlayLogDirectory -Force | Out-Null
-    Copy-Item -LiteralPath $overlayBuildPath -Destination $overlayInstallPath -Force
+    Copy-OverlayBinary
     $legacyGenerator = Join-Path $overlayInstallDirectory 'keymap-overlay-generator.exe'
     Remove-Item -LiteralPath $legacyGenerator -Force -ErrorAction SilentlyContinue
     Remove-LegacyModels
@@ -239,6 +241,21 @@ function Install-Overlay {
     Set-ItemProperty -Path $runKeyPath -Name $runValueName -Value $command
     Start-Process -FilePath $overlayInstallPath -ArgumentList @('--log-out', $overlayLogPath)
     Write-Output "Overlay installed and started; logs: $overlayLogDirectory"
+}
+
+function Copy-OverlayBinary {
+    for ($attempt = 1; $attempt -le $overlayCopyAttempts; $attempt++) {
+        try {
+            Copy-Item -LiteralPath $overlayBuildPath -Destination $overlayInstallPath -Force
+            return
+        }
+        catch [System.IO.IOException] {
+            if ($attempt -eq $overlayCopyAttempts) {
+                throw
+            }
+            Start-Sleep -Milliseconds $overlayCopyRetryMilliseconds
+        }
+    }
 }
 
 function Uninstall-Overlay {
