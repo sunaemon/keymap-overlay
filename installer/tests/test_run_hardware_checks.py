@@ -1,5 +1,6 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import re
 import runpy
 import subprocess
 import sys
@@ -344,15 +345,22 @@ def test_incomplete_template_cannot_skip_required_check(tmp_path: Path) -> None:
         runner.check_descriptions(tmp_path, "macos-arm64-appkit")
 
 
+@pytest.mark.parametrize("colored", [False, True])
 def test_module_entrypoint_displays_help_without_hardware(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], colored: bool
 ) -> None:
     """The executable module exposes the documented CLI without executing checks."""
+    if colored:
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("FORCE_COLOR", "1")
+    else:
+        monkeypatch.delenv("FORCE_COLOR", raising=False)
+        monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr(sys, "argv", [runner.__file__, "--help"])
     with pytest.raises(SystemExit) as result:
         runpy.run_path(runner.__file__, run_name="__main__")
     assert result.value.code == 0
-    output = capsys.readouterr().out
+    output = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
     assert "--plan" in output
     assert "--keyboard" in output
 
