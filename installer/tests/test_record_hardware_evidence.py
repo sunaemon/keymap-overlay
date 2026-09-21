@@ -47,7 +47,10 @@ def test_cli_creates_portable_manual_bundle(tmp_path: Path) -> None:
     assert "| WIN-04 | PASS | physical |" in collect_evidence(CANDIDATE, [output])
 
 
-def test_bundle_survives_transfer_to_another_machine(tmp_path: Path) -> None:
+@pytest.mark.parametrize("suffix", [".json", ".JSON"])
+def test_bundle_survives_transfer_to_another_machine(
+    tmp_path: Path, suffix: str
+) -> None:
     """A copied bundle resolves its transcript without the source machine path."""
     source = tmp_path / "source.txt"
     source.write_text("Tester observed correct labels")
@@ -61,15 +64,41 @@ def test_bundle_survives_transfer_to_another_machine(tmp_path: Path) -> None:
         checks=["MAC-05|PASS|manual|Compared with live Vial"],
         lifecycle=None,
     )
-    output = tmp_path / "tester" / "visual.json"
+    output = tmp_path / "tester" / f"visual{suffix}"
     write_record_bundle(record, output)
     shutil.copytree(output.parent, tmp_path / "reviewer")
     source.unlink()
-    summary = collect_evidence(CANDIDATE, [tmp_path / "reviewer" / "visual.json"])
+    summary = collect_evidence(CANDIDATE, [tmp_path / "reviewer" / output.name])
     assert "| MAC-05 | PASS | manual |" in summary
     assert str(tmp_path / "reviewer" / "visual.log") in summary
     with pytest.raises(EvidenceRecordError, match="already exists"):
         write_record_bundle(record, output)
+
+
+@pytest.mark.parametrize(
+    "filename", ["evidence.log", "evidence.LOG", "evidence.txt", "evidence"]
+)
+def test_invalid_output_suffix_preserves_transcript(
+    tmp_path: Path, filename: str
+) -> None:
+    """Reject ambiguous bundle paths before copying or overwriting evidence."""
+    source = tmp_path / "source.log"
+    source.write_text("Original physical observation\n")
+    record = build_record(
+        candidate_sha=CANDIDATE,
+        platform_id="macos-arm64-appkit",
+        os_version="macOS 26",
+        session="Aqua",
+        transcript=source,
+        keyboards=["Insixty|1|abc"],
+        checks=["MAC-05|PASS|manual|Compared with live Vial"],
+        lifecycle=None,
+    )
+    output = tmp_path / "bundle" / filename
+    with pytest.raises(EvidenceRecordError, match="must use a .json suffix"):
+        write_record_bundle(record, output)
+    assert source.read_text() == "Original physical observation\n"
+    assert not output.parent.exists()
 
 
 def test_kde_profile_does_not_claim_vial_edit_or_physical_startup(

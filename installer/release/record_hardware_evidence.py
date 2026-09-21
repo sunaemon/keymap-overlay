@@ -121,6 +121,8 @@ def build_record(
 
 def write_record_bundle(record: EvidenceRecord, output: Path) -> None:
     """Copy the transcript beside a new record using a portable relative path."""
+    if output.suffix.lower() != ".json":
+        raise EvidenceRecordError("Evidence record output must use a .json suffix")
     bundled_transcript = output.with_suffix(".log")
     if output.exists() or bundled_transcript.exists():
         raise EvidenceRecordError(f"Evidence bundle already exists: {output}")
