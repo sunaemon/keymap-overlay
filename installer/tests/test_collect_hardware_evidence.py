@@ -99,6 +99,35 @@ def test_rejects_unknown_check_id(tmp_path: Path) -> None:
         collect_evidence(CANDIDATE, [record])
 
 
+def test_rejects_result_from_another_renderer(tmp_path: Path) -> None:
+    """macOS metadata cannot be reused to satisfy GNOME observations."""
+    record = write_record(
+        tmp_path,
+        candidate=CANDIDATE,
+        checks=[check("GNOME-05", "PASS", "manual")],
+    )
+    with pytest.raises(EvidenceCollectionError, match="Invalid evidence record"):
+        collect_evidence(CANDIDATE, [record])
+
+
+def test_failed_lifecycle_is_listed_in_problems(tmp_path: Path) -> None:
+    """The review entry point includes failures outside individual check IDs."""
+    record = write_record(
+        tmp_path,
+        candidate=CANDIDATE,
+        checks=[],
+        lifecycle={
+            "platform_id": "macos-arm64-appkit",
+            "upgrade": "PASS",
+            "rollback": "FAIL",
+            "uninstall": "PASS",
+        },
+    )
+    summary = collect_evidence(CANDIDATE, [record])
+    assert "- FAILED lifecycle: macos-arm64-appkit." in summary
+    assert "MANUAL REVIEW: reconcile all four platform rows" in summary
+
+
 def test_automated_result_cannot_satisfy_human_only_check(tmp_path: Path) -> None:
     """Automation never infers a visual or physical tester observation."""
     record = write_record(

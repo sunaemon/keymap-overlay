@@ -19,6 +19,10 @@ and IDs with commas. The evidence record and summary commands in the
 [hardware test procedure](https://github.com/sunaemon/keymap-overlay/blob/main/docs/hardware-release-testing.md#5-record-the-gate)
 collect exact-head results and transcript paths without re-entering shared run
 metadata; review their `Problems` section before transferring the draft here.
+The release owner follows the
+[maintainer evidence workflow](https://github.com/sunaemon/keymap-overlay/blob/main/docs/release-evidence-workflow.md)
+to gather all four platform runs, retain portable transcripts, reconcile
+manual coverage and retries, and perform final review.
 
 ### Platform test matrix
 

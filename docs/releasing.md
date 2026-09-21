@@ -55,7 +55,8 @@ Releases are beta until the project explicitly declares 1.0 stability.
    in that table. Record each retained run once with
    `installer.release.record_hardware_evidence`, then use
    `installer.release.collect_hardware_evidence` to produce the exact-head
-   checklist summary described in the hardware test procedure. Review every
+   checklist summary. Follow the single [maintainer evidence workflow](release-evidence-workflow.md)
+   for platform assignments, bundle transfer, and final review. Review every
    stale, incomplete, failed, and missing item before copying the draft into
    the release PR.
 5. Merge the release preparation PR into `main` only after the hardware gate

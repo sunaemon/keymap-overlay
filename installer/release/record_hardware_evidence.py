@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import logging
 import re
+import shutil
 from pathlib import Path
 from typing import Annotated
 
@@ -26,25 +27,10 @@ PROFILE_RESULTS = {
         ("MAC-01", "MAC-02", "MAC-03", "MAC-04"),
         "automated",
     ),
-    "macos-physical-reports": (
-        "PASS: every configured physical MO key emitted ordered press/release Raw HID reports",
-        ("MAC-08",),
-        "physical",
-    ),
-    "macos-login": (
-        "PASS: actual sign-out/sign-in startup and interactive HIL layer event",
-        ("MAC-10",),
-        "physical",
-    ),
     "linux-kde-session": (
         "PASS: installed Linux virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention",
-        ("LX-02", "LX-03", "KDE-01"),
+        ("LX-02",),
         "automated",
-    ),
-    "linux-physical-reports": (
-        "PASS: every configured physical MO key emitted ordered press/release Raw HID reports",
-        ("LX-08",),
-        "physical",
     ),
 }
 
@@ -95,10 +81,7 @@ def main(
             lifecycle=lifecycle,
             profile=profile,
         )
-        output.write_text(
-            record.model_dump_json(indent=2, exclude_none=True) + "\n",
-            encoding="utf-8",
-        )
+        write_record_bundle(record, output)
         logger.info("Wrote hardware evidence record to %s", output)
     except (EvidenceRecordError, OSError, ValidationError):
         logger.exception("Failed to record hardware release evidence")
@@ -133,6 +116,20 @@ def build_record(
         keyboards=[_parse_keyboard(value) for value in keyboards],
         checks=parsed_checks,
         lifecycle=_parse_lifecycle(lifecycle) if lifecycle is not None else None,
+    )
+
+
+def write_record_bundle(record: EvidenceRecord, output: Path) -> None:
+    """Copy the transcript beside a new record using a portable relative path."""
+    bundled_transcript = output.with_suffix(".log")
+    if output.exists() or bundled_transcript.exists():
+        raise EvidenceRecordError(f"Evidence bundle already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(record.transcript, bundled_transcript)
+    portable = record.model_copy(update={"transcript": Path(bundled_transcript.name)})
+    output.write_text(
+        portable.model_dump_json(indent=2, exclude_none=True) + "\n",
+        encoding="utf-8",
     )
 
 

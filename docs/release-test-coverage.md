@@ -1,5 +1,11 @@
 # Release Gate Coverage
 
+Use the [maintainer evidence workflow](release-evidence-workflow.md) to collect
+and reconcile results across machines. Its import profiles cover only complete
+checks proven by the helpers: `MAC-01`–`MAC-04` and `LX-02`. Guided switch
+reports, KDE window-safety assertions, and macOS login probes remain partial
+evidence requiring the additional observations below.
+
 The hardware gate exists only for behavior that automated tests do not prove.
 This document maps every release-wide and platform-specific manual check to
 current CI coverage, its remaining gap, and the automation needed to retire it.

@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from installer.release.check_hardware_gate import (
     EXPECTED_CHECK_IDS,
@@ -29,8 +36,6 @@ AUTOMATION_CAPABLE_CHECK_IDS = frozenset(
         "MAC-03",
         "MAC-04",
         "LX-02",
-        "LX-03",
-        "KDE-01",
     }
 )
 
@@ -101,6 +106,32 @@ class EvidenceRecord(BaseModel):
     transcript: Path
     checks: list[CheckResult] = Field(default_factory=list)
     lifecycle: LifecycleResult | None = None
+
+    @model_validator(mode="after")
+    def validate_result_scope(self) -> "EvidenceRecord":
+        """Keep renderer and lifecycle results in their actual platform scope."""
+        prefixes = {
+            "macos-arm64-appkit": ("GLOBAL-", "MAC-"),
+            "linux-x86_64-kde-wayland": ("GLOBAL-", "LX-", "KDE-"),
+            "linux-x86_64-gnome-wayland": ("GLOBAL-", "LX-", "GNOME-"),
+            "windows-x86_64-win32": ("GLOBAL-", "WIN-"),
+        }
+        if any(
+            not check.check_id.startswith(prefixes[self.platform_id])
+            for check in self.checks
+        ):
+            raise ValueError("Check does not belong to the recorded platform")
+        lifecycle_platform = (
+            "linux-x86_64"
+            if self.platform_id.startswith("linux-")
+            else self.platform_id
+        )
+        if (
+            self.lifecycle is not None
+            and self.lifecycle.platform_id != lifecycle_platform
+        ):
+            raise ValueError("Lifecycle does not belong to the recorded platform")
+        return self
 
     @field_validator("candidate_sha")
     @classmethod
@@ -225,7 +256,18 @@ def _render_summary(candidate: str, records: list[EvidenceRecord]) -> str:
 
     lines.extend(["", "## Problems", ""])
     problems = _problem_lines(stale, missing_transcripts, checks, lifecycle)
-    lines.extend(problems or ["- None."])
+    lines.extend(problems)
+    lines.extend(
+        [
+            "- MANUAL REVIEW: reconcile all four platform rows and bundled, encoder, "
+            "and simultaneous keyboard coverage in the release template. These are "
+            "not inferred from check results.",
+            "- MANUAL REVIEW: only GLOBAL-01/02 may use a reasoned N/A in the PR "
+            "when the release delta permits it; the gate validates eligibility.",
+            "- This summary is a review aid, not a hardware-gate pass. Preserve "
+            "transcripts and wait for hardware-release-gate on the release PR.",
+        ]
+    )
     lines.append("")
     return "\n".join(lines)
 
@@ -292,6 +334,12 @@ def _problem_lines(
     )
     if failed:
         problems.append(f"- FAILED checks: {', '.join(failed)}.")
+    for platform_id, entries in lifecycle.items():
+        if any(
+            "FAIL" in (result.upgrade, result.rollback, result.uninstall)
+            for _, result in entries
+        ):
+            problems.append(f"- FAILED lifecycle: {platform_id}.")
     automated_only = sorted(
         check_id
         for check_id, entries in checks.items()
