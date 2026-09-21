@@ -1,11 +1,26 @@
+codecov:
+  notify:
+    # Linux uploads the shared Python/Rust report while macOS and Windows add
+    # their platform-only Rust coverage. Do not evaluate an incomplete merge.
+    after_n_builds: 3
+    wait_for_ci: true
+
 coverage:
   status:
     project:
       default:
+        # The cross-platform project baseline is still under observation; see
+        # docs/coverage-policy.md for the rollout criteria.
         informational: true
     patch:
       default:
-        informational: true
+        # New or changed executable lines need 80% coverage. A one-point
+        # allowance accounts for platform-specific compilation paths.
+        target: 80%
+        threshold: 1%
+        informational: false
+        if_ci_failed: error
+        only_pulls: true
 
 comment:
   layout: 'header, diff, components, files'
