@@ -201,6 +201,17 @@ def test_reasoned_global_na_results_pass() -> None:
     validate_hardware_gate(evidence, HEAD_SHA, frozenset())
 
 
+def test_physical_global_check_cannot_use_na() -> None:
+    """The release-wide physical switch proof is unconditional."""
+    evidence = complete_gate().replace(
+        "GLOBAL-03** — Result: PASS",
+        "GLOBAL-03** — Result: N/A: covered by another check",
+    )
+
+    with pytest.raises(HardwareGateError, match="GLOBAL-03"):
+        validate_hardware_gate(evidence, HEAD_SHA, frozenset())
+
+
 @pytest.mark.parametrize(
     "changed_path",
     ("firmware/layer_notify.h", "model/generate_vial.py", "Makefile"),

@@ -25,14 +25,11 @@ app = typer.Typer()
 
 HELPERS = {
     "macos-arm64-appkit": (
-        ("test-hardware-physical-reports-macos", None),
+        ("test-hardware-physical-reports-macos", "physical-mo-reports"),
         ("test-hardware-session-macos", "macos-session"),
     ),
-    "linux-x86_64-kde-wayland": (
-        ("test-hardware-physical-reports-linux", None),
-        ("test-hardware-session-linux", "linux-kde-session"),
-    ),
-    "linux-x86_64-gnome-wayland": (("test-hardware-physical-reports-linux", None),),
+    "linux-x86_64-kde-wayland": (("test-hardware-session-linux", "linux-kde-session"),),
+    "linux-x86_64-gnome-wayland": (),
     "windows-x86_64-win32": (),
 }
 

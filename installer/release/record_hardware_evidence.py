@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 app = typer.Typer()
 
 PROFILE_RESULTS = {
+    "physical-mo-reports": (
+        "PASS: every configured physical MO key emitted ordered press/release Raw HID reports",
+        ("GLOBAL-03",),
+        "physical",
+    ),
     "macos-session": (
         "PASS: macOS live startup, Vial reread, labels, layer transitions, focus,",
         ("MAC-01", "MAC-02", "MAC-03", "MAC-04"),

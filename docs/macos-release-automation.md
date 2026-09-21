@@ -180,21 +180,22 @@ machine's login security settings.
 
 ## Coverage and Remaining Physical Assertions
 
-| Gate        | Exact-head HIL evidence                                                              | Additional physical assertion                   |
-| ----------- | ------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `GLOBAL-01` | Compile, controlled bootloader entry, flash, and return                              | Real keyboard and bootloader controller         |
-| `GLOBAL-02` | Compiled reset plus Vial persistence across switched USB power                       | Real EEPROM and switched USB port               |
-| `MAC-01`    | Installed native startup, device model read, plist, and logs                         | Real Raw HID/Vial device                        |
-| `MAC-02`    | Deterministic nested KMO reports and numeric precedence                              | None; switch report proof is inherited from 08  |
-| `MAC-03`    | Real Vial EEPROM edit and real process restart                                       | None after the session transcript passes        |
-| `MAC-04`    | Accessibility focus/typing, pointer click-through, and window order                  | None on the signed-in interactive desktop       |
-| `MAC-05`    | Live Vial labels, encoder direction labels/output, geometry, and held layer          | Encoder sensor/push and visual review           |
-| `MAC-06`    | Window bounds on every attached display and scale                                    | Every release-relevant display must be attached |
-| `MAC-07`    | USB identity plus typing/focus capture                                               | A matrix switch still types normally            |
-| `MAC-08`    | Every physical `MO` press/release report plus deterministic fast and repeated cycles | None after both transcripts pass                |
-| `MAC-09`    | Controlled physical USB removal, return, and absent startup                          | Switched physical port                          |
-| `MAC-10`    | Post-login LaunchAgent continuation and first HIL event                              | Actual sign-out/sign-in session boundary        |
-| Lifecycle   | Real upgrade/uninstall/reinstall plus isolated rollback                              | Running user launchd session                    |
+| Gate        | Exact-head HIL evidence                                                     | Additional physical assertion                   |
+| ----------- | --------------------------------------------------------------------------- | ----------------------------------------------- |
+| `GLOBAL-01` | Compile, controlled bootloader entry, flash, and return                     | Real keyboard and bootloader controller         |
+| `GLOBAL-02` | Compiled reset plus Vial persistence across switched USB power              | Real EEPROM and switched USB port               |
+| `GLOBAL-03` | Every physical `MO` switch emits its ordered press/release report           | Guided matrix-switch taps                       |
+| `MAC-01`    | Installed native startup, device model read, plist, and logs                | Real Raw HID/Vial device                        |
+| `MAC-02`    | Deterministic nested KMO reports and numeric precedence                     | None; switch report proof is in `GLOBAL-03`     |
+| `MAC-03`    | Real Vial EEPROM edit and real process restart                              | None after the session transcript passes        |
+| `MAC-04`    | Accessibility focus/typing, pointer click-through, and window order         | None on the signed-in interactive desktop       |
+| `MAC-05`    | Live Vial labels, encoder direction labels/output, geometry, and held layer | Encoder sensor/push and visual review           |
+| `MAC-06`    | Window bounds on every attached display and scale                           | Every release-relevant display must be attached |
+| `MAC-07`    | USB identity plus typing/focus capture                                      | A matrix switch still types normally            |
+| `MAC-08`    | Deterministic fast and repeated show/hide cycles                            | None after the session transcript passes        |
+| `MAC-09`    | Controlled physical USB removal, return, and absent startup                 | Switched physical port                          |
+| `MAC-10`    | Post-login LaunchAgent continuation and first HIL event                     | Actual sign-out/sign-in session boundary        |
+| Lifecycle   | Real upgrade/uninstall/reinstall plus isolated rollback                     | Running user launchd session                    |
 
 The guided matrix taps, physical encoder sensor, and push switch still need a
 person until actuators or instrumented fixtures perform them. Synthetic

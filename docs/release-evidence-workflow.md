@@ -55,10 +55,10 @@ identity during the physical check. Match the existing helpers' `KMO_HIL_*`
 settings to the participating boards; defaults expect both bundled keyboards
 and physical reports `1:1 1:2 2:3`. The runner preserves those settings.
 
-On macOS it runs physical reports followed by the session HIL helper. On KDE
-it runs physical reports followed by the virtual-device session helper. On
-GNOME it runs physical reports and prompts for renderer observations. Windows
-uses the guided observation path because the HIL driver does not support it.
+On macOS it runs physical reports for `GLOBAL-03` followed by the session HIL
+helper. On KDE it runs the virtual-device session helper. On GNOME and Windows
+it uses the guided observation path because no session HIL helper supports
+those renderers.
 No new renderer coverage is implied by wrapping these helpers.
 
 Complete the hardware procedure's prerequisites first: candidate HIL firmware
@@ -66,8 +66,8 @@ and macOS permissions, Linux device access, and KDE `/dev/uhid` access. The
 runner confirms before starting helpers that install/restart services or
 temporarily edit and restore Vial bindings. Observe physical typing before
 starting and again afterward. It imports only complete checks after the
-helper exits successfully, including cleanup; physical-report helpers remain
-supporting evidence for the combined `*-08` observation.
+helper exits successfully, including cleanup. The physical-report helper
+imports `GLOBAL-03` independently of platform `*-08` results.
 
 For each remaining local check, enter `PASS`, `FAIL`, or `SKIP` (the default).
 A recorded outcome requires a description of what you did and observed.
@@ -132,18 +132,17 @@ Update the arguments when devices, firmware, or session change. The keyboard
 list describes participating physical devices, not the virtual fixture used by
 the Linux integration test.
 
-| Platform                     | Helper / import profile                                  | Results imported  | Remaining tester work                                                                                                                                |
-| ---------------------------- | -------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `macos-arm64-appkit`         | `make test-hardware-session-macos` / `macos-session`     | `MAC-01`–`MAC-04` | Visuals, displays, typing/USB identity, physical switches, disconnects, first physical press after login, coverage and lifecycle                     |
-| `linux-x86_64-kde-wayland`   | `make test-hardware-session-linux` / `linux-kde-session` | `LX-02`           | Real Vial edit/restart, device checks, startup/log inspection, pointer/window order, visuals/displays and login; virtual Vial does not prove `LX-03` |
-| `linux-x86_64-gnome-wayland` | No complete-check import profile                         | None              | GNOME startup, window safety, visuals/displays and login; cite shared Linux device results separately                                                |
-| `windows-x86_64-win32`       | No complete-check import profile                         | None              | All Win32 checks, including typing through the second and later shows, and lifecycle                                                                 |
+| Platform                     | Helper / import profile                                  | Results imported               | Remaining tester work                                                                                                                                |
+| ---------------------------- | -------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `macos-arm64-appkit`         | physical reports + `make test-hardware-session-macos`    | `GLOBAL-03`, `MAC-01`–`MAC-04` | Visuals, displays, typing/USB identity, repeated transitions, disconnects, first physical press after login, coverage and lifecycle                  |
+| `linux-x86_64-kde-wayland`   | `make test-hardware-session-linux` / `linux-kde-session` | `LX-02`                        | Real Vial edit/restart, device checks, startup/log inspection, pointer/window order, visuals/displays and login; virtual Vial does not prove `LX-03` |
+| `linux-x86_64-gnome-wayland` | No complete-check import profile                         | None                           | GNOME startup, window safety, visuals/displays and login; cite shared Linux device results separately                                                |
+| `windows-x86_64-win32`       | No complete-check import profile                         | None                           | All Win32 checks, including typing through the second and later shows, and lifecycle                                                                 |
 
-The physical-report helpers supply only part of `MAC-08`/`LX-08`. Review both
-the guided physical transcript and the deterministic session transcript before
-recording that complete check. The macOS login helper also needs an explicit
-observation of the first physical layer press after sign-in. Neither helper
-automatically completes these checks. See the
+The physical-report helper supplies `GLOBAL-03`; deterministic session or
+manual backend evidence supplies each platform's `*-08`. The macOS login helper
+also needs an explicit observation of the first physical layer press after
+sign-in. Neither helper automatically completes these checks. See the
 [coverage map](release-test-coverage.md) for the full boundaries.
 
 After a successful macOS session run, substitute its actual transcript path:
@@ -264,7 +263,8 @@ and all three keyboard coverage rows separately in the template. Record every
 bundled keyboard, physical encoder direction/push observations, and the
 simultaneous-device ownership run. These cannot be inferred from individual
 check PASS results. Record `GLOBAL-01`/`GLOBAL-02` explicitly; where permitted,
-put the reasoned `N/A` directly in the PR. Such an exception remains MISSING in
+put the reasoned `N/A` directly in the PR. Record `GLOBAL-03` from a reviewed
+physical-report transcript. A conditional exception remains MISSING in
 the collector and must be reconciled in review; the gate determines whether
 the release delta allows it.
 

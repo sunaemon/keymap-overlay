@@ -194,6 +194,30 @@ def test_imports_supported_results_from_exact_head_hil_transcript(
     ]
 
 
+def test_imports_platform_independent_physical_mo_result(tmp_path: Path) -> None:
+    """A guided physical transcript populates the release-wide switch proof."""
+    transcript = tmp_path / "physical-reports.log"
+    transcript.write_text(
+        f"Candidate: {CANDIDATE}\n"
+        "PASS: every configured physical MO key emitted ordered press/release Raw HID reports\n"
+    )
+
+    record = build_record(
+        candidate_sha=CANDIDATE,
+        platform_id="linux-x86_64-gnome-wayland",
+        os_version="Arch Linux",
+        session="GNOME / Wayland",
+        transcript=transcript,
+        keyboards=["Insixty|1|firmware-abc", "DOIO KB16|2|firmware-abc"],
+        checks=[],
+        lifecycle=None,
+        profile="physical-mo-reports",
+    )
+
+    assert record.checks[0].check_id == "GLOBAL-03"
+    assert record.checks[0].evidence_kind == "physical"
+
+
 def test_profile_rejects_stale_transcript(tmp_path: Path) -> None:
     """A recognized success marker cannot be imported from another commit."""
     transcript = tmp_path / "macos-session.log"

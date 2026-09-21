@@ -40,25 +40,28 @@ interaction to the most disruptive operation. The suffix meanings are shared
 by every platform prefix; `*-07` begins before the run and is completed after
 it.
 
-| Case   | Human operation required                                                                      | Rationale                                                                                                  |
-| ------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `*-01` | Run the installed-startup/log target; no per-event input.                                     | CI cannot prove native login-service startup or a real device-owned Vial model.                            |
-| `*-02` | None where exact-head HIL exists; otherwise hold two `MO` keys.                               | This isolates report ordering, layer precedence, restoration, and final hide.                              |
-| `*-03` | None where HIL performs the reversible Vial edit; otherwise edit once and restart.            | The runtime intentionally rereads Vial only at process startup.                                            |
-| `*-04` | None for the macOS signed probe; otherwise type and click through the visible overlay.        | Focus, window order, and pointer routing belong to the interactive desktop/window manager.                 |
-| `*-05` | Visually compare the native overlay with the live Vial model.                                 | Semantic assertions cannot fully judge native rendering, clipping, glyphs, and physical encoder placement. |
-| `*-06` | Exercise every affected attached display and scale, then inspect placement.                   | Real compositor topology and DPI behavior are not represented by fixed-scale CI rendering.                 |
-| `*-07` | Type on the physical keyboard before and after the run; confirm USB and `KEYBOARD_ID`.        | This proves ordinary matrix input and end-to-end physical device identity.                                 |
-| `*-08` | Tap every physical `MO` switch once; use HIL for repeat/precedence scenarios where available. | Requested reports cannot prove the switch-to-firmware notification boundary.                               |
-| `*-09` | Unplug/replug the keyboard, or operate an independently switched USB port.                    | A real OS removal/arrival transition is required to test device lifetime behavior.                         |
-| `*-10` | Sign out, sign in, then make the first physical layer press.                                  | Authentication and graphical-session creation are intentional human/session boundaries.                    |
+| Case   | Human operation required                                                               | Rationale                                                                                                  |
+| ------ | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `*-01` | Run the installed-startup/log target; no per-event input.                              | CI cannot prove native login-service startup or a real device-owned Vial model.                            |
+| `*-02` | None where exact-head HIL exists; otherwise hold two `MO` keys.                        | This isolates report ordering, layer precedence, restoration, and final hide.                              |
+| `*-03` | None where HIL performs the reversible Vial edit; otherwise edit once and restart.     | The runtime intentionally rereads Vial only at process startup.                                            |
+| `*-04` | None for the macOS signed probe; otherwise type and click through the visible overlay. | Focus, window order, and pointer routing belong to the interactive desktop/window manager.                 |
+| `*-05` | Visually compare the native overlay with the live Vial model.                          | Semantic assertions cannot fully judge native rendering, clipping, glyphs, and physical encoder placement. |
+| `*-06` | Exercise every affected attached display and scale, then inspect placement.            | Real compositor topology and DPI behavior are not represented by fixed-scale CI rendering.                 |
+| `*-07` | Type on the physical keyboard before and after the run; confirm USB and `KEYBOARD_ID`. | This proves ordinary matrix input and end-to-end physical device identity.                                 |
+| `*-08` | Exercise fast and repeated show/hide transitions through the platform backend.         | `GLOBAL-03` proves the physical switch boundary once; each backend still needs transition coverage.        |
+| `*-09` | Unplug/replug the keyboard, or operate an independently switched USB port.             | A real OS removal/arrival transition is required to test device lifetime behavior.                         |
+| `*-10` | Sign out, sign in, then make the first physical layer press.                           | Authentication and graphical-session creation are intentional human/session boundaries.                    |
 
 `GLOBAL-01` and `GLOBAL-02` are conditional firmware prerequisites: enter each
 affected board's real bootloader, then verify first-boot defaults and a Vial
 edit across real USB power loss. They exist because compilation cannot prove
 deployment/recovery or EEPROM ownership. `bundled-keyboards` is record-only;
 it adds no gesture beyond proving every shipped keyboard somewhere in the
-matrix. `encoder-keyboard` retains physical shaft/direction and push-switch
+matrix. `GLOBAL-03` proves once that every bundled physical `MO` switch reaches
+the firmware notification boundary; platform `*-08` checks exercise their
+backend without repeating that matrix-switch proof.
+`encoder-keyboard` retains physical shaft/direction and push-switch
 observations because synthetic queue input cannot prove them.
 `simultaneous-keyboards` requires all bundled devices connected and operated
 once because a single-device fixture cannot prove model ownership. Lifecycle
@@ -68,11 +71,13 @@ transcript because stubbed installer tests do not exercise the user service.
 ### Platform-independent checks
 
 These are release-wide conditions, not results from one operating system. Use
-`PASS`, or `N/A: <specific reason>` only when the release delta changes no
-firmware or embedded metadata.
+`PASS`. Only `GLOBAL-01` and `GLOBAL-02` may instead use
+`N/A: <specific reason>` when the release delta changes no firmware or embedded
+metadata.
 
 - [ ] **GLOBAL-01** — Result: PENDING — When firmware or embedded overlay metadata changed, `make compile` and `make flash KEYBOARD_ID=<id>` complete on macOS or Linux, and every affected keyboard returns from the bootloader without manual recovery.
 - [ ] **GLOBAL-02** — Result: PENDING — After a required firmware flash, compiled defaults appear on first boot and a subsequent Vial edit survives reconnect, confirming that an ordinary boot does not reset EEPROM.
+- [ ] **GLOBAL-03** — Result: PENDING — Every bundled physical `MO` switch emits its matching ordered press/release report through the candidate firmware on one supported host.
 
 ### Keyboard coverage
 
@@ -104,7 +109,7 @@ checks cannot be completed from another renderer's result.
 - [ ] **MAC-05** — Result: PENDING — Geometry, platform labels, custom glyphs, transparent keys, and the highlighted held key match the live Vial keymap.
 - [ ] **MAC-06** — Result: PENDING — Size and position are correct on every affected display and scale factor.
 - [ ] **MAC-07** — Result: PENDING — The keyboard types normally before and after the run, and its USB identity and `KEYBOARD_ID` match its configuration directory.
-- [ ] **MAC-08** — Result: PENDING — Every physical `MO` switch emits its matching press/release report; deterministic reports through the real keyboard prove held visibility, fast taps, and ten repeated show/hide cycles without stale state.
+- [ ] **MAC-08** — Result: PENDING — Deterministic reports through the real keyboard prove held visibility, fast taps, and ten repeated show/hide cycles without stale state.
 - [ ] **MAC-09** — Result: PENDING — Unplugging while visible hides the overlay; reconnecting works when loaded at startup, while a keyboard absent at startup requires a restart.
 - [ ] **MAC-10** — Result: PENDING — After sign-out and sign-in, the service reads the connected keyboard and handles the first physical layer press without a manual restart.
 
@@ -113,7 +118,7 @@ checks cannot be completed from another renderer's result.
 - [ ] **LX-02** — Result: PENDING — Deterministic Raw HID reports follow numeric precedence, restore the still-held lower layer, and hide after the final release through the daemon's D-Bus state.
 - [ ] **LX-03** — Result: PENDING — Restarting the daemon after a live Vial edit rereads the device-owned model, with no device read on the layer-key hot path.
 - [ ] **LX-07** — Result: PENDING — The keyboard types normally before and after the run, and its USB identity and `KEYBOARD_ID` match its configuration directory.
-- [ ] **LX-08** — Result: PENDING — Every physical `MO` switch emits its matching press/release report; deterministic integration proves fast taps and ten repeated transitions without stale state.
+- [ ] **LX-08** — Result: PENDING — Deterministic integration proves held visibility, fast taps, and ten repeated transitions through the daemon without stale state.
 - [ ] **LX-09** — Result: PENDING — Unplugging while visible hides the D-Bus state; reconnecting works when loaded at startup, while a keyboard absent at startup requires a daemon restart.
 
 ### linux-x86_64-kde-wayland checks
@@ -141,7 +146,7 @@ checks cannot be completed from another renderer's result.
 - [ ] **WIN-05** — Result: PENDING — Geometry, platform labels, custom glyphs, transparent keys, and the highlighted held key match the live Vial keymap in Win32.
 - [ ] **WIN-06** — Result: PENDING — Size and position are correct on every affected display and scale factor in Win32.
 - [ ] **WIN-07** — Result: PENDING — The keyboard types normally before and after the run, and its USB identity and `KEYBOARD_ID` match its configuration directory.
-- [ ] **WIN-08** — Result: PENDING — Every `MO` key shows its layer while held and hides it on release; fast taps and ten repeated holds leave no stuck or stale overlay.
+- [ ] **WIN-08** — Result: PENDING — Layer reports show while active and hide on release; fast taps and ten repeated transitions leave no stuck or stale Win32 overlay.
 - [ ] **WIN-09** — Result: PENDING — Unplugging while visible hides the overlay; reconnecting works when loaded at startup, while a keyboard absent at startup requires a restart.
 - [ ] **WIN-10** — Result: PENDING — After sign-out and sign-in, the Run entry starts the overlay, reads the connected keyboard, and handles the first physical layer press without a manual restart.
 

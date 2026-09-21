@@ -157,14 +157,16 @@ def test_guided_hil_imports_only_completed_checks(
     monkeypatch.setattr(
         runner,
         "check_descriptions",
-        lambda *args: {"MAC-01": "startup", "MAC-08": "physical plus repeated cycles"},
+        lambda *args: {"MAC-01": "startup", "MAC-08": "repeated cycles"},
     )
 
     def fake_helper(target: str, root: Path, transcript: Path) -> int:
-        transcript.write_text(
-            f"Candidate: {CANDIDATE}\n"
-            "PASS: macOS live startup, Vial reread, labels, layer transitions, focus,\n"
+        marker = (
+            "PASS: every configured physical MO key emitted ordered press/release Raw HID reports\n"
+            if target == "test-hardware-physical-reports-macos"
+            else "PASS: macOS live startup, Vial reread, labels, layer transitions, focus,\n"
         )
+        transcript.write_text(f"Candidate: {CANDIDATE}\n{marker}")
         return 0
 
     monkeypatch.setattr(runner, "run_helper", fake_helper)
@@ -172,6 +174,7 @@ def test_guided_hil_imports_only_completed_checks(
     result = CliRunner().invoke(runner.app, args(output), input="y\nSKIP\n")
     assert result.exit_code == 0, result.output
     summary = (output / "summary.md").read_text()
+    assert "| GLOBAL-03 | PASS | physical |" in summary
     assert "| MAC-01 | PASS | automated |" in summary
     assert "| MAC-08 | MISSING |" in summary
     assert (output / "test-hardware-physical-reports-macos.log").exists()

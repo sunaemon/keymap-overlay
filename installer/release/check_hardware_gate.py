@@ -34,7 +34,7 @@ PLATFORM_ARCHITECTURES = {
     "linux-x86_64-gnome-wayland": "x86_64",
     "windows-x86_64-win32": "x86_64",
 }
-EXPECTED_GLOBAL_CHECK_IDS = ("GLOBAL-01", "GLOBAL-02")
+EXPECTED_GLOBAL_CHECK_IDS = ("GLOBAL-01", "GLOBAL-02", "GLOBAL-03")
 EXPECTED_CHECK_SECTIONS = {
     "Platform-independent checks": EXPECTED_GLOBAL_CHECK_IDS,
     "macos-arm64-appkit checks": tuple(f"MAC-{number:02d}" for number in range(1, 11)),
@@ -64,7 +64,7 @@ EXPECTED_LIFECYCLE_IDS = (
     "linux-x86_64",
     "windows-x86_64-win32",
 )
-CONDITIONAL_CHECK_IDS = frozenset(EXPECTED_GLOBAL_CHECK_IDS)
+CONDITIONAL_CHECK_IDS = frozenset({"GLOBAL-01", "GLOBAL-02"})
 FIRMWARE_EVIDENCE_PATHS = frozenset({"Makefile"})
 FIRMWARE_EVIDENCE_PREFIXES = ("firmware/", "model/")
 CANDIDATE_PATTERN = re.compile(

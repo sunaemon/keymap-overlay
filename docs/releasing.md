@@ -95,10 +95,11 @@ preparation commands, platform commands, and physical actions are in
 
 The template deliberately separates three kinds of evidence:
 
-1. `GLOBAL-01` and `GLOBAL-02` are release-wide firmware conditions. They may
-   use a reasoned `N/A` only when the release delta changes no firmware or
-   embedded overlay metadata; the gate derives this eligibility from the
-   previous release tag and candidate commit.
+1. `GLOBAL-01` and `GLOBAL-02` are conditional release-wide firmware
+   conditions. They may use a reasoned `N/A` only when the release delta changes
+   no firmware or embedded overlay metadata; the gate derives this eligibility
+   from the previous release tag and candidate commit. `GLOBAL-03` is the
+   unconditional release-wide physical `MO` switch-to-report proof.
 2. Keyboard coverage records every bundled keyboard, one encoder keyboard, and
    all bundled keyboards connected simultaneously. The encoder row includes
    physical shaft/direction-wiring and push-switch observations. Exact-head HIL
@@ -112,32 +113,33 @@ The template deliberately separates three kinds of evidence:
 The ten platform checks have the same meaning on every backend. Their numeric
 suffixes follow increasing human interaction:
 
-| Case | Human operation                                                                    | Requirement and rationale                                                                     |
-| ---- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `01` | Run the startup/log target.                                                        | Native service startup and a real device-owned Vial model are outside CI.                     |
-| `02` | None with exact-head HIL; otherwise hold two `MO` keys.                            | Proves report ordering, numeric precedence, restoration, and final hide.                      |
-| `03` | None with HIL; otherwise make one reversible Vial edit and restart.                | Proves the intentional startup-only model reread.                                             |
-| `04` | None with the macOS signed probe; otherwise type and click through the overlay.    | Real desktop focus, z-order, and pointer routing cannot be inferred from rendering tests.     |
-| `05` | Compare the native overlay with live Vial.                                         | A person still judges clipping, native glyphs, geometry, transparency, and highlighted state. |
-| `06` | Inspect every affected display and scale.                                          | Real compositor topology and DPI behavior differ from fixed-scale CI.                         |
-| `07` | Type physically before and after; confirm USB and `KEYBOARD_ID`.                   | Proves ordinary matrix input and end-to-end device identity.                                  |
-| `08` | Tap every physical `MO` switch once; use HIL for repeat scenarios where available. | Requested reports cannot prove the switch-to-firmware boundary.                               |
-| `09` | Unplug/replug, or operate a switched USB port.                                     | Proves real OS removal, arrival, and startup-presence behavior.                               |
-| `10` | Sign out, sign in, then press the first layer key.                                 | Authentication and graphical-session creation are deliberate session boundaries.              |
+| Case | Human operation                                                                 | Requirement and rationale                                                                            |
+| ---- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `01` | Run the startup/log target.                                                     | Native service startup and a real device-owned Vial model are outside CI.                            |
+| `02` | None with exact-head HIL; otherwise hold two `MO` keys.                         | Proves report ordering, numeric precedence, restoration, and final hide.                             |
+| `03` | None with HIL; otherwise make one reversible Vial edit and restart.             | Proves the intentional startup-only model reread.                                                    |
+| `04` | None with the macOS signed probe; otherwise type and click through the overlay. | Real desktop focus, z-order, and pointer routing cannot be inferred from rendering tests.            |
+| `05` | Compare the native overlay with live Vial.                                      | A person still judges clipping, native glyphs, geometry, transparency, and highlighted state.        |
+| `06` | Inspect every affected display and scale.                                       | Real compositor topology and DPI behavior differ from fixed-scale CI.                                |
+| `07` | Type physically before and after; confirm USB and `KEYBOARD_ID`.                | Proves ordinary matrix input and end-to-end device identity.                                         |
+| `08` | Exercise fast and repeated show/hide transitions through the platform backend.  | `GLOBAL-03` proves the physical switch boundary once; every backend still needs transition coverage. |
+| `09` | Unplug/replug, or operate a switched USB port.                                  | Proves real OS removal, arrival, and startup-presence behavior.                                      |
+| `10` | Sign out, sign in, then press the first layer key.                              | Authentication and graphical-session creation are deliberate session boundaries.                     |
 
 For macOS, the approved HIL procedure may compose `MAC-08` from a guided
 physical switch-to-report transcript and deterministic report-to-AppKit
 assertions through the real keyboard. `MAC-02`, `MAC-03`, and `MAC-04` may use
 their exact-head HIL session assertions. The checklist results remain required;
 this split reduces repeated human input and does not turn requested reports
-into physical-switch evidence.
+into physical-switch evidence. The guided physical transcript supplies
+`GLOBAL-03`; Linux and Windows do not repeat every matrix-switch tap.
 
 On Linux, `test-hardware-session-linux` uses a self-describing virtual Vial HID
 device in the real KDE session to exercise the installed daemon, D-Bus state,
 Qt renderer accessibility labels, focus retention, and deterministic layer
-ordering. `test-hardware-physical-reports-linux` retains one guided physical
-tap per `MO` switch. Virtual HID does not replace USB identity, encoder wiring,
-unplug/replug, display inspection, pointer click-through, or login evidence.
+ordering and repeated transitions. Virtual HID does not replace USB identity,
+encoder wiring, unplug/replug, display inspection, pointer click-through, or
+login evidence.
 
 The person merging the release preparation PR owns the gate. It passes only
 when every required coverage row is recorded, every applicable item passes,
