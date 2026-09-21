@@ -384,6 +384,11 @@ if (Test-Path $KmoExe) { throw 'binary remains' }
 
 ## 5. Record the Gate
 
+Follow the [Maintainer evidence workflow](release-evidence-workflow.md) for the
+single cross-platform procedure: assign testers, capture runs, record manual
+and lifecycle results, transfer portable bundles, reconcile them, and update
+the release PR. The release owner performs the final review.
+
 Fill the release PR template without changing its stable row IDs or headers:
 
 - The candidate line contains the exact 40-character PR head SHA.
