@@ -340,7 +340,9 @@ def test_incomplete_template_cannot_skip_required_check(tmp_path: Path) -> None:
     """A template missing a mandatory row is rejected instead of shortening the run."""
     template = tmp_path / ".github" / "PULL_REQUEST_TEMPLATE" / "release.md"
     template.parent.mkdir(parents=True)
-    template.write_text("- [ ] **MAC-01** — Result: PENDING — Startup\n")
+    template.write_text(
+        "- [ ] **MAC-01** — Result: PENDING — Startup\n", encoding="utf-8"
+    )
     with pytest.raises(ValueError, match="does not match the gate checklist"):
         runner.check_descriptions(tmp_path, "macos-arm64-appkit")
 
