@@ -384,6 +384,60 @@ if (Test-Path $KmoExe) { throw 'binary remains' }
 
 ## 5. Record the Gate
 
+Save one JSON evidence record beside each retained transcript instead of
+re-entering the run metadata and automated results in the PR. The record command
+requires the transcript to exist, validates stable check and platform IDs, and
+stores the exact candidate SHA. For example, after the macOS session HIL run:
+
+```bash
+KMO_CANDIDATE_SHA="$(git rev-parse HEAD)"
+TRANSCRIPT="$HOME/.local/var/log/keymap-overlay/hil/macos-session-YYYYMMDD-HHMMSS.log"
+uv run python -m installer.release.record_hardware_evidence \
+  --output "$TRANSCRIPT.json" \
+  --candidate-sha "$KMO_CANDIDATE_SHA" \
+  --platform-id macos-arm64-appkit \
+  --os-version "$(sw_vers -productVersion)" \
+  --session "AppKit / Aqua" \
+  --transcript "$TRANSCRIPT" \
+  --keyboard 'Insixty|1|candidate firmware revision' \
+  --keyboard 'DOIO KB16|2|candidate firmware revision' \
+  --profile macos-session
+```
+
+Recognized profiles are `macos-session`, `macos-physical-reports`,
+`macos-login`, `linux-kde-session`, and `linux-physical-reports`. A profile
+imports only its documented checklist IDs, and only when the transcript has a
+single matching `Candidate:` line and its final success marker. Use
+`--check CHECK_ID|PASS_OR_FAIL|automated|detail` for another automated helper
+until it has a reviewed profile.
+
+Use `physical` only for a result that includes the documented physical action,
+and `manual` for an explicit tester observation. Never label CI, simulation, a
+virtual HID run, or a requested HIL report as physical evidence. Add physical,
+visual, login, and lifecycle results to records only after the tester performs
+them; a record may contain one check and reuse the same platform and keyboard
+metadata. Use `FAIL` for a failed run rather than omitting it.
+
+Generate a reviewable exact-head summary from all participating machines'
+records:
+
+```bash
+uv run python -m installer.release.collect_hardware_evidence \
+  --candidate-sha "$(git rev-parse HEAD)" \
+  --record evidence/macos-session.json \
+  --record evidence/macos-physical.json \
+  --record evidence/linux-kde.json \
+  --record evidence/linux-gnome.json \
+  --record evidence/windows.json \
+  --output evidence/hardware-summary.md
+```
+
+Review the `Problems` section first. A different candidate SHA is `STALE`; a
+missing transcript is `INCOMPLETE`; failed and absent mandatory results remain
+`FAIL` and `MISSING`. The collector never converts an automated result into a
+physical observation. Copy the reviewed results and transcript paths into the
+stable release-template rows; the existing gate remains the final authority.
+
 Fill the release PR template without changing its stable row IDs or headers:
 
 - The candidate line contains the exact 40-character PR head SHA.

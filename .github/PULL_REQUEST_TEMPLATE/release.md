@@ -15,7 +15,10 @@ Candidate commit: `0000000000000000000000000000000000000000`
 
 Use the stable IDs, section headings, and table headers exactly as written; CI
 parses them. Replace every `Pending` cell and result. List multiple keyboards
-and IDs with commas.
+and IDs with commas. The evidence record and summary commands in the
+[hardware test procedure](https://github.com/sunaemon/keymap-overlay/blob/main/docs/hardware-release-testing.md#5-record-the-gate)
+collect exact-head results and transcript paths without re-entering shared run
+metadata; review their `Problems` section before transferring the draft here.
 
 ### Platform test matrix
 
