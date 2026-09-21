@@ -97,4 +97,20 @@ Describe 'Windows development workflow' {
             $LiteralPath -eq $overlayInstallPath
         }
     }
+
+    It 'waits on the stopped process object when the overlay exits immediately' {
+        $process = [System.Diagnostics.Process]::GetCurrentProcess()
+        Mock Get-Process { $process }
+        Mock Stop-Process { $InputObject }
+        Mock Wait-Process
+
+        Stop-Overlay
+
+        Should -Invoke Stop-Process -Times 1 -ParameterFilter {
+            $InputObject -eq $process -and $Force -and $PassThru
+        }
+        Should -Invoke Wait-Process -Times 1 -ParameterFilter {
+            $InputObject -eq $process -and $Timeout -eq 10
+        }
+    }
 }

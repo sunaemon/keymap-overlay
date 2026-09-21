@@ -253,8 +253,8 @@ function Uninstall-Overlay {
 function Stop-Overlay {
     $processes = @(Get-Process -Name 'keymap-overlay' -ErrorAction SilentlyContinue)
     foreach ($process in $processes) {
-        Stop-Process -Id $process.Id -Force
-        Wait-Process -Id $process.Id -Timeout 10
+        Stop-Process -InputObject $process -Force -PassThru |
+            Wait-Process -Timeout 10
     }
 }
 
