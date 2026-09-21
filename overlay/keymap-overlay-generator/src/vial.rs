@@ -144,7 +144,15 @@ pub(crate) fn record_layer_events_until(
             })?;
         }
         Ok(())
-    })
+    })?;
+    #[cfg(target_os = "windows")]
+    {
+        // hidapi leaves a timed-out Windows overlapped read pending. Complete it
+        // on this worker before the thread exits and the device moves to the live
+        // listener, otherwise Windows cancels the read and the listener gets 995.
+        send_recv(device, &[CMD_VIA_GET_PROTOCOL_VERSION], on_layer_event)?;
+    }
+    Ok(())
 }
 
 fn drain_until_handoff(
