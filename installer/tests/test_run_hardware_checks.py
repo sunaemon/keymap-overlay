@@ -1,5 +1,6 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -38,12 +39,15 @@ def test_detects_supported_sessions(
     assert runner.detect_platform()[0] == expected
 
 
-def test_rejects_unsupported_session(monkeypatch: pytest.MonkeyPatch) -> None:
-    """X11 is not silently attributed to the required Wayland row."""
+@pytest.mark.parametrize(("desktop", "session"), [("KDE", "x11"), ("sway", "wayland")])
+def test_rejects_unsupported_session(
+    monkeypatch: pytest.MonkeyPatch, desktop: str, session: str
+) -> None:
+    """Other desktops and X11 are not attributed to a required renderer row."""
     monkeypatch.setattr(runner.platform, "system", lambda: "Linux")
     monkeypatch.setattr(runner.platform, "machine", lambda: "x86_64")
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
-    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", desktop)
+    monkeypatch.setenv("XDG_SESSION_TYPE", session)
     with pytest.raises(ValueError, match="Unsupported"):
         runner.detect_platform()
 
@@ -238,6 +242,119 @@ def test_failed_helper_stops_before_observation_prompts(
     assert (
         "timed out" in (output / "test-hardware-physical-reports-macos.log").read_text()
     )
+
+
+@pytest.mark.parametrize(
+    "invalid", ["inside-checkout", "existing-directory", "blank-tester"]
+)
+def test_invalid_run_configuration_preserves_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalid: str
+) -> None:
+    """Invalid runs stop before prompting or changing candidate/previous evidence."""
+    setup_host(tmp_path, monkeypatch)
+    output = tmp_path / "evidence"
+    if invalid == "inside-checkout":
+        output = tmp_path / "checkout" / "evidence"
+    if invalid == "existing-directory":
+        output.mkdir()
+        (output / "previous.txt").write_text("Keep previous evidence")
+    arguments = args(output)
+    if invalid == "blank-tester":
+        arguments[arguments.index("--tester") + 1] = "   "
+    before = sorted(tmp_path.rglob("*"))
+    result = CliRunner().invoke(runner.app, arguments)
+    assert result.exit_code == 1
+    assert "Proceed?" not in result.output
+    assert sorted(tmp_path.rglob("*")) == before
+    if invalid == "existing-directory":
+        assert (output / "previous.txt").read_text() == "Keep previous evidence"
+
+
+def test_blank_observation_cannot_become_a_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whitespace does not satisfy the requirement for an explicit observation."""
+    setup_host(tmp_path, monkeypatch)
+    output = tmp_path / "evidence"
+    result = CliRunner().invoke(runner.app, args(output), input="y\nPASS\n   \n")
+    assert result.exit_code == 1
+    assert not (output / "WIN-04.json").exists()
+    summary = (output / "summary.md").read_text()
+    assert "STOPPED" in summary
+    assert "| WIN-04 | MISSING |" in summary
+
+
+def test_invalid_outcome_reprompts_before_recording(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unsupported answer cannot be recorded, and corrected lowercase input works."""
+    setup_host(tmp_path, monkeypatch)
+    output = tmp_path / "evidence"
+    result = CliRunner().invoke(
+        runner.app, args(output), input="y\nsure\npass\nObserved typing in editor\n\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Enter PASS, FAIL, or SKIP." in result.output
+    summary = (output / "summary.md").read_text()
+    assert "| WIN-04 | PASS | manual |" in summary
+    assert "| WIN-05 | MISSING |" in summary
+
+
+def test_real_git_candidate_requires_clean_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Git metadata is read from the actual checkout and rejects uncommitted input."""
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            f"core.hooksPath={tmp_path / 'no-hooks'}",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Test candidate",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.chdir(tmp_path)
+    candidate = runner.clean_candidate()
+    assert len(candidate) == 40
+    assert runner.git_output("rev-parse", "HEAD") == candidate
+    runner.ensure_candidate(candidate)
+    (tmp_path / "uncommitted.txt").write_text("Candidate changed")
+    with pytest.raises(ValueError, match="worktree must be clean"):
+        runner.clean_candidate()
+
+
+def test_incomplete_template_cannot_skip_required_check(tmp_path: Path) -> None:
+    """A template missing a mandatory row is rejected instead of shortening the run."""
+    template = tmp_path / ".github" / "PULL_REQUEST_TEMPLATE" / "release.md"
+    template.parent.mkdir(parents=True)
+    template.write_text("- [ ] **MAC-01** — Result: PENDING — Startup\n")
+    with pytest.raises(ValueError, match="does not match the gate checklist"):
+        runner.check_descriptions(tmp_path, "macos-arm64-appkit")
+
+
+def test_module_entrypoint_displays_help_without_hardware(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The executable module exposes the documented CLI without executing checks."""
+    monkeypatch.setattr(sys, "argv", [runner.__file__, "--help"])
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(runner.__file__, run_name="__main__")
+    assert result.value.code == 0
+    output = capsys.readouterr().out
+    assert "--plan" in output
+    assert "--keyboard" in output
 
 
 def setup_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
