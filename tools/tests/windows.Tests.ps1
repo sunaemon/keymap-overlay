@@ -54,7 +54,7 @@ Describe 'Windows development workflow' {
         Mock Build-Overlay
         Mock Stop-Overlay
         Mock New-Item
-        Mock Copy-Item
+        Mock Copy-OverlayBinary
         Mock Remove-Item
         Mock Remove-LegacyModels
         Mock Set-ItemProperty
@@ -63,10 +63,7 @@ Describe 'Windows development workflow' {
 
         Install-Overlay
 
-        Should -Invoke Copy-Item -Times 1 -ParameterFilter {
-            $LiteralPath -eq $overlayBuildPath -and
-            $Destination -eq $overlayInstallPath
-        }
+        Should -Invoke Copy-OverlayBinary -Times 1
         Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
             $Name -eq 'KeymapOverlay' -and
             $Value -like '*keymap-overlay.exe*--log-out*' -and
@@ -77,6 +74,27 @@ Describe 'Windows development workflow' {
             $FilePath -eq $overlayInstallPath -and
             ($ArgumentList -join ' ') -notlike '*--asset-dir*' -and
             ($ArgumentList -join ' ') -notlike '*--keyboard-config-dir*'
+        }
+    }
+
+    It 'retries a locked overlay executable before copying it' {
+        $script:copyInvocations = 0
+        Mock Copy-Item {
+            $script:copyInvocations++
+            if ($script:copyInvocations -lt 3) {
+                throw [System.IO.IOException]::new('executable is locked')
+            }
+        }
+        Mock Start-Sleep
+
+        Copy-OverlayBinary
+
+        Should -Invoke Copy-Item -Times 3 -ParameterFilter {
+            $LiteralPath -eq $overlayBuildPath -and
+            $Destination -eq $overlayInstallPath -and $Force
+        }
+        Should -Invoke Start-Sleep -Times 2 -ParameterFilter {
+            $Milliseconds -eq $overlayCopyRetryMilliseconds
         }
     }
 
@@ -95,6 +113,22 @@ Describe 'Windows development workflow' {
         }
         Should -Invoke Remove-Item -Times 1 -ParameterFilter {
             $LiteralPath -eq $overlayInstallPath
+        }
+    }
+
+    It 'waits on the stopped process object when the overlay exits immediately' {
+        $process = [System.Diagnostics.Process]::GetCurrentProcess()
+        Mock Get-Process { $process }
+        Mock Stop-Process { $InputObject }
+        Mock Wait-Process
+
+        Stop-Overlay
+
+        Should -Invoke Stop-Process -Times 1 -ParameterFilter {
+            $InputObject -eq $process -and $Force -and $PassThru
+        }
+        Should -Invoke Wait-Process -Times 1 -ParameterFilter {
+            $InputObject -eq $process -and $Timeout -eq 10
         }
     }
 }
