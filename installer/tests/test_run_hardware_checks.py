@@ -1,5 +1,6 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import os
 import re
 import runpy
 import subprocess
@@ -322,7 +323,16 @@ def test_real_git_candidate_requires_clean_worktree(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Git metadata is read from the actual checkout and rejects uncommitted input."""
+    for name in tuple(os.environ):
+        if name.startswith("GIT_"):
+            monkeypatch.delenv(name)
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".gitignore").write_text(
+        ".coverage\n.pytest_cache/\ntestResults.xml\n", encoding="utf-8"
+    )
+    subprocess.run(
+        ["git", "add", ".gitignore"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         [
             "git",
