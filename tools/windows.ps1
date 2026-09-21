@@ -15,6 +15,7 @@ param(
         'run',
         'test-installer',
         'test-windows-e2e',
+        'test-hardware-session',
         'test-release-acceptance',
         'install',
         'uninstall',
@@ -51,6 +52,7 @@ function Invoke-WindowsWorkflow {
         'run' { Start-DevelopmentOverlay }
         'test-installer' { Test-Installer }
         'test-windows-e2e' { Test-WindowsOverlay }
+        'test-hardware-session' { Test-WindowsHardwareSession }
         'test-release-acceptance' {
             Test-Installer
             Test-WindowsOverlay
@@ -219,6 +221,18 @@ function Test-Installer {
 function Test-WindowsOverlay {
     Build-Overlay
     Invoke-WindowsOverlayE2e
+}
+
+function Test-WindowsHardwareSession {
+    Install-Overlay
+    Invoke-Mise @(
+        'exec', '--', 'cargo', 'build', '--release',
+        '--package', 'keymap-overlay-hil'
+    )
+    Invoke-NativeCommand 'powershell.exe' @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        'overlay/platforms/windows/tests/test_hardware_session.ps1'
+    )
 }
 
 function Invoke-WindowsOverlayE2e {

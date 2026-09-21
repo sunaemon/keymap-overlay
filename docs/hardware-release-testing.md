@@ -177,6 +177,19 @@ The process must be running. The Run value must contain the quoted path to
 `--keyboard-config-dir`. The log must contain no HID-open or Vial-model error
 from this start.
 
+With both bundled keyboards connected, run the deterministic session HIL:
+
+```powershell
+.\tools\windows.ps1 -Task test-hardware-session
+```
+
+The helper drives nested layer ordering, ten show/hide cycles, and a reversible
+live Vial `F13` edit through the real keyboards. It restarts the installed
+exact-head Win32 process, verifies its recorded native state, restores the
+original binding, and supplies `WIN-02`, `WIN-03`, and `WIN-08` to the guided
+evidence workflow. It does not replace visual, focus, typing/identity,
+disconnect, or login observations.
+
 ## 3. Run the Common Physical Checks
 
 On macOS ARM64, run the two protocol-boundary proofs first:

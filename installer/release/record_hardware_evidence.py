@@ -37,6 +37,11 @@ PROFILE_RESULTS = {
         ("LX-02", "LX-03", "LX-08"),
         "automated",
     ),
+    "windows-session": (
+        "PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, restoration, and Win32 state",
+        ("WIN-02", "WIN-03", "WIN-08"),
+        "automated",
+    ),
 }
 
 

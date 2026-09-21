@@ -128,6 +128,33 @@ def test_kde_profile_imports_restart_and_transition_checks(
     ]
 
 
+def test_windows_profile_imports_restart_and_transition_checks(
+    tmp_path: Path,
+) -> None:
+    """The Windows HIL supplies restart-read and deterministic transition checks."""
+    transcript = tmp_path / "windows.log"
+    transcript.write_text(
+        f"Candidate: {CANDIDATE}\n"
+        "PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, restoration, and Win32 state\n"
+    )
+    record = build_record(
+        candidate_sha=CANDIDATE,
+        platform_id="windows-x86_64-win32",
+        os_version="Windows 11",
+        session="Win32 / desktop",
+        transcript=transcript,
+        keyboards=["Insixty|1|abc", "DOIO KB16|2|abc"],
+        checks=[],
+        lifecycle=None,
+        profile="windows-session",
+    )
+    assert [check.check_id for check in record.checks] == [
+        "WIN-02",
+        "WIN-03",
+        "WIN-08",
+    ]
+
+
 def test_builds_validated_record_from_compact_fields(tmp_path: Path) -> None:
     """Shared run metadata and explicit results become one reusable record."""
     transcript = tmp_path / "run.log"
