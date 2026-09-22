@@ -36,7 +36,7 @@ struct self_describing_device {
   size_t definition_size;
   unsigned sequence_step;
   useconds_t response_delay_us;
-  bool fail_first_vial_request;
+  bool fail_vial_requests;
   bool fail_during_handoff;
   bool emit_layer_sequence;
 };
@@ -197,13 +197,12 @@ static void send_vial_response(int descriptor,
       0x00, 0x04, 0x52, 0x21, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, 0x00, 0x07,
       0x00, 0x01, 0x00, 0x08, 0x00, 0x01, 0x00, 0x09, 0x00, 0x01, 0x00, 0x0a,
   };
-  if (device->fail_first_vial_request) {
-    device->fail_first_vial_request = false;
-    send_incomplete_report(descriptor);
-    return;
-  }
   if (device->response_delay_us > 0) {
     usleep(device->response_delay_us);
+  }
+  if (device->fail_vial_requests) {
+    send_incomplete_report(descriptor);
+    return;
   }
   uint8_t response[report_size] = {0};
   switch (request[0]) {
@@ -361,10 +360,13 @@ int main(int argc, char **argv) {
   struct self_describing_device device = {0};
   if (self_describing) {
     device.definition = read_definition(argv[2], &device.definition_size);
+    // Keep the invalid reader pending long enough for the handoff-failure
+    // fixture to emit both its layer event and malformed follow-up.
     device.response_delay_us =
-        strcmp(argv[1], "--definition-slow") == 0 ? 100000 : 0;
-    device.fail_first_vial_request =
-        strcmp(argv[1], "--definition-invalid") == 0;
+        strcmp(argv[1], "--definition-invalid") == 0 ? 500000
+        : strcmp(argv[1], "--definition-slow") == 0  ? 100000
+                                                     : 0;
+    device.fail_vial_requests = strcmp(argv[1], "--definition-invalid") == 0;
     device.fail_during_handoff =
         strcmp(argv[1], "--definition-invalid-handoff") == 0;
     device.emit_layer_sequence = strcmp(argv[1], "--definition") == 0 ||

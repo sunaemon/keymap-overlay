@@ -130,16 +130,6 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
     // restart from an old queued signal without any persistent state.
     let mut state = RendererState::for_process()?;
     let state_store = RendererStateStore::new(state.tuple());
-    let connection =
-        Connection::session().context("Failed to connect to the user D-Bus session")?;
-    connection
-        .object_server()
-        .at(OBJECT_PATH, RendererService::new(state_store.clone()))
-        .context("Failed to register the renderer state object")?;
-    connection
-        .request_name(BUS_NAME)
-        .context("Failed to own the keymap overlay D-Bus name")?;
-
     let (sender, receiver) = mpsc::channel();
     let shutting_down = Arc::new(AtomicBool::new(false));
     spawn_shutdown_watcher(sender.clone(), Arc::clone(&shutting_down))?;
@@ -152,6 +142,15 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
     if source.uses_raw_hid() {
         spawn_device_watcher(source);
     }
+    let connection =
+        Connection::session().context("Failed to connect to the user D-Bus session")?;
+    connection
+        .object_server()
+        .at(OBJECT_PATH, RendererService::new(state_store.clone()))
+        .context("Failed to register the renderer state object")?;
+    connection
+        .request_name(BUS_NAME)
+        .context("Failed to own the keymap overlay D-Bus name")?;
     let mut pending = PendingTransition::default();
 
     for event in &receiver {
@@ -204,23 +203,31 @@ fn spawn_shutdown_watcher(
 }
 
 fn spawn_device_watcher(listener: LayerEventSourceHandle) {
+    let (ready_sender, ready_receiver) = mpsc::sync_channel(0);
     thread::spawn(move || {
-        if let Err(error) = watch_for_arrivals(&listener) {
+        if let Err(error) = watch_for_arrivals(&listener, ready_sender) {
             // Not fatal: without it, keyboards are still picked up whenever
             // one of the active readers ends.
             warn!("Stopped watching for keyboards: {error:#}");
         }
     });
+    if ready_receiver.recv().is_err() {
+        warn!("The keyboard arrival watcher stopped before becoming ready");
+    }
 }
 
 /// Blocks on udev events, so an idle overlay costs nothing.
-fn watch_for_arrivals(listener: &LayerEventSourceHandle) -> Result<()> {
+fn watch_for_arrivals(
+    listener: &LayerEventSourceHandle,
+    ready: mpsc::SyncSender<()>,
+) -> Result<()> {
     let socket = udev::MonitorBuilder::new()
         .context("Failed to open a udev monitor")?
         .match_subsystem("hidraw")
         .context("Failed to match the hidraw subsystem")?
         .listen()
         .context("Failed to listen for udev events")?;
+    let _ = ready.send(());
 
     loop {
         wait_readable(&socket)?;
