@@ -252,6 +252,7 @@ function Install-Overlay {
     Remove-Item -LiteralPath $legacyGenerator -Force -ErrorAction SilentlyContinue
     Remove-LegacyModels
     $command = "`"$overlayInstallPath`" --log-out `"$overlayLogPath`""
+    New-Item -ItemType Directory -Path $runKeyPath -Force | Out-Null
     Set-ItemProperty -Path $runKeyPath -Name $runValueName -Value $command
     Start-Process -FilePath $overlayInstallPath -ArgumentList @('--log-out', $overlayLogPath)
     Write-Output "Overlay installed and started; logs: $overlayLogDirectory"

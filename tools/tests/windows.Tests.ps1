@@ -64,6 +64,9 @@ Describe 'Windows development workflow' {
         Install-Overlay
 
         Should -Invoke Copy-OverlayBinary -Times 1
+        Should -Invoke New-Item -Times 1 -ParameterFilter {
+            $ItemType -eq 'Directory' -and $Path -eq $runKeyPath -and $Force
+        }
         Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
             $Name -eq 'KeymapOverlay' -and
             $Value -like '*keymap-overlay.exe*--log-out*' -and
