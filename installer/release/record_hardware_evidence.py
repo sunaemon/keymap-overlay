@@ -22,14 +22,24 @@ logger = logging.getLogger(__name__)
 app = typer.Typer()
 
 PROFILE_RESULTS = {
+    "physical-mo-reports": (
+        "PASS: every configured physical MO key emitted ordered press/release Raw HID reports",
+        ("GLOBAL-03",),
+        "physical",
+    ),
     "macos-session": (
         "PASS: macOS live startup, Vial reread, labels, layer transitions, focus,",
         ("MAC-01", "MAC-02", "MAC-03", "MAC-04"),
         "automated",
     ),
     "linux-kde-session": (
-        "PASS: installed Linux virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention",
-        ("LX-02",),
+        "PASS: Linux live Vial restart read, installed virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention",
+        ("LX-02", "LX-03", "LX-08"),
+        "automated",
+    ),
+    "windows-session": (
+        "PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, restoration, Win32 state, focus, standard key input, click-through, and topmost",
+        ("WIN-02", "WIN-03", "WIN-04", "WIN-07", "WIN-08"),
         "automated",
     ),
 }

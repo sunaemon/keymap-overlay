@@ -1,5 +1,6 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import os
 import re
 import runpy
 import subprocess
@@ -101,7 +102,7 @@ def test_guided_manual_results_and_skips(
     )
     assert result.exit_code == 0, result.output
     assert (output / "WIN-04.json").exists()
-    summary = (output / "summary.md").read_text()
+    summary = (output / "summary.md").read_text(encoding="utf-8")
     assert "| WIN-04 | PASS | manual |" in summary
     assert "| WIN-05 | MISSING |" in summary
 
@@ -116,7 +117,7 @@ def test_failed_observation_stops_and_preserves_results(
         runner.app, args(output), input="y\nFAIL\nFocus moved to overlay\n"
     )
     assert result.exit_code == 1
-    summary = (output / "summary.md").read_text()
+    summary = (output / "summary.md").read_text(encoding="utf-8")
     assert "STOPPED before completion" in summary
     assert "| WIN-04 | FAIL | manual |" in summary
 
@@ -134,7 +135,7 @@ def test_candidate_change_stops_recording(
     )
     assert result.exit_code == 1
     assert not (output / "WIN-04.json").exists()
-    assert "STOPPED" in (output / "summary.md").read_text()
+    assert "STOPPED" in (output / "summary.md").read_text(encoding="utf-8")
 
 
 def test_checklist_comes_from_release_template() -> None:
@@ -157,21 +158,24 @@ def test_guided_hil_imports_only_completed_checks(
     monkeypatch.setattr(
         runner,
         "check_descriptions",
-        lambda *args: {"MAC-01": "startup", "MAC-08": "physical plus repeated cycles"},
+        lambda *args: {"MAC-01": "startup", "MAC-08": "repeated cycles"},
     )
 
     def fake_helper(target: str, root: Path, transcript: Path) -> int:
-        transcript.write_text(
-            f"Candidate: {CANDIDATE}\n"
-            "PASS: macOS live startup, Vial reread, labels, layer transitions, focus,\n"
+        marker = (
+            "PASS: every configured physical MO key emitted ordered press/release Raw HID reports\n"
+            if target == "test-hardware-physical-reports-macos"
+            else "PASS: macOS live startup, Vial reread, labels, layer transitions, focus,\n"
         )
+        transcript.write_text(f"Candidate: {CANDIDATE}\n{marker}")
         return 0
 
     monkeypatch.setattr(runner, "run_helper", fake_helper)
     output = tmp_path / "evidence"
     result = CliRunner().invoke(runner.app, args(output), input="y\nSKIP\n")
     assert result.exit_code == 0, result.output
-    summary = (output / "summary.md").read_text()
+    summary = (output / "summary.md").read_text(encoding="utf-8")
+    assert "| GLOBAL-03 | PASS | physical |" in summary
     assert "| MAC-01 | PASS | automated |" in summary
     assert "| MAC-08 | MISSING |" in summary
     assert (output / "test-hardware-physical-reports-macos.log").exists()
@@ -219,6 +223,20 @@ def test_helper_capture_includes_output_and_exit(
     assert "Exit status: 3" in content
 
 
+def test_windows_helper_uses_native_powershell(tmp_path: Path) -> None:
+    """The guided Windows run does not depend on make being on PowerShell PATH."""
+    assert runner.helper_command("test-hardware-session-windows", tmp_path) == [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(tmp_path / "tools" / "windows.ps1"),
+        "-Task",
+        "test-hardware-session",
+    ]
+
+
 def test_failed_helper_stops_before_observation_prompts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -239,7 +257,7 @@ def test_failed_helper_stops_before_observation_prompts(
     result = CliRunner().invoke(runner.app, args(output), input="y\n")
     assert result.exit_code == 1
     assert calls == ["test-hardware-physical-reports-macos"]
-    assert "STOPPED" in (output / "summary.md").read_text()
+    assert "STOPPED" in (output / "summary.md").read_text(encoding="utf-8")
     assert (
         "timed out" in (output / "test-hardware-physical-reports-macos.log").read_text()
     )
@@ -280,7 +298,7 @@ def test_blank_observation_cannot_become_a_pass(
     result = CliRunner().invoke(runner.app, args(output), input="y\nPASS\n   \n")
     assert result.exit_code == 1
     assert not (output / "WIN-04.json").exists()
-    summary = (output / "summary.md").read_text()
+    summary = (output / "summary.md").read_text(encoding="utf-8")
     assert "STOPPED" in summary
     assert "| WIN-04 | MISSING |" in summary
 
@@ -296,7 +314,7 @@ def test_invalid_outcome_reprompts_before_recording(
     )
     assert result.exit_code == 0, result.output
     assert "Enter PASS, FAIL, or SKIP." in result.output
-    summary = (output / "summary.md").read_text()
+    summary = (output / "summary.md").read_text(encoding="utf-8")
     assert "| WIN-04 | PASS | manual |" in summary
     assert "| WIN-05 | MISSING |" in summary
 
@@ -305,7 +323,16 @@ def test_real_git_candidate_requires_clean_worktree(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Git metadata is read from the actual checkout and rejects uncommitted input."""
+    for name in tuple(os.environ):
+        if name.startswith("GIT_"):
+            monkeypatch.delenv(name)
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".gitignore").write_text(
+        ".coverage\n.pytest_cache/\ntestResults.xml\n", encoding="utf-8"
+    )
+    subprocess.run(
+        ["git", "add", ".gitignore"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         [
             "git",
@@ -380,6 +407,11 @@ def setup_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         runner,
         "check_descriptions",
         lambda *args: {"WIN-04": "Check focus", "WIN-05": "Check labels"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "HELPERS",
+        {**runner.HELPERS, "windows-x86_64-win32": ()},
     )
 
 

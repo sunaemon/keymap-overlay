@@ -15,6 +15,7 @@ param(
         'run',
         'test-installer',
         'test-windows-e2e',
+        'test-hardware-session',
         'test-release-acceptance',
         'install',
         'uninstall',
@@ -51,6 +52,7 @@ function Invoke-WindowsWorkflow {
         'run' { Start-DevelopmentOverlay }
         'test-installer' { Test-Installer }
         'test-windows-e2e' { Test-WindowsOverlay }
+        'test-hardware-session' { Test-WindowsHardwareSession }
         'test-release-acceptance' {
             Test-Installer
             Test-WindowsOverlay
@@ -221,6 +223,18 @@ function Test-WindowsOverlay {
     Invoke-WindowsOverlayE2e
 }
 
+function Test-WindowsHardwareSession {
+    Install-Overlay
+    Invoke-Mise @(
+        'exec', '--', 'cargo', 'build', '--release',
+        '--package', 'keymap-overlay-hil'
+    )
+    Invoke-NativeCommand 'powershell.exe' @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        'overlay/platforms/windows/tests/test_hardware_session.ps1'
+    )
+}
+
 function Invoke-WindowsOverlayE2e {
     Invoke-NativeCommand 'powershell.exe' @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
@@ -238,6 +252,9 @@ function Install-Overlay {
     Remove-Item -LiteralPath $legacyGenerator -Force -ErrorAction SilentlyContinue
     Remove-LegacyModels
     $command = "`"$overlayInstallPath`" --log-out `"$overlayLogPath`""
+    if (-not (Test-Path -LiteralPath $runKeyPath)) {
+        New-Item -ItemType Directory -Path $runKeyPath | Out-Null
+    }
     Set-ItemProperty -Path $runKeyPath -Name $runValueName -Value $command
     Start-Process -FilePath $overlayInstallPath -ArgumentList @('--log-out', $overlayLogPath)
     Write-Output "Overlay installed and started; logs: $overlayLogDirectory"

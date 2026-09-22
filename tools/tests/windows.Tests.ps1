@@ -57,6 +57,7 @@ Describe 'Windows development workflow' {
         Mock Copy-OverlayBinary
         Mock Remove-Item
         Mock Remove-LegacyModels
+        Mock Test-Path { $false } -ParameterFilter { $LiteralPath -eq $runKeyPath }
         Mock Set-ItemProperty
         Mock Start-Process
         Mock Write-Output
@@ -64,6 +65,9 @@ Describe 'Windows development workflow' {
         Install-Overlay
 
         Should -Invoke Copy-OverlayBinary -Times 1
+        Should -Invoke New-Item -Times 1 -ParameterFilter {
+            $ItemType -eq 'Directory' -and $Path -eq $runKeyPath -and -not $Force
+        }
         Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
             $Name -eq 'KeymapOverlay' -and
             $Value -like '*keymap-overlay.exe*--log-out*' -and
@@ -74,6 +78,26 @@ Describe 'Windows development workflow' {
             $FilePath -eq $overlayInstallPath -and
             ($ArgumentList -join ' ') -notlike '*--asset-dir*' -and
             ($ArgumentList -join ' ') -notlike '*--keyboard-config-dir*'
+        }
+    }
+
+    It 'preserves other startup values when the Run key exists' {
+        Mock Build-Overlay
+        Mock Stop-Overlay
+        Mock New-Item
+        Mock Copy-OverlayBinary
+        Mock Remove-Item
+        Mock Remove-LegacyModels
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -eq $runKeyPath }
+        Mock Set-ItemProperty
+        Mock Start-Process
+        Mock Write-Output
+
+        Install-Overlay
+
+        Should -Invoke New-Item -Times 2
+        Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
+            $Path -eq $runKeyPath -and $Name -eq $runValueName
         }
     }
 

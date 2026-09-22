@@ -101,14 +101,14 @@ def test_invalid_output_suffix_preserves_transcript(
     assert not output.parent.exists()
 
 
-def test_kde_profile_does_not_claim_vial_edit_or_physical_startup(
+def test_kde_profile_imports_restart_and_transition_checks(
     tmp_path: Path,
 ) -> None:
-    """Virtual fixture output supplies only the complete layer-order check."""
+    """The Linux HIL supplies restart-read and deterministic transition checks."""
     transcript = tmp_path / "linux.log"
     transcript.write_text(
         f"Candidate: {CANDIDATE}\n"
-        "PASS: installed Linux virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention\n"
+        "PASS: Linux live Vial restart read, installed virtual Vial device, ten Raw HID cycles, ordering, D-Bus state, Qt accessibility labels, and focus retention\n"
     )
     record = build_record(
         candidate_sha=CANDIDATE,
@@ -121,7 +121,40 @@ def test_kde_profile_does_not_claim_vial_edit_or_physical_startup(
         lifecycle=None,
         profile="linux-kde-session",
     )
-    assert [check.check_id for check in record.checks] == ["LX-02"]
+    assert [check.check_id for check in record.checks] == [
+        "LX-02",
+        "LX-03",
+        "LX-08",
+    ]
+
+
+def test_windows_profile_imports_restart_and_transition_checks(
+    tmp_path: Path,
+) -> None:
+    """The Windows HIL supplies restart-read and deterministic transition checks."""
+    transcript = tmp_path / "windows.log"
+    transcript.write_text(
+        f"Candidate: {CANDIDATE}\n"
+        "PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, restoration, Win32 state, focus, standard key input, click-through, and topmost\n"
+    )
+    record = build_record(
+        candidate_sha=CANDIDATE,
+        platform_id="windows-x86_64-win32",
+        os_version="Windows 11",
+        session="Win32 / desktop",
+        transcript=transcript,
+        keyboards=["Insixty|1|abc", "DOIO KB16|2|abc"],
+        checks=[],
+        lifecycle=None,
+        profile="windows-session",
+    )
+    assert [check.check_id for check in record.checks] == [
+        "WIN-02",
+        "WIN-03",
+        "WIN-04",
+        "WIN-07",
+        "WIN-08",
+    ]
 
 
 def test_builds_validated_record_from_compact_fields(tmp_path: Path) -> None:
@@ -192,6 +225,30 @@ def test_imports_supported_results_from_exact_head_hil_transcript(
         "MAC-03",
         "MAC-04",
     ]
+
+
+def test_imports_platform_independent_physical_mo_result(tmp_path: Path) -> None:
+    """A guided physical transcript populates the release-wide switch proof."""
+    transcript = tmp_path / "physical-reports.log"
+    transcript.write_text(
+        f"Candidate: {CANDIDATE}\n"
+        "PASS: every configured physical MO key emitted ordered press/release Raw HID reports\n"
+    )
+
+    record = build_record(
+        candidate_sha=CANDIDATE,
+        platform_id="linux-x86_64-gnome-wayland",
+        os_version="Arch Linux",
+        session="GNOME / Wayland",
+        transcript=transcript,
+        keyboards=["Insixty|1|firmware-abc", "DOIO KB16|2|firmware-abc"],
+        checks=[],
+        lifecycle=None,
+        profile="physical-mo-reports",
+    )
+
+    assert record.checks[0].check_id == "GLOBAL-03"
+    assert record.checks[0].evidence_kind == "physical"
 
 
 def test_profile_rejects_stale_transcript(tmp_path: Path) -> None:

@@ -25,15 +25,12 @@ app = typer.Typer()
 
 HELPERS = {
     "macos-arm64-appkit": (
-        ("test-hardware-physical-reports-macos", None),
+        ("test-hardware-physical-reports-macos", "physical-mo-reports"),
         ("test-hardware-session-macos", "macos-session"),
     ),
-    "linux-x86_64-kde-wayland": (
-        ("test-hardware-physical-reports-linux", None),
-        ("test-hardware-session-linux", "linux-kde-session"),
-    ),
-    "linux-x86_64-gnome-wayland": (("test-hardware-physical-reports-linux", None),),
-    "windows-x86_64-win32": (),
+    "linux-x86_64-kde-wayland": (("test-hardware-session-linux", "linux-kde-session"),),
+    "linux-x86_64-gnome-wayland": (),
+    "windows-x86_64-win32": (("test-hardware-session-windows", "windows-session"),),
 }
 
 
@@ -81,7 +78,7 @@ def run_guided_checks(
     helpers = HELPERS[platform_id]
     typer.echo(f"Candidate: {candidate}\nPlatform: {platform_id}\nSession: {session}")
     for target, _ in helpers:
-        typer.echo(f"Helper: make {target}")
+        typer.echo(f"Helper: {' '.join(helper_command(target, root))}")
     typer.echo(
         "Remaining checks will prompt for PASS, FAIL, or SKIP and an observation."
     )
@@ -94,8 +91,8 @@ def run_guided_checks(
     if plan:
         return
     typer.confirm(
-        "Proceed? Helpers install/restart the overlay; macOS session HIL temporarily edits "
-        "Vial bindings and restores them. Close Vial, connect the listed keyboards, "
+        "Proceed? Helpers install/restart the overlay; macOS and Windows session HIL "
+        "temporarily edit Vial bindings and restore them. Close Vial, connect the listed keyboards, "
         "and complete the documented HIL prerequisites first",
         abort=True,
     )
@@ -273,13 +270,14 @@ def check_descriptions(root: Path, platform_id: str) -> dict[str, str]:
 
 def run_helper(target: str, root: Path, transcript: Path) -> int:
     """Stream helper output to the terminal and retain its final exit status."""
+    command = helper_command(target, root)
     with transcript.open("w", encoding="utf-8") as log:
-        log.write(f"Command: make {target}\n")
+        log.write(f"Command: {' '.join(command)}\n")
         environment = dict(
             os.environ, KMO_HIL_LOG_DIR=str(transcript.parent / "helper-logs")
         )
         with subprocess.Popen(
-            ["make", target],
+            command,
             cwd=root,
             env=environment,
             stdout=subprocess.PIPE,
@@ -296,6 +294,22 @@ def run_helper(target: str, root: Path, transcript: Path) -> int:
             code = process.wait()
         log.write(f"Exit status: {code}\n")
     return code
+
+
+def helper_command(target: str, root: Path) -> list[str]:
+    """Return the native command for one platform helper target."""
+    if target == "test-hardware-session-windows":
+        return [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(root / "tools" / "windows.ps1"),
+            "-Task",
+            "test-hardware-session",
+        ]
+    return ["make", target]
 
 
 def helper_record(

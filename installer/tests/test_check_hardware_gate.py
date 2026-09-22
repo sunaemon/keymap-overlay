@@ -201,6 +201,17 @@ def test_reasoned_global_na_results_pass() -> None:
     validate_hardware_gate(evidence, HEAD_SHA, frozenset())
 
 
+def test_physical_global_check_cannot_use_na() -> None:
+    """The release-wide physical switch proof is unconditional."""
+    evidence = complete_gate().replace(
+        "GLOBAL-03** — Result: PASS",
+        "GLOBAL-03** — Result: N/A: covered by another check",
+    )
+
+    with pytest.raises(HardwareGateError, match="GLOBAL-03"):
+        validate_hardware_gate(evidence, HEAD_SHA, frozenset())
+
+
 @pytest.mark.parametrize(
     "changed_path",
     ("firmware/layer_notify.h", "model/generate_vial.py", "Makefile"),
@@ -340,21 +351,38 @@ def test_pull_request_gate_uses_release_delta_for_global_na(tmp_path: Path) -> N
         check_pull_request_event(
             event,
             project_file=project_file,
-            runner=FakeRunner(previous="0.0.4", changed="model/generate_vial.py\0"),
+            runner=FakeRunner(
+                previous="0.0.4",
+                release="v0.0.3",
+                changed="model/generate_vial.py\0",
+            ),
         )
 
 
 class FakeRunner:
     """Return the base version requested by the gate."""
 
-    def __init__(self, *, previous: str, changed: str = "") -> None:
+    def __init__(
+        self, *, previous: str, changed: str = "", release: str | None = None
+    ) -> None:
         self.previous = previous
         self.changed = changed
+        self.release = release or f"v{previous}"
 
     def __call__(self, command: list[str]) -> subprocess.CompletedProcess[str]:
         """Return project metadata or an empty changed-path set."""
         if command == ["git", "show", f"{BASE_SHA}:pyproject.toml"]:
             stdout = project(self.previous)
+        elif command == [
+            "git",
+            "describe",
+            "--tags",
+            "--abbrev=0",
+            "--match",
+            "v[0-9]*",
+            BASE_SHA,
+        ]:
+            stdout = f"{self.release}\n"
         else:
             assert command == [
                 "git",
@@ -362,7 +390,7 @@ class FakeRunner:
                 "--no-renames",
                 "--name-only",
                 "-z",
-                f"v{self.previous}",
+                self.release,
                 HEAD_SHA,
                 "--",
             ]

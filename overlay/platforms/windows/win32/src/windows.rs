@@ -1169,13 +1169,14 @@ fn write_e2e_state_to(
             },
             Some(model),
         ) => format!(
-            "show keyboard={keyboard_id} layers={layers:?} size={}x{} keys={} encoders={} held={}",
+            "show keyboard={keyboard_id} layers={layers:?} size={}x{} keys={} encoders={} held={} first_label={:?}",
             window_size(model).0,
             window_size(model).1,
             model.keys.len(),
             model.encoders.len(),
             model.keys.iter().filter(|key| key.held).count()
                 + model.encoders.iter().filter(|encoder| encoder.held).count(),
+            model.keys.first().map(|key| &key.label),
         ),
         (Transition::Hide, _) => "hide size=1x1".to_owned(),
         _ => return,
@@ -1350,7 +1351,9 @@ mod tests {
         let (width, height) = window_size(&model);
         assert_eq!(
             contents.trim(),
-            format!("show keyboard=3 layers=[1] size={width}x{height} keys=0 encoders=1 held=0")
+            format!(
+                "show keyboard=3 layers=[1] size={width}x{height} keys=0 encoders=1 held=0 first_label=None"
+            )
         );
     }
 

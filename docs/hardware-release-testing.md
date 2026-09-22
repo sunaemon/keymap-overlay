@@ -13,7 +13,8 @@ without treating requested reports as physical switch evidence; see
 [macOS Release-Gate Automation](macos-release-automation.md).
 Linux similarly separates architecture-shared daemon/HID/device checks from
 renderer/session checks. Its virtual Vial integration covers deterministic
-software behavior; guided physical checks retain the hardware boundaries.
+software behavior; `GLOBAL-03` records the release-wide physical `MO` switch
+boundary independently of the host used to collect it.
 
 ## Required Test Matrix
 
@@ -76,7 +77,7 @@ make clean
 release PR's head SHA. Do not begin hardware testing against a branch name or a
 different commit. A later behavior-changing commit invalidates affected runs.
 
-Record `GLOBAL-01` and `GLOBAL-02` once for the release. When firmware or
+Record `GLOBAL-01`, `GLOBAL-02`, and `GLOBAL-03` once for the release. When firmware or
 embedded overlay metadata changed, flash each affected
 keyboard on macOS or Linux. For both bundled keyboards, put each board into its
 bootloader when prompted:
@@ -176,6 +177,23 @@ The process must be running. The Run value must contain the quoted path to
 `--keyboard-config-dir`. The log must contain no HID-open or Vial-model error
 from this start.
 
+With both bundled keyboards connected, run the deterministic session HIL:
+
+```powershell
+.\tools\windows.ps1 -Task test-hardware-session
+```
+
+The helper drives nested layer ordering, ten show/hide cycles, and a reversible
+live Vial `F13` edit through the real keyboards. It restarts the installed
+exact-head Win32 process and verifies its recorded native state. A focused
+Win32 test window then captures standard key-down/up input emitted through the
+encoder keyboard's normal QMK report path before, during, and after the first
+and second overlay shows. It also verifies retained focus, topmost/no-activate
+styles, and a click delivered through the visible overlay. The helper restores
+both temporary Vial bindings and supplies `WIN-02`, `WIN-03`, `WIN-04`,
+`WIN-07`, and `WIN-08` to the guided evidence workflow. It does not replace
+visual, display, disconnect, or login observations.
+
 ## 3. Run the Common Physical Checks
 
 On macOS ARM64, run the two protocol-boundary proofs first:
@@ -189,28 +207,30 @@ The first target asks for one quick tap of every configured physical `MO` key
 and verifies its expected ordered Raw HID press/release messages. The second
 uses deterministic messages emitted by the already-flashed real keyboard to
 exercise repeated show/hide, nested precedence, live Vial restart reads, and
-interactive AppKit window safety. Their exact-head transcripts jointly satisfy
-`MAC-08`; the second satisfies `MAC-02`, `MAC-03`, and `MAC-04`. No separate
+interactive AppKit window safety. The first transcript satisfies `GLOBAL-03`;
+the second satisfies `MAC-02`, `MAC-03`, `MAC-04`, and the deterministic part
+of `MAC-08`. No separate
 physical two-key chord is required after every participating switch has passed
 the first target.
 
-On Linux KDE, run the deterministic real-session integration and the guided
-physical report boundary:
+On Linux KDE, run the deterministic real-session integration:
 
 ```bash
 sudo modprobe uhid
 sudo setfacl -m "u:$(id -un):rw" /dev/uhid
 make install-uhid-test-rule
 make test-hardware-session-linux
-make test-hardware-physical-reports-linux
 ```
 
 The first target uses a self-describing virtual Vial HID device with the
 installed daemon and Qt renderer. It proves startup model transport, layer
 precedence/restoration, repeated transitions, AT-SPI labels, absence of overlay
-focus, and focus retention. The second asks for one physical tap of every configured
-`MO` key. Neither target replaces visual comparison, monitor/scale inspection,
-pointer click-through, USB identity, unplug/replug, or sign-in evidence.
+focus, and focus retention. Before creating the virtual device, it uses the
+first-party HIL driver to make a reversible live Vial edit and proves that the
+daemon reads the changed and restored models only across restarts. It does not
+replace visual comparison, monitor/scale inspection, pointer click-through, USB
+identity, unplug/replug, or sign-in evidence. The completed `GLOBAL-03` check
+supplies the release-wide physical switch-to-firmware proof.
 
 Perform shared Linux checks once on x86_64 (`LX`). Perform renderer checks in
 both listed sessions (`KDE` and `GNOME`). Before and after the shared run,
@@ -226,10 +246,11 @@ sections.
    numeric layer precedence, release the higher one
    and confirm the lower layer returns, then release the last key and confirm
    the overlay hides. HIL may supply this deterministic report-ordering proof.
-3. Except for the automated macOS live-Vial session above, for `*-03`, stop the
-   overlay, make one visible key-binding change in Vial, close Vial, and restart
-   the overlay. Verify the changed live binding, restore it, and restart once
-   more. This proves the intentional startup-only reread.
+3. Except for the applicable exact-head macOS, Linux, or Windows HIL session
+   above, for `*-03`, stop the overlay, make one visible key-binding change in
+   Vial, close Vial, and restart the overlay. Verify the changed live binding,
+   restore it, and restart once more. This proves the intentional startup-only
+   reread.
 4. Except for the automated macOS AppKit assertions above, for `*-04`, continue
    typing in a text editor while repeatedly showing the overlay, then click
    through it. Every character and click must reach the editor; focus and the
@@ -241,15 +262,15 @@ sections.
 6. For `*-06`, on each affected monitor and scale factor, verify centering,
    size, topmost behavior, labels, and click-through behavior. Real compositor
    topology and DPI behavior are outside fixed-scale CI.
-7. For `*-07`, record the initial physical typing/identity observation before
-   step 1, then type again here and confirm the same USB identity and
-   `KEYBOARD_ID`. This proves ordinary matrix input and end-to-end device
-   identity.
-8. Except for the macOS split proof above, for `*-08`, hold every `MO` key and
-   verify the correct live Vial layer appears while held and hides on release.
-   Tap each `MO` key quickly, then show and hide it at least ten times. Verify
-   that no stale or stuck overlay remains. The physical tap proves the
-   switch-to-firmware boundary; HIL may supply the deterministic repetitions.
+7. For `*-07`, an exact-head HIL session may emit and capture standard host key
+   input before, during, and after overlay shows while confirming the device's
+   USB identity and `KEYBOARD_ID`. Otherwise, record the initial physical
+   typing/identity observation before step 1, then type again here. The
+   release-wide `GLOBAL-03` result retains the physical matrix-switch boundary.
+8. On every backend, verify held visibility, fast taps, and at least ten
+   show/hide transitions without stale state. HIL may supply those deterministic
+   transitions. Do not repeat every physical matrix-switch tap: `GLOBAL-03`
+   supplies that proof release-wide.
 
 For the release-wide `encoder-keyboard` coverage row, hold the relevant layer
 on an encoder keyboard and rotate both directions, then push every encoder.
@@ -398,7 +419,8 @@ Fill the release PR template without changing its stable row IDs or headers:
   encoder keyboard, and one simultaneous all-keyboard run. IDs must be decimal,
   comma-separated values.
 - `GLOBAL-01` and `GLOBAL-02` are checked with `PASS`, or a reasoned `N/A` when
-  firmware and embedded metadata did not change.
+  firmware and embedded metadata did not change. `GLOBAL-03` is checked with
+  `PASS` and cannot use `N/A`.
 - Every `MAC`, `LX`, `KDE`, `GNOME`, and `WIN` check is completed with `PASS`;
   shared Linux results stay within their architecture, and renderer results
   cannot be copied to another renderer.

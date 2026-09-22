@@ -1,4 +1,4 @@
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 mod platform {
     use anyhow::{Context, Result, bail};
     use clap::{Parser, Subcommand, ValueEnum};
@@ -487,13 +487,13 @@ mod platform {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn main() -> anyhow::Result<()> {
     platform::main()
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn main() {
-    eprintln!("keymap-overlay-hil is currently available only on Linux and macOS");
+    eprintln!("keymap-overlay-hil is available only on Linux, macOS, and Windows");
     std::process::exit(1);
 }

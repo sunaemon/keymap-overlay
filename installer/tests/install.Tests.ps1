@@ -124,11 +124,16 @@ Describe 'install.ps1' {
     }
 
     It 'starts without selecting persistent model input' {
+        Mock Test-Path { $false } -ParameterFilter { $LiteralPath -eq $runKey }
+        Mock New-Item
         Mock Set-ItemProperty
         Mock Start-Process
 
         Install-Autostart
 
+        Should -Invoke New-Item -Times 1 -ParameterFilter {
+            $ItemType -eq 'Directory' -and $Path -eq $runKey -and -not $Force
+        }
         Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
             $Value -eq "`"$binaryPath`"" -and
             $Value -notlike '*--asset-dir*' -and $Value -notlike '*--keyboard-config-dir*'
@@ -137,6 +142,20 @@ Describe 'install.ps1' {
             $FilePath -eq $binaryPath -and
             ($ArgumentList -join ' ') -notlike '*--asset-dir*' -and
             ($ArgumentList -join ' ') -notlike '*--keyboard-config-dir*'
+        }
+    }
+
+    It 'preserves other startup values when the Run key exists' {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -eq $runKey }
+        Mock New-Item
+        Mock Set-ItemProperty
+        Mock Start-Process
+
+        Install-Autostart
+
+        Should -Invoke New-Item -Times 0
+        Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
+            $Path -eq $runKey -and $Name -eq $runValue
         }
     }
 
