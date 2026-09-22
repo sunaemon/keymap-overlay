@@ -304,6 +304,7 @@ static void run_self_describing(int descriptor,
       } else {
         send_incomplete_report(descriptor);
         device->fail_during_handoff = false;
+        device->fail_vial_requests = true;
       }
       continue;
     }
