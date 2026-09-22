@@ -38,8 +38,8 @@ PROFILE_RESULTS = {
         "automated",
     ),
     "windows-session": (
-        "PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, restoration, and Win32 state",
-        ("WIN-02", "WIN-03", "WIN-08"),
+        "PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, restoration, Win32 state, focus, standard key input, click-through, and topmost",
+        ("WIN-02", "WIN-03", "WIN-04", "WIN-07", "WIN-08"),
         "automated",
     ),
 }

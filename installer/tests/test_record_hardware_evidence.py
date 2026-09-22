@@ -135,7 +135,7 @@ def test_windows_profile_imports_restart_and_transition_checks(
     transcript = tmp_path / "windows.log"
     transcript.write_text(
         f"Candidate: {CANDIDATE}\n"
-        "PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, restoration, and Win32 state\n"
+        "PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, restoration, Win32 state, focus, standard key input, click-through, and topmost\n"
     )
     record = build_record(
         candidate_sha=CANDIDATE,
@@ -151,6 +151,8 @@ def test_windows_profile_imports_restart_and_transition_checks(
     assert [check.check_id for check in record.checks] == [
         "WIN-02",
         "WIN-03",
+        "WIN-04",
+        "WIN-07",
         "WIN-08",
     ]
 

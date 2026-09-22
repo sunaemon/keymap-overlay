@@ -7,8 +7,11 @@ $script:projectDirectory = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')
 $script:driver = Join-Path $projectDirectory 'target\release\keymap-overlay-hil.exe'
 $script:overlay = Join-Path $env:LOCALAPPDATA 'Programs\keymap-overlay\keymap-overlay.exe'
 $script:overlayLog = Join-Path $env:LOCALAPPDATA 'keymap-overlay\logs\overlay.log'
+$script:uiProbeSource = Join-Path $PSScriptRoot 'HilUiProbe.cs'
 $script:keyboardId = if ($env:KMO_HIL_KEYBOARD_ID) { $env:KMO_HIL_KEYBOARD_ID } else { '1' }
 $script:secondaryKeyboardId = if ($env:KMO_HIL_SECONDARY_KEYBOARD_ID) { $env:KMO_HIL_SECONDARY_KEYBOARD_ID } else { '2' }
+$script:encoderKeyboardId = if ($env:KMO_HIL_ENCODER_KEYBOARD_ID) { $env:KMO_HIL_ENCODER_KEYBOARD_ID } else { '2' }
+$script:encoderIndex = if ($env:KMO_HIL_ENCODER_INDEX) { $env:KMO_HIL_ENCODER_INDEX } else { '0' }
 $script:primaryLayer = if ($env:KMO_HIL_PRIMARY_LAYER) { $env:KMO_HIL_PRIMARY_LAYER } else { '1' }
 $script:secondaryLayer = if ($env:KMO_HIL_SECONDARY_LAYER) { $env:KMO_HIL_SECONDARY_LAYER } else { '2' }
 $script:transcriptDirectory = if ($env:KMO_HIL_LOG_DIR) {
@@ -26,6 +29,8 @@ $script:restoreRequired = $false
 $script:testRow = ''
 $script:testColumn = ''
 $script:originalKeycode = ''
+$script:encoderOriginalKeycode = ''
+$script:encoderRestoreRequired = $false
 
 function Invoke-WindowsHardwareSession {
     Confirm-Prerequisites
@@ -54,9 +59,10 @@ function Invoke-WindowsHardwareSession {
         Start-TestOverlay
         Test-LayerTransitions
         Test-RestartRead
+        Test-WindowInput
         Write-Output (
             'PASS: Windows live Vial restart read, ten Raw HID cycles, nested ordering, ' +
-            'restoration, and Win32 state'
+            'restoration, Win32 state, focus, standard key input, click-through, and topmost'
         )
         Write-Output "Transcript: $transcript"
     }
@@ -77,7 +83,7 @@ function Confirm-Prerequisites {
     if (Invoke-GitForOutput @('status', '--short')) {
         throw 'Candidate worktree is not clean'
     }
-    foreach ($path in @($driver, $overlay)) {
+    foreach ($path in @($driver, $overlay, $uiProbeSource)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Required executable is missing: $path"
         }
@@ -147,6 +153,39 @@ function Test-RestartRead {
     Wait-ForState 'restored model hide' 'hide size=1x1' 13
 }
 
+function Test-WindowInput {
+    Stop-Overlay
+    $script:encoderOriginalKeycode = Invoke-HilDriver @(
+        'get-encoder', '--keyboard-id', $encoderKeyboardId, '--layer', '0',
+        '--index', $encoderIndex, '--direction', 'ccw'
+    )
+    Invoke-HilDriver @(
+        'set-encoder', '--keyboard-id', $encoderKeyboardId, '--layer', '0',
+        '--index', $encoderIndex, '--direction', 'ccw', '--keycode', '0x0004'
+    ) | Out-Null
+    $script:encoderRestoreRequired = $true
+    Confirm-EncoderKeycode '0x0004'
+    Start-TestOverlay
+
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    Add-Type -Path $uiProbeSource -ReferencedAssemblies @(
+        'System.Windows.Forms.dll', 'System.Drawing.dll'
+    )
+    [KeymapOverlay.Hil.WindowsUiProbe]::Run(
+        $driver,
+        $overlayProcess.Id,
+        [int]$keyboardId,
+        [int]$primaryLayer,
+        [int]$encoderKeyboardId,
+        [int]$encoderIndex
+    ) | Write-Output
+
+    Stop-Overlay
+    Restore-EncoderKeycode
+    Start-TestOverlay
+}
+
 function Start-TestOverlay {
     $script:overlayProcess = Start-Process -FilePath $overlay `
         -ArgumentList @('--log-out', $overlayLog) -WindowStyle Hidden -PassThru
@@ -213,6 +252,29 @@ function Restore-Keycode {
     $script:restoreRequired = $false
 }
 
+function Confirm-EncoderKeycode([string]$Expected) {
+    $actual = Invoke-HilDriver @(
+        'get-encoder', '--keyboard-id', $encoderKeyboardId, '--layer', '0',
+        '--index', $encoderIndex, '--direction', 'ccw'
+    )
+    if ($actual -ne $Expected) {
+        throw "Expected Vial encoder keycode $Expected, found $actual"
+    }
+}
+
+function Restore-EncoderKeycode {
+    if (-not $encoderRestoreRequired) {
+        return
+    }
+    Invoke-HilDriver @(
+        'set-encoder', '--keyboard-id', $encoderKeyboardId, '--layer', '0',
+        '--index', $encoderIndex, '--direction', 'ccw',
+        '--keycode', $encoderOriginalKeycode
+    ) | Out-Null
+    Confirm-EncoderKeycode $encoderOriginalKeycode
+    $script:encoderRestoreRequired = $false
+}
+
 function Restore-Session {
     Remove-Item Env:KEYMAP_OVERLAY_E2E_STATE_FILE -ErrorAction SilentlyContinue
     $cleanupError = $null
@@ -231,7 +293,8 @@ function Restore-Session {
                 ) | Out-Null
             },
             { Stop-Overlay },
-            { Restore-Keycode }
+            { Restore-Keycode },
+            { Restore-EncoderKeycode }
         )
         foreach ($cleanupStep in $cleanupSteps) {
             try {

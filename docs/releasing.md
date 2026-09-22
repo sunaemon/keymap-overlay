@@ -113,18 +113,18 @@ The template deliberately separates three kinds of evidence:
 The ten platform checks have the same meaning on every backend. Their numeric
 suffixes follow increasing human interaction:
 
-| Case | Human operation                                                                 | Requirement and rationale                                                                            |
-| ---- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `01` | Run the startup/log target.                                                     | Native service startup and a real device-owned Vial model are outside CI.                            |
-| `02` | None with exact-head HIL; otherwise hold two `MO` keys.                         | Proves report ordering, numeric precedence, restoration, and final hide.                             |
-| `03` | None with HIL; otherwise make one reversible Vial edit and restart.             | Proves the intentional startup-only model reread.                                                    |
-| `04` | None with the macOS signed probe; otherwise type and click through the overlay. | Real desktop focus, z-order, and pointer routing cannot be inferred from rendering tests.            |
-| `05` | Compare the native overlay with live Vial.                                      | A person still judges clipping, native glyphs, geometry, transparency, and highlighted state.        |
-| `06` | Inspect every affected display and scale.                                       | Real compositor topology and DPI behavior differ from fixed-scale CI.                                |
-| `07` | Type physically before and after; confirm USB and `KEYBOARD_ID`.                | Proves ordinary matrix input and end-to-end device identity.                                         |
-| `08` | Exercise fast and repeated show/hide transitions through the platform backend.  | `GLOBAL-03` proves the physical switch boundary once; every backend still needs transition coverage. |
-| `09` | Unplug/replug, or operate a switched USB port.                                  | Proves real OS removal, arrival, and startup-presence behavior.                                      |
-| `10` | Sign out, sign in, then press the first layer key.                              | Authentication and graphical-session creation are deliberate session boundaries.                     |
+| Case | Human operation                                                                           | Requirement and rationale                                                                                    |
+| ---- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `01` | Run the startup/log target.                                                               | Native service startup and a real device-owned Vial model are outside CI.                                    |
+| `02` | None with exact-head HIL; otherwise hold two `MO` keys.                                   | Proves report ordering, numeric precedence, restoration, and final hide.                                     |
+| `03` | None with HIL; otherwise make one reversible Vial edit and restart.                       | Proves the intentional startup-only model reread.                                                            |
+| `04` | None with the macOS signed probe; otherwise type and click through the overlay.           | Real desktop focus, z-order, and pointer routing cannot be inferred from rendering tests.                    |
+| `05` | Compare the native overlay with live Vial.                                                | A person still judges clipping, native glyphs, geometry, transparency, and highlighted state.                |
+| `06` | Inspect every affected display and scale.                                                 | Real compositor topology and DPI behavior differ from fixed-scale CI.                                        |
+| `07` | Use exact-head HIL host-input capture, or type before and after; confirm device identity. | Proves standard host input and end-to-end device identity; `GLOBAL-03` retains the physical switch boundary. |
+| `08` | Exercise fast and repeated show/hide transitions through the platform backend.            | `GLOBAL-03` proves the physical switch boundary once; every backend still needs transition coverage.         |
+| `09` | Unplug/replug, or operate a switched USB port.                                            | Proves real OS removal, arrival, and startup-presence behavior.                                              |
+| `10` | Sign out, sign in, then press the first layer key.                                        | Authentication and graphical-session creation are deliberate session boundaries.                             |
 
 For macOS, the approved HIL procedure may compose `MAC-08` from a guided
 physical switch-to-report transcript and deterministic report-to-AppKit

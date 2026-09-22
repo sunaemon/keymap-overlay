@@ -185,10 +185,14 @@ With both bundled keyboards connected, run the deterministic session HIL:
 
 The helper drives nested layer ordering, ten show/hide cycles, and a reversible
 live Vial `F13` edit through the real keyboards. It restarts the installed
-exact-head Win32 process, verifies its recorded native state, restores the
-original binding, and supplies `WIN-02`, `WIN-03`, and `WIN-08` to the guided
-evidence workflow. It does not replace visual, focus, typing/identity,
-disconnect, or login observations.
+exact-head Win32 process and verifies its recorded native state. A focused
+Win32 test window then captures standard key-down/up input emitted through the
+encoder keyboard's normal QMK report path before, during, and after the first
+and second overlay shows. It also verifies retained focus, topmost/no-activate
+styles, and a click delivered through the visible overlay. The helper restores
+both temporary Vial bindings and supplies `WIN-02`, `WIN-03`, `WIN-04`,
+`WIN-07`, and `WIN-08` to the guided evidence workflow. It does not replace
+visual, display, disconnect, or login observations.
 
 ## 3. Run the Common Physical Checks
 
@@ -258,10 +262,11 @@ sections.
 6. For `*-06`, on each affected monitor and scale factor, verify centering,
    size, topmost behavior, labels, and click-through behavior. Real compositor
    topology and DPI behavior are outside fixed-scale CI.
-7. For `*-07`, record the initial physical typing/identity observation before
-   step 1, then type again here and confirm the same USB identity and
-   `KEYBOARD_ID`. This proves ordinary matrix input and end-to-end device
-   identity.
+7. For `*-07`, an exact-head HIL session may emit and capture standard host key
+   input before, during, and after overlay shows while confirming the device's
+   USB identity and `KEYBOARD_ID`. Otherwise, record the initial physical
+   typing/identity observation before step 1, then type again here. The
+   release-wide `GLOBAL-03` result retains the physical matrix-switch boundary.
 8. On every backend, verify held visibility, fast taps, and at least ten
    show/hide transitions without stale state. HIL may supply those deterministic
    transitions. Do not repeat every physical matrix-switch tap: `GLOBAL-03`

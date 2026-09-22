@@ -40,18 +40,18 @@ interaction to the most disruptive operation. The suffix meanings are shared
 by every platform prefix; `*-07` begins before the run and is completed after
 it.
 
-| Case   | Human operation required                                                               | Rationale                                                                                                  |
-| ------ | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `*-01` | Run the installed-startup/log target; no per-event input.                              | CI cannot prove native login-service startup or a real device-owned Vial model.                            |
-| `*-02` | None where exact-head HIL exists; otherwise hold two `MO` keys.                        | This isolates report ordering, layer precedence, restoration, and final hide.                              |
-| `*-03` | None where HIL performs the reversible Vial edit; otherwise edit once and restart.     | The runtime intentionally rereads Vial only at process startup.                                            |
-| `*-04` | None for the macOS signed probe; otherwise type and click through the visible overlay. | Focus, window order, and pointer routing belong to the interactive desktop/window manager.                 |
-| `*-05` | Visually compare the native overlay with the live Vial model.                          | Semantic assertions cannot fully judge native rendering, clipping, glyphs, and physical encoder placement. |
-| `*-06` | Exercise every affected attached display and scale, then inspect placement.            | Real compositor topology and DPI behavior are not represented by fixed-scale CI rendering.                 |
-| `*-07` | Type on the physical keyboard before and after the run; confirm USB and `KEYBOARD_ID`. | This proves ordinary matrix input and end-to-end physical device identity.                                 |
-| `*-08` | Exercise fast and repeated show/hide transitions through the platform backend.         | `GLOBAL-03` proves the physical switch boundary once; each backend still needs transition coverage.        |
-| `*-09` | Unplug/replug the keyboard, or operate an independently switched USB port.             | A real OS removal/arrival transition is required to test device lifetime behavior.                         |
-| `*-10` | Sign out, sign in, then make the first physical layer press.                           | Authentication and graphical-session creation are intentional human/session boundaries.                    |
+| Case   | Human operation required                                                                        | Rationale                                                                                                  |
+| ------ | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `*-01` | Run the installed-startup/log target; no per-event input.                                       | CI cannot prove native login-service startup or a real device-owned Vial model.                            |
+| `*-02` | None where exact-head HIL exists; otherwise hold two `MO` keys.                                 | This isolates report ordering, layer precedence, restoration, and final hide.                              |
+| `*-03` | None where HIL performs the reversible Vial edit; otherwise edit once and restart.              | The runtime intentionally rereads Vial only at process startup.                                            |
+| `*-04` | None for the macOS signed probe; otherwise type and click through the visible overlay.          | Focus, window order, and pointer routing belong to the interactive desktop/window manager.                 |
+| `*-05` | Visually compare the native overlay with the live Vial model.                                   | Semantic assertions cannot fully judge native rendering, clipping, glyphs, and physical encoder placement. |
+| `*-06` | Exercise every affected attached display and scale, then inspect placement.                     | Real compositor topology and DPI behavior are not represented by fixed-scale CI rendering.                 |
+| `*-07` | Use exact-head HIL host-input capture, or type before and after; confirm USB and `KEYBOARD_ID`. | This proves standard host input and device identity; `GLOBAL-03` retains the physical switch boundary.     |
+| `*-08` | Exercise fast and repeated show/hide transitions through the platform backend.                  | `GLOBAL-03` proves the physical switch boundary once; each backend still needs transition coverage.        |
+| `*-09` | Unplug/replug the keyboard, or operate an independently switched USB port.                      | A real OS removal/arrival transition is required to test device lifetime behavior.                         |
+| `*-10` | Sign out, sign in, then make the first physical layer press.                                    | Authentication and graphical-session creation are intentional human/session boundaries.                    |
 
 `GLOBAL-01` and `GLOBAL-02` are conditional firmware prerequisites: enter each
 affected board's real bootloader, then verify first-boot defaults and a Vial
