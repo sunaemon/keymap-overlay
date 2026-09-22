@@ -11,9 +11,9 @@ use dispatch::Queue;
 use iohidmanager::async_api::ManagerDeviceMatchingStream;
 use iohidmanager::{HidManager, HidUsage};
 use keymap_overlay_runtime::{
-    DisplayEncoder, LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, OverlayModel,
+    DisplayEncoder, LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelStore, OverlayModel,
     PendingTransition, RAW_USAGE_ID, RAW_USAGE_PAGE, SimulatedLayer, StartupModels, Transition,
-    compose_model, spawn_layer_event_source,
+    spawn_layer_event_source,
 };
 use log::{info, warn};
 use objc2::rc::{Allocated, Retained};
@@ -93,7 +93,7 @@ struct NativeLayer {
 struct OverlayApp {
     receiver: Receiver<LayerEvent>,
     pending: PendingTransition,
-    models: ModelCache,
+    models: ModelStore,
     layers: HashMap<(u8, Vec<u8>), NativeLayer>,
     visible_layer: Option<(u8, Vec<u8>)>,
     window: Retained<NSWindow>,
@@ -114,6 +114,7 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
         models,
         raw_hid_devices,
     } = startup;
+    let models = ModelStore::new(models);
     let mtm = MainThreadMarker::new().context("AppKit must run on the main thread")?;
     let application = NSApplication::sharedApplication(mtm);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
@@ -133,7 +134,7 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
         ChannelSink(sender),
         simulated,
         raw_hid_devices,
-        models.keys().map(|(keyboard_id, _)| *keyboard_id),
+        models.clone(),
     );
     if source.uses_raw_hid() {
         spawn_device_watcher(source);
@@ -560,7 +561,7 @@ impl OverlayApp {
     fn show(&mut self, keyboard_id: u8, layers: &[u8]) {
         let key = (keyboard_id, layers.to_vec());
         if !self.layers.contains_key(&key) {
-            let Some(model) = compose_model(&self.models, keyboard_id, layers) else {
+            let Some(model) = self.models.compose(keyboard_id, layers) else {
                 log::warn!(
                     "Overlay model is unavailable for keyboard {keyboard_id}, layers {layers:?}"
                 );

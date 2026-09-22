@@ -155,10 +155,11 @@ make install-udev-rules # Linux only: grant Raw HID access to the login user
 make install-overlay    # Build and install the login service
 ```
 
-The running overlay reads every connected keyboard model into memory at
-startup (Startup Refresh in `docs/design.md`). A disconnected keyboard has no
-model until the process is restarted with it connected. Release archives ship
-neither keyboard definitions nor model caches.
+The running overlay reads connected keyboard models into memory at startup and
+reads a previously unseen keyboard when it arrives later (Startup Refresh in
+`docs/design.md`). Reconnecting a known keyboard reuses its in-memory model;
+restart the overlay to pick up Vial edits. Release archives ship neither
+keyboard definitions nor model caches.
 
 Make dispatches macOS/Linux behavior from `OS_FAMILY`, derived from `uname -s`.
 Windows uses `tools/windows.ps1` directly; do not add a Windows Make branch or

@@ -10,8 +10,8 @@ use keymap_overlay_linux_protocol::{
     BUS_NAME, OBJECT_PATH, RENDERER_INTERFACE, RendererService, RendererStateStore,
 };
 use keymap_overlay_runtime::{
-    LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, PendingTransition,
-    SimulatedLayer, StartupModels, Transition, compose_model, spawn_layer_event_source,
+    LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelStore, PendingTransition,
+    SimulatedLayer, StartupModels, Transition, spawn_layer_event_source,
 };
 use log::{info, warn};
 use rustix::event::{PollFd, PollFlags, poll};
@@ -65,13 +65,13 @@ impl RendererState {
         })
     }
 
-    fn update(&mut self, transition: &Transition, models: &ModelCache) -> Result<UpdateOutcome> {
+    fn update(&mut self, transition: &Transition, models: &ModelStore) -> Result<UpdateOutcome> {
         match transition {
             Transition::Show {
                 keyboard_id,
                 layers,
             } => {
-                let Some(model) = compose_model(models, *keyboard_id, layers) else {
+                let Some(model) = models.compose(*keyboard_id, layers) else {
                     return Ok(UpdateOutcome {
                         changed: self.hide(),
                         missing_model: true,
@@ -125,6 +125,7 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
         models,
         raw_hid_devices,
     } = startup;
+    let models = ModelStore::new(models);
     // Seed generations with wall time so a renderer can distinguish a daemon
     // restart from an old queued signal without any persistent state.
     let mut state = RendererState::for_process()?;
@@ -146,7 +147,7 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
         ChannelSink(sender),
         simulated,
         raw_hid_devices,
-        models.keys().map(|(keyboard_id, _)| *keyboard_id),
+        models.clone(),
     );
     if source.uses_raw_hid() {
         spawn_device_watcher(source);

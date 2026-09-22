@@ -4,9 +4,9 @@
 
 use anyhow::{Result, anyhow};
 use keymap_overlay_runtime::{
-    Arguments, LayerEvent, LayerEventSink, LogDestination, ModelCache, OverlayModel, Parser as _,
-    PendingTransition, Transition, compose_model, default_log_file, initialize_logging,
-    spawn_layer_event_source, startup_models, write_notice,
+    Arguments, LayerEvent, LayerEventSink, LogDestination, ModelStore, OverlayModel, Parser as _,
+    PendingTransition, Transition, default_log_file, initialize_logging, spawn_layer_event_source,
+    startup_models, write_notice,
 };
 use std::env;
 use std::ffi::OsString;
@@ -76,7 +76,7 @@ const TEXT_FILL: u32 = 0xFF20242C;
 static LISTENER: OnceLock<keymap_overlay_runtime::LayerEventSourceHandle> = OnceLock::new();
 
 struct State {
-    models: Arc<ModelCache>,
+    models: ModelStore,
     pending: Arc<Mutex<PendingTransition>>,
     window: AtomicIsize,
 }
@@ -177,10 +177,10 @@ pub(crate) fn run() -> Result<()> {
     }
     let _gdi_plus = start_gdi_plus()?;
     let startup = startup_models(simulated)?;
-    let models = Arc::new(startup.models);
+    let models = ModelStore::new(startup.models);
     let pending = Arc::new(Mutex::new(PendingTransition::default()));
     let state = Box::new(State {
-        models: Arc::clone(&models),
+        models: models.clone(),
         pending: Arc::clone(&pending),
         window: AtomicIsize::new(0),
     });
@@ -195,7 +195,7 @@ pub(crate) fn run() -> Result<()> {
         },
         simulated,
         startup.raw_hid_devices,
-        models.keys().map(|(keyboard_id, _)| *keyboard_id),
+        models,
     );
     let _ = LISTENER.set(listener);
     message_loop()
@@ -299,7 +299,7 @@ unsafe fn apply_transition(window: HWND) {
         Transition::Show {
             keyboard_id,
             layers,
-        } => compose_model(&state.models, *keyboard_id, layers),
+        } => state.models.compose(*keyboard_id, layers),
         Transition::Hide => None,
         Transition::Ignore => unreachable!("handled before changing the window"),
     };

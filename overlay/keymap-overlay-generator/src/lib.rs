@@ -60,6 +60,14 @@ pub struct ConnectedKeyboard {
     pub layer_events: Vec<StartupLayerEvent>,
 }
 
+/// One arriving Raw HID session and its optional self-describing model.
+pub struct ArrivingKeyboard {
+    pub models: Option<types::KeyboardModels>,
+    pub device: HidDevice,
+    pub path: String,
+    pub layer_events: Vec<StartupLayerEvent>,
+}
+
 /// One startup report tagged with its observation order across all devices.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StartupLayerEvent {
@@ -158,6 +166,28 @@ pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<Connecte
                 .unwrap_or_else(|_| Err(anyhow!("Vial reader for {path:?} panicked")))
         })
     }))
+}
+
+/// Builds one arriving keyboard's models while retaining its open HID session.
+pub fn read_connected_keyboard_model(
+    device: HidDevice,
+    path: String,
+    platform: Platform,
+) -> Result<ArrivingKeyboard> {
+    let mut layer_events = Vec::new();
+    let mut sequence = 0;
+    let mut record_event = |event| {
+        layer_events.push(StartupLayerEvent { sequence, event });
+        sequence = sequence.wrapping_add(1);
+    };
+    let models =
+        device::read_self_describing_keyboard_models(&device, platform, &mut record_event)?;
+    Ok(ArrivingKeyboard {
+        models,
+        device,
+        path,
+        layer_events,
+    })
 }
 
 fn coordinate_startup_handoff(
