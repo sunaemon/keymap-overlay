@@ -27,12 +27,16 @@ Describe 'Windows development workflow' {
 
     It 'builds coverage commands for the instrumented native E2E binary' {
         $commands = New-WindowsCoverageCommands `
-            'set "LLVM_PROFILE_FILE=coverage.profraw"' `
+            "set LLVM_PROFILE_FILE=C:\wrong-target\coverage-%p-%32m.profraw`nset CARGO_LLVM_COV=1" `
             'C:\coverage-target' `
             'C:\coverage-target\debug\keymap-overlay.exe' `
             'C:\src\test_win32_e2e.ps1'
 
-        ($commands -join "`n") | Should -Match 'LLVM_PROFILE_FILE=coverage.profraw'
+        ($commands -join "`n") | Should -Not -Match 'wrong-target'
+        ($commands -join "`n") | Should -Match (
+            [regex]::Escape('LLVM_PROFILE_FILE=C:\coverage-target\keymap-overlay-e2e-%%p-%%32m.profraw')
+        )
+        ($commands -join "`n") | Should -Match 'CARGO_LLVM_COV=1'
         ($commands -join "`n") | Should -Match 'cargo build --package keymap-overlay-windows'
         ($commands -join "`n") | Should -Match (
             [regex]::Escape('KEYMAP_OVERLAY_E2E_OVERLAY=C:\coverage-target')

@@ -691,6 +691,7 @@ struct RawHidContext<S> {
     requester: EnumerationRequester,
 }
 
+#[derive(Debug, Eq, PartialEq)]
 enum DiscoveryResult {
     Opened,
     Skipped,
@@ -762,7 +763,17 @@ fn register_active_raw_hid_device(
 
 /// Opens newly discovered Raw HID devices without interrupting active readers.
 fn enumerate_raw_hid_devices<S: LayerEventSink + 'static>(context: &RawHidContext<S>) {
-    let api = match HidApi::new().context("Failed to enumerate HID devices") {
+    enumerate_raw_hid_devices_with_result(
+        HidApi::new().context("Failed to enumerate HID devices"),
+        context,
+    );
+}
+
+fn enumerate_raw_hid_devices_with_result<S: LayerEventSink + 'static>(
+    api: Result<HidApi>,
+    context: &RawHidContext<S>,
+) {
+    let api = match api {
         Ok(api) => api,
         Err(error) => {
             warn!("Raw HID enumeration failed: {error:#}");
@@ -804,13 +815,28 @@ fn discover_raw_hid_device<S: LayerEventSink + 'static>(
     {
         return DiscoveryResult::Skipped;
     }
-    let device = match device_info.open_device(api) {
+    discover_opened_raw_hid_device(
+        path,
+        device_info.vendor_id(),
+        device_info.product_id(),
+        device_info.open_device(api),
+        context,
+    )
+}
+
+fn discover_opened_raw_hid_device<S: LayerEventSink + 'static>(
+    path: String,
+    vendor_id: u16,
+    product_id: u16,
+    device: std::result::Result<HidDevice, hidapi::HidError>,
+    context: &RawHidContext<S>,
+) -> DiscoveryResult {
+    let device = match device {
         Ok(device) => device,
         Err(error) => {
             warn!(
                 "Failed to open Raw HID device {:04x}:{:04x}: {error}",
-                device_info.vendor_id(),
-                device_info.product_id()
+                vendor_id, product_id
             );
             return DiscoveryResult::Retry;
         }
@@ -1223,6 +1249,55 @@ mod tests {
             host_platform(),
             keymap_overlay_generator::labels::Platform::Windows
         ));
+    }
+
+    #[test]
+    fn enumeration_failures_request_a_retry() {
+        let (event_sender, _event_receiver) = mpsc::channel();
+        let (request_sender, request_receiver) = mpsc::channel();
+        let context = RawHidContext {
+            sink: ChannelSink(event_sender),
+            active_paths: Arc::new(Mutex::new(HashSet::new())),
+            active_keyboard_ids: Arc::new(Mutex::new(HashSet::new())),
+            models: ModelStore::new(ModelCache::new()),
+            requester: EnumerationRequester::new(request_sender),
+        };
+
+        enumerate_raw_hid_devices_with_result(Err(anyhow::anyhow!("fixture failure")), &context);
+
+        assert_eq!(request_receiver.try_recv(), Ok(()));
+    }
+
+    #[test]
+    fn devices_that_cannot_be_opened_are_retried() {
+        let (event_sender, _event_receiver) = mpsc::channel();
+        let (request_sender, _request_receiver) = mpsc::channel();
+        let active_paths = Arc::new(Mutex::new(HashSet::new()));
+        let context = RawHidContext {
+            sink: ChannelSink(event_sender),
+            active_paths: Arc::clone(&active_paths),
+            active_keyboard_ids: Arc::new(Mutex::new(HashSet::new())),
+            models: ModelStore::new(ModelCache::new()),
+            requester: EnumerationRequester::new(request_sender),
+        };
+
+        let result = discover_opened_raw_hid_device(
+            "fixture".to_owned(),
+            0xfeed,
+            0x0001,
+            Err(hidapi::HidError::HidApiError {
+                message: "fixture failure".to_owned(),
+            }),
+            &context,
+        );
+
+        assert_eq!(result, DiscoveryResult::Retry);
+        assert!(
+            active_paths
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .is_empty()
+        );
     }
 
     #[test]

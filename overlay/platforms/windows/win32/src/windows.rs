@@ -1420,4 +1420,12 @@ mod tests {
         assert_eq!(composed.width, 180);
         assert!(model_for_transition(&models, &Transition::Hide).is_none());
     }
+
+    #[test]
+    #[should_panic(expected = "handled before changing the window")]
+    fn ignored_transitions_never_reach_model_selection() {
+        let models = ModelStore::new(HashMap::new());
+
+        model_for_transition(&models, &Transition::Ignore);
+    }
 }
