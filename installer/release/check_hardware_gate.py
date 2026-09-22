@@ -148,13 +148,18 @@ def check_pull_request_event(
         logger.info("The pull request does not change the version; skipping the gate")
         return
 
+    previous_release = run(previous_release_command(event.pull_request.base.sha)).stdout
+    previous_release = previous_release.strip()
+    if not previous_release:
+        raise HardwareGateError("no release tag is reachable from the PR base")
+
     validate_hardware_gate(
         event.pull_request.body,
         event.pull_request.head.sha,
         parse_changed_paths(
             run(
                 changed_files_command(
-                    f"v{previous_version}",
+                    previous_release,
                     event.pull_request.head.sha,
                 )
             ).stdout
@@ -198,6 +203,11 @@ def validate_hardware_gate(
 def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
     """Run one gate command and capture its text output."""
     return subprocess.run(command, check=True, capture_output=True, text=True)
+
+
+def previous_release_command(base_sha: str) -> list[str]:
+    """Return the command that finds the latest release reachable from the base."""
+    return ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", base_sha]
 
 
 def changed_files_command(base_ref: str, head_sha: str) -> list[str]:

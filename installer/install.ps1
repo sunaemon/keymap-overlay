@@ -240,7 +240,9 @@ function Remove-LegacyModels {
 
 function Install-Autostart {
     $quotedBinary = '"{0}"' -f $binaryPath
-    New-Item -ItemType Directory -Path $runKey -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $runKey)) {
+        New-Item -ItemType Directory -Path $runKey | Out-Null
+    }
     Set-ItemProperty -Path $runKey -Name $runValue -Value $quotedBinary
     Start-Process -FilePath $binaryPath
 }
