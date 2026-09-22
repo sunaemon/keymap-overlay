@@ -170,12 +170,16 @@ private final class Runner {
         guard NSApp.activationPolicy() == .regular else {
             throw Failure("The focus probe could not adopt a regular activation policy")
         }
-        NSApp.activate(ignoringOtherApps: true)
-        pumpRunLoop(for: 0.1)
         window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        pumpRunLoop(for: 0.1)
         window.makeKey()
         window.makeFirstResponder(textField)
-        let focusDeadline = Date().addingTimeInterval(2)
+        // macOS 27 can leave the launching terminal frontmost even after
+        // NSApp.activate. Allow enough time for the documented one-time
+        // foreground assist before treating the session as a failure.
+        let focusDeadline = Date().addingTimeInterval(10)
         repeat {
             pumpRunLoop(for: 0.1)
         } while (!window.isKeyWindow || window.firstResponder !== textField.currentEditor())
