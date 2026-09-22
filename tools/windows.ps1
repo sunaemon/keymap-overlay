@@ -185,10 +185,21 @@ function New-WindowsCoverageCommands(
     [string]$CoverageOverlay,
     [string]$E2eScript
 ) {
+    $coverageEnvironmentWithoutProfile = @(
+        $CoverageEnvironment -split "`r?`n" |
+            Where-Object { $_ -notmatch '^set\s+"?LLVM_PROFILE_FILE=' }
+    )
+    # This text is written to a batch file, where a single percent pair is
+    # expanded as an environment-variable reference. Double the LLVM profile
+    # placeholders so the child overlay receives the literal %p/%m tokens.
+    $coverageProfile = (
+        Join-Path $CoverageTargetDirectory 'keymap-overlay-e2e-%%p-%%32m.profraw'
+    )
     return @(
         '@echo off'
-        $CoverageEnvironment.Trim()
+        $coverageEnvironmentWithoutProfile
         "set `"CARGO_TARGET_DIR=$CoverageTargetDirectory`""
+        "set `"LLVM_PROFILE_FILE=$coverageProfile`""
         'mise exec -- cargo build --package keymap-overlay-windows'
         'if errorlevel 1 exit /b %errorlevel%'
         "set `"KEYMAP_OVERLAY_E2E_OVERLAY=$CoverageOverlay`""

@@ -110,7 +110,7 @@ checks cannot be completed from another renderer's result.
 - [ ] **MAC-06** — Result: PENDING — Size and position are correct on every affected display and scale factor.
 - [ ] **MAC-07** — Result: PENDING — The keyboard types normally before and after the run, and its USB identity and `KEYBOARD_ID` match its configuration directory.
 - [ ] **MAC-08** — Result: PENDING — Deterministic reports through the real keyboard prove held visibility, fast taps, and ten repeated show/hide cycles without stale state.
-- [ ] **MAC-09** — Result: PENDING — Unplugging while visible hides the overlay; reconnecting works when loaded at startup, while a keyboard absent at startup requires a restart.
+- [ ] **MAC-09** — Result: PENDING — Unplugging while visible hides the overlay; reconnecting works, and a keyboard absent at startup loads its model on connection without a restart.
 - [ ] **MAC-10** — Result: PENDING — After sign-out and sign-in, the service reads the connected keyboard and handles the first physical layer press without a manual restart.
 
 ### linux-x86_64 shared checks
@@ -119,7 +119,7 @@ checks cannot be completed from another renderer's result.
 - [ ] **LX-03** — Result: PENDING — Restarting the daemon after a live Vial edit rereads the device-owned model, with no device read on the layer-key hot path.
 - [ ] **LX-07** — Result: PENDING — The keyboard types normally before and after the run, and its USB identity and `KEYBOARD_ID` match its configuration directory.
 - [ ] **LX-08** — Result: PENDING — Deterministic integration proves held visibility, fast taps, and ten repeated transitions through the daemon without stale state.
-- [ ] **LX-09** — Result: PENDING — Unplugging while visible hides the D-Bus state; reconnecting works when loaded at startup, while a keyboard absent at startup requires a daemon restart.
+- [ ] **LX-09** — Result: PENDING — Unplugging while visible hides the D-Bus state; reconnecting works, and a keyboard absent at startup loads its model on connection without a daemon restart.
 
 ### linux-x86_64-kde-wayland checks
 
@@ -147,7 +147,7 @@ checks cannot be completed from another renderer's result.
 - [ ] **WIN-06** — Result: PENDING — Size and position are correct on every affected display and scale factor in Win32.
 - [ ] **WIN-07** — Result: PENDING — The keyboard types normally before and after the run, and its USB identity and `KEYBOARD_ID` match its configuration directory.
 - [ ] **WIN-08** — Result: PENDING — Layer reports show while active and hide on release; fast taps and ten repeated transitions leave no stuck or stale Win32 overlay.
-- [ ] **WIN-09** — Result: PENDING — Unplugging while visible hides the overlay; reconnecting works when loaded at startup, while a keyboard absent at startup requires a restart.
+- [ ] **WIN-09** — Result: PENDING — Unplugging while visible hides the overlay; reconnecting works, and a keyboard absent at startup loads its model on connection without a restart.
 - [ ] **WIN-10** — Result: PENDING — After sign-out and sign-in, the Run entry starts the overlay, reads the connected keyboard, and handles the first physical layer press without a manual restart.
 
 ### Lifecycle results

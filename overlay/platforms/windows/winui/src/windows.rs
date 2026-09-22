@@ -5,9 +5,9 @@ mod native;
 
 use anyhow::{Context, Result};
 use keymap_overlay_runtime::{
-    Arguments, LayerEvent, LayerEventSink, LogDestination, ModelCache, OverlayModel, Parser as _,
-    PendingTransition, SimulatedLayer, StartupRawHidDevice, Transition, compose_model,
-    default_log_file, initialize_logging, spawn_layer_event_source, startup_models, write_notice,
+    Arguments, LayerEvent, LayerEventSink, LogDestination, ModelStore, OverlayModel, Parser as _,
+    PendingTransition, SimulatedLayer, StartupRawHidDevice, Transition, default_log_file,
+    initialize_logging, spawn_layer_event_source, startup_models, write_notice,
 };
 use std::env;
 use std::fs::OpenOptions;
@@ -30,21 +30,21 @@ const OVERLAY_STROKE: Color = Color::argb(0x70, 0x60, 0x67, 0x73);
 
 #[derive(Clone)]
 struct OverlayInput {
-    models: Arc<ModelCache>,
+    models: ModelStore,
     raw_hid_devices: Arc<Mutex<Vec<StartupRawHidDevice>>>,
     simulated: Option<SimulatedLayer>,
 }
 
 impl PartialEq for OverlayInput {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.models, &other.models)
+        self.models == other.models
             && Arc::ptr_eq(&self.raw_hid_devices, &other.raw_hid_devices)
             && self.simulated == other.simulated
     }
 }
 
 struct OverlayComponent {
-    models: Arc<ModelCache>,
+    models: ModelStore,
     pending: Arc<Mutex<PendingTransition>>,
     sender: LocalSender<Transition>,
     transition: Transition,
@@ -71,11 +71,11 @@ impl Component for OverlayComponent {
             },
             input.simulated,
             startup_devices,
-            input.models.keys().map(|(keyboard_id, _)| *keyboard_id),
+            input.models.clone(),
         );
         native::install_listener(listener);
         Self {
-            models: Arc::clone(&input.models),
+            models: input.models.clone(),
             pending,
             sender: context.sender(),
             transition: Transition::Hide,
@@ -106,9 +106,9 @@ impl Component for OverlayComponent {
                 keyboard_id,
                 layers,
             } => {
-                let model = compose_model(&self.models, *keyboard_id, layers);
+                let model = self.models.compose(*keyboard_id, layers);
                 if model.is_none() {
-                    log_composition_failure(&self.models, *keyboard_id, layers);
+                    log_composition_failure(*keyboard_id, layers);
                 }
                 model
             }
@@ -204,7 +204,7 @@ pub(crate) fn run() -> Result<()> {
     initialize_logging(destination)?;
     let startup = startup_models(simulated)?;
     App::run_component::<OverlayComponent>(OverlayInput {
-        models: Arc::new(startup.models),
+        models: ModelStore::new(startup.models),
         raw_hid_devices: Arc::new(Mutex::new(startup.raw_hid_devices)),
         simulated,
     })
@@ -220,34 +220,8 @@ fn hidden_view() -> View {
         .into()
 }
 
-fn log_composition_failure(models: &ModelCache, keyboard_id: u8, layers: &[u8]) {
-    let Some(base) = models.get(&(keyboard_id, 0)) else {
-        log::error!(
-            "Failed to compose keyboard {keyboard_id} layers {layers:?}: base layer is missing"
-        );
-        return;
-    };
-    for layer in layers {
-        let Some(overlay) = models.get(&(keyboard_id, *layer)) else {
-            log::error!(
-                "Failed to compose keyboard {keyboard_id} layers {layers:?}: layer {layer} is missing"
-            );
-            return;
-        };
-        if overlay.keys.len() != base.keys.len() || overlay.encoders.len() != base.encoders.len() {
-            log::error!(
-                "Failed to compose keyboard {keyboard_id} layers {layers:?}: layer {layer} shape differs from the base layer (keys {} vs {}, encoders {} vs {})",
-                overlay.keys.len(),
-                base.keys.len(),
-                overlay.encoders.len(),
-                base.encoders.len()
-            );
-            return;
-        }
-    }
-    log::error!(
-        "Failed to compose keyboard {keyboard_id} layers {layers:?}: unknown model mismatch"
-    );
+fn log_composition_failure(keyboard_id: u8, layers: &[u8]) {
+    log::error!("Failed to compose keyboard {keyboard_id} layers {layers:?}");
 }
 
 fn model_view(model: OverlayModel) -> View {

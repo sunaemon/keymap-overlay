@@ -54,7 +54,8 @@ Before the listener starts (never on the keypress hot path above), the runtime
 reads every connected self-describing Vial keyboard into memory. The Vial
 client runs in the same process as the overlay: macOS and Windows ship no
 second generator executable, while Linux keeps only its daemon and renderer
-processes. A disconnected keyboard has no model in that process.
+processes. A compatible keyboard connected later is read once in the arrival
+worker before its normal layer-event reader begins.
 
 Vial does not send an external-change notification when its web application
 writes EEPROM. A Vial edit therefore appears at the next startup read; the
@@ -108,11 +109,13 @@ encoder-sensor, or push-switch evidence.
 
 Device arrival notifications request another enumeration without interrupting
 healthy readers, so a release cannot be lost while the new device becomes
-openable. Linux receives `hidraw` add notifications from udev, macOS receives
-usage-filtered notifications from `IOHIDManager`, and Windows forwards
-`WM_DEVICECHANGE` from the mapped Rust window. This restores HID event handling
-for a keyboard whose model was loaded at startup. A keyboard absent at startup
-requires an overlay restart before its model is available.
+openable or its Vial model is read. Linux receives `hidraw` add notifications
+from udev, macOS receives usage-filtered notifications from `IOHIDManager`, and
+Windows forwards `WM_DEVICECHANGE` from the mapped Rust window. The arrival
+worker reads an unseen keyboard's self-describing model into the shared
+in-memory store, replays layer reports observed during that read, and then
+starts its normal reader. Reconnecting a previously modeled keyboard retains
+the startup model; a Vial edit still requires an explicit overlay restart.
 
 For hardware-free manual testing, `--simulate KEYBOARD_ID:LAYER` replaces the
 HID listener with a synthetic source at the `LayerEventSink` boundary. It holds

@@ -10,8 +10,8 @@ use keymap_overlay_linux_protocol::{
     BUS_NAME, OBJECT_PATH, RENDERER_INTERFACE, RendererService, RendererStateStore,
 };
 use keymap_overlay_runtime::{
-    LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelCache, PendingTransition,
-    SimulatedLayer, StartupModels, Transition, compose_model, spawn_layer_event_source,
+    LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelStore, PendingTransition,
+    SimulatedLayer, StartupModels, Transition, spawn_layer_event_source,
 };
 use log::{info, warn};
 use rustix::event::{PollFd, PollFlags, poll};
@@ -65,13 +65,13 @@ impl RendererState {
         })
     }
 
-    fn update(&mut self, transition: &Transition, models: &ModelCache) -> Result<UpdateOutcome> {
+    fn update(&mut self, transition: &Transition, models: &ModelStore) -> Result<UpdateOutcome> {
         match transition {
             Transition::Show {
                 keyboard_id,
                 layers,
             } => {
-                let Some(model) = compose_model(models, *keyboard_id, layers) else {
+                let Some(model) = models.compose(*keyboard_id, layers) else {
                     return Ok(UpdateOutcome {
                         changed: self.hide(),
                         missing_model: true,
@@ -125,10 +125,23 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
         models,
         raw_hid_devices,
     } = startup;
+    let models = ModelStore::new(models);
     // Seed generations with wall time so a renderer can distinguish a daemon
     // restart from an old queued signal without any persistent state.
     let mut state = RendererState::for_process()?;
     let state_store = RendererStateStore::new(state.tuple());
+    let (sender, receiver) = mpsc::channel();
+    let shutting_down = Arc::new(AtomicBool::new(false));
+    spawn_shutdown_watcher(sender.clone(), Arc::clone(&shutting_down))?;
+    let source = spawn_layer_event_source(
+        ChannelSink(sender),
+        simulated,
+        raw_hid_devices,
+        models.clone(),
+    );
+    if source.uses_raw_hid() {
+        spawn_device_watcher(source);
+    }
     let connection =
         Connection::session().context("Failed to connect to the user D-Bus session")?;
     connection
@@ -138,19 +151,6 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
     connection
         .request_name(BUS_NAME)
         .context("Failed to own the keymap overlay D-Bus name")?;
-
-    let (sender, receiver) = mpsc::channel();
-    let shutting_down = Arc::new(AtomicBool::new(false));
-    spawn_shutdown_watcher(sender.clone(), Arc::clone(&shutting_down))?;
-    let source = spawn_layer_event_source(
-        ChannelSink(sender),
-        simulated,
-        raw_hid_devices,
-        models.keys().map(|(keyboard_id, _)| *keyboard_id),
-    );
-    if source.uses_raw_hid() {
-        spawn_device_watcher(source);
-    }
     let mut pending = PendingTransition::default();
 
     for event in &receiver {
@@ -203,23 +203,35 @@ fn spawn_shutdown_watcher(
 }
 
 fn spawn_device_watcher(listener: LayerEventSourceHandle) {
+    let (ready_sender, ready_receiver) = mpsc::sync_channel(0);
     thread::spawn(move || {
-        if let Err(error) = watch_for_arrivals(&listener) {
+        if let Err(error) = watch_for_arrivals(&listener, ready_sender) {
             // Not fatal: without it, keyboards are still picked up whenever
             // one of the active readers ends.
             warn!("Stopped watching for keyboards: {error:#}");
         }
     });
+    wait_for_device_watcher_ready(ready_receiver);
+}
+
+fn wait_for_device_watcher_ready(ready_receiver: mpsc::Receiver<()>) {
+    if ready_receiver.recv().is_err() {
+        warn!("The keyboard arrival watcher stopped before becoming ready");
+    }
 }
 
 /// Blocks on udev events, so an idle overlay costs nothing.
-fn watch_for_arrivals(listener: &LayerEventSourceHandle) -> Result<()> {
+fn watch_for_arrivals(
+    listener: &LayerEventSourceHandle,
+    ready: mpsc::SyncSender<()>,
+) -> Result<()> {
     let socket = udev::MonitorBuilder::new()
         .context("Failed to open a udev monitor")?
         .match_subsystem("hidraw")
         .context("Failed to match the hidraw subsystem")?
         .listen()
         .context("Failed to listen for udev events")?;
+    let _ = ready.send(());
 
     loop {
         wait_readable(&socket)?;
@@ -327,8 +339,16 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_device_watcher_does_not_block_daemon_startup() {
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(0);
+        drop(ready_sender);
+
+        wait_for_device_watcher_ready(ready_receiver);
+    }
+
+    #[test]
     fn renderer_state_serializes_visible_models_and_hides() {
-        let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
+        let models = ModelStore::new(HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]));
         let mut state = RendererState::default();
 
         let show = state
@@ -366,7 +386,7 @@ mod tests {
 
     #[test]
     fn unchanged_states_are_not_published() {
-        let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
+        let models = ModelStore::new(HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]));
         let mut state = RendererState::default();
         let show = Transition::Show {
             keyboard_id: 2,
@@ -395,7 +415,7 @@ mod tests {
 
     #[test]
     fn missing_models_hide_visible_state_once() {
-        let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
+        let models = ModelStore::new(HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]));
         let mut state = RendererState::default();
         state
             .update(

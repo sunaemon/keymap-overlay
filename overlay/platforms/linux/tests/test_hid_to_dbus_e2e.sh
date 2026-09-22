@@ -7,6 +7,7 @@ VIRTUAL_HID=${KEYMAP_OVERLAY_E2E_VIRTUAL_HID:-"$PROJECT_DIRECTORY/target/virtual
 VIAL_DEFINITION="$PROJECT_DIRECTORY/model/tests/data/vial-contract.json"
 UNSUPPORTED_VIAL_DEFINITION="$PROJECT_DIRECTORY/model/tests/data/vial.json"
 TEST_DIRECTORY=$(mktemp -d)
+STARTUP_VIAL_DEFINITION="$TEST_DIRECTORY/vial-startup.json"
 DAEMON_PID=''
 VIRTUAL_HID_PIDS=''
 
@@ -108,6 +109,51 @@ wait_for_virtual_hid_access() {
   done
 }
 
+stop_virtual_hid() {
+  stopped_pid=$1
+  remaining_pids=''
+  for virtual_hid_pid in $VIRTUAL_HID_PIDS; do
+    if [ "$virtual_hid_pid" = "$stopped_pid" ]; then
+      kill "$virtual_hid_pid" 2>/dev/null || true
+      wait "$virtual_hid_pid" 2>/dev/null || true
+    else
+      remaining_pids="$remaining_pids $virtual_hid_pid"
+    fi
+  done
+  VIRTUAL_HID_PIDS=$remaining_pids
+}
+
+wait_for_log() {
+  pattern=$1
+  expected_count=${2:-1}
+  attempts=0
+  while [ "$(grep -c "$pattern" "$TEST_DIRECTORY/daemon.log" 2>/dev/null || true)" -lt "$expected_count" ]; do
+    if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+      fail "daemon exited while waiting for log message: $pattern"
+    fi
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 200 ]; then
+      fail "timed out waiting for log message: $pattern"
+    fi
+    sleep 0.05
+  done
+}
+
+wait_for_daemon() {
+  attempts=0
+  while [ "$attempts" -lt 200 ]; do
+    if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+      fail 'daemon exited before publishing its D-Bus service'
+    fi
+    if get_state >/dev/null; then
+      return
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.05
+  done
+  fail 'timed out waiting for the daemon D-Bus service'
+}
+
 wait_for_state() {
   description=$1
   pattern=$2
@@ -133,14 +179,24 @@ if [ ! -c /dev/uhid ]; then
   fail '/dev/uhid is unavailable; load the uhid kernel module first'
 fi
 
+sed 's/"keyboardId": 7/"keyboardId": 6/' \
+  "$VIAL_DEFINITION" >"$STARTUP_VIAL_DEFINITION"
+start_virtual_hid startup --definition "$STARTUP_VIAL_DEFINITION"
 start_virtual_hid unsupported --definition-unsupported "$UNSUPPORTED_VIAL_DEFINITION"
+unsupported_pid=$fixture_pid
 start_virtual_hid invalid --definition-invalid "$VIAL_DEFINITION"
 start_virtual_hid handoff-failure --definition-invalid-handoff "$VIAL_DEFINITION"
-start_virtual_hid slow --definition-slow "$VIAL_DEFINITION"
 wait_for_virtual_hid_access 4
 
 "$DAEMON" >"$TEST_DIRECTORY/daemon.log" 2>&1 &
 DAEMON_PID=$!
+wait_for_daemon
+
+# The valid keyboard deliberately arrives after startup. Its first layer event
+# proves the daemon reads and installs the model without being restarted.
+start_virtual_hid late-arrival --definition-slow "$VIAL_DEFINITION"
+late_arrival_pid=$fixture_pid
+wait_for_virtual_hid_access 5
 
 wait_for_state 'the virtual Vial model and lower layer to become visible' \
   ', true, '\''{"version":2,"layer":1'
@@ -150,5 +206,30 @@ wait_for_state 'the lower held layer to be restored' \
   ', true, '\''{"version":2,"layer":1'
 wait_for_state 'the final release to hide the D-Bus state' ", false, '')"
 
+# A second device with the same active KEYBOARD_ID is rejected without
+# disturbing the healthy reader.
+start_virtual_hid duplicate --definition "$VIAL_DEFINITION"
+duplicate_pid=$fixture_pid
+wait_for_virtual_hid_access 6
+wait_for_log 'KEYBOARD_ID 7 is already active'
+stop_virtual_hid "$duplicate_pid"
+
+# Disconnecting the accepted reader releases its identity and cached model.
+# Reconnecting the same keyboard reloads that model and resumes events.
+stop_virtual_hid "$late_arrival_pid"
+wait_for_log 'Raw HID reader stopped'
+start_virtual_hid reconnect --definition-slow "$VIAL_DEFINITION"
+wait_for_virtual_hid_access 5
+wait_for_log 'Loaded overlay model for newly connected keyboard 7' 2
+wait_for_state 'the reconnected keyboard to reload its model' \
+  ', true, '\''{"version":2,"layer":1'
+wait_for_state 'the reconnected keyboard release to hide the D-Bus state' \
+  ", false, '')"
+
+# A metadata-free reader has no keyboard identity or model to release, but its
+# disconnect still removes the device path and requests another enumeration.
+stop_virtual_hid "$unsupported_pid"
+wait_for_log 'Raw HID reader stopped' 2
+
 printf '%s\n' \
-  'Linux multi-device Vial HID-to-D-Bus integration test passed'
+  'Linux late-arrival Vial HID-to-D-Bus integration test passed'

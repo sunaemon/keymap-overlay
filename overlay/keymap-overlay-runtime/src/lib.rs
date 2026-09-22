@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 // Re-exported so a frontend can parse the shared command line without taking a
 // clap dependency of its own.
 pub use clap::Parser;
-use hidapi::{HidApi, HidDevice};
+use hidapi::{DeviceInfo, HidApi, HidDevice};
 use keymap_core::{
     ActiveLayerChange, ActiveLayerState, PendingLayerChange, carries_report_magic,
     parse_raw_layer_event,
@@ -20,7 +20,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -181,16 +181,9 @@ pub fn startup_models(simulated: Option<SimulatedLayer>) -> Result<StartupModels
 
 /// Reads every connected keyboard and retains layer reports interleaved with Vial responses.
 fn load_live_models() -> Result<StartupModels> {
-    #[cfg(target_os = "macos")]
-    let platform = keymap_overlay_generator::labels::Platform::Macos;
-    #[cfg(target_os = "linux")]
-    let platform = keymap_overlay_generator::labels::Platform::Linux;
-    #[cfg(target_os = "windows")]
-    let platform = keymap_overlay_generator::labels::Platform::Windows;
-
     let mut models = ModelCache::new();
     let mut raw_hid_devices = Vec::new();
-    for connected in keymap_overlay_generator::read_connected_keyboard_models(platform)? {
+    for connected in keymap_overlay_generator::read_connected_keyboard_models(host_platform())? {
         let keymap_overlay_generator::ConnectedKeyboard {
             models: generated,
             device,
@@ -224,6 +217,15 @@ fn load_live_models() -> Result<StartupModels> {
     })
 }
 
+fn host_platform() -> keymap_overlay_generator::labels::Platform {
+    #[cfg(target_os = "macos")]
+    return keymap_overlay_generator::labels::Platform::Macos;
+    #[cfg(target_os = "linux")]
+    return keymap_overlay_generator::labels::Platform::Linux;
+    #[cfg(target_os = "windows")]
+    return keymap_overlay_generator::labels::Platform::Windows;
+}
+
 /// Writes a notice to standard output, treating a closed pipe as success.
 ///
 /// 168 KiB is normally read through `head` or a pager, and Rust ignores
@@ -254,6 +256,72 @@ pub trait LayerEventSink: Clone + Send {
 }
 
 pub type ModelCache = HashMap<(u8, u8), OverlayModel>;
+
+/// Thread-safe in-memory models shared by arrival readers and the frontend.
+#[derive(Clone)]
+pub struct ModelStore {
+    models: Arc<RwLock<ModelCache>>,
+}
+
+impl PartialEq for ModelStore {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.models, &other.models)
+    }
+}
+
+impl Eq for ModelStore {}
+
+impl ModelStore {
+    /// Creates a shared store from models loaded during startup.
+    pub fn new(models: ModelCache) -> Self {
+        Self {
+            models: Arc::new(RwLock::new(models)),
+        }
+    }
+
+    /// Composes the visible model for one keyboard's active layer stack.
+    pub fn compose(&self, keyboard_id: u8, layers: &[u8]) -> Option<OverlayModel> {
+        let models = self
+            .models
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        compose_model(&models, keyboard_id, layers)
+    }
+
+    fn contains_keyboard(&self, keyboard_id: u8) -> bool {
+        self.models
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains_key(&(keyboard_id, 0))
+    }
+
+    fn add_keyboard(&self, generated: keymap_overlay_generator::types::KeyboardModels) -> bool {
+        let keyboard_id = generated.keyboard_id;
+        let mut models = self
+            .models
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if models.contains_key(&(keyboard_id, 0)) {
+            return false;
+        }
+        models.extend(
+            generated
+                .layers
+                .into_iter()
+                .map(|(layer, model)| ((keyboard_id, layer), model)),
+        );
+        drop(models);
+        info!("Loaded overlay model for newly connected keyboard {keyboard_id}");
+        true
+    }
+
+    fn remove_keyboard(&self, keyboard_id: u8) {
+        self.models
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|(cached_keyboard_id, _), _| *cached_keyboard_id != keyboard_id);
+    }
+}
 
 /// Coalesces platform arrival notifications into listener enumerations.
 #[derive(Clone)]
@@ -319,13 +387,13 @@ pub fn spawn_layer_event_source(
     sink: impl LayerEventSink + 'static,
     simulated: Option<SimulatedLayer>,
     startup_devices: Vec<StartupRawHidDevice>,
-    modeled_keyboard_ids: impl IntoIterator<Item = u8>,
+    models: ModelStore,
 ) -> LayerEventSourceHandle {
     let Some(simulated) = simulated else {
         return LayerEventSourceHandle::RawHid(spawn_raw_hid_listener(
             sink,
             startup_devices,
-            modeled_keyboard_ids.into_iter().collect(),
+            models,
         ));
     };
     thread::spawn(move || {
@@ -390,24 +458,23 @@ impl RawHidListenerHandle {
 pub fn spawn_raw_hid_listener(
     sink: impl LayerEventSink + 'static,
     startup_devices: Vec<StartupRawHidDevice>,
-    modeled_keyboard_ids: HashSet<u8>,
+    models: ModelStore,
 ) -> RawHidListenerHandle {
-    let modeled_keyboard_ids = Arc::new(modeled_keyboard_ids);
     let (wake, requests) = mpsc::channel();
     let requester = EnumerationRequester::new(wake);
     let handle = RawHidListenerHandle {
         requester: requester.clone(),
     };
     thread::spawn(move || {
-        let active_paths = Arc::new(Mutex::new(HashSet::new()));
-        adopt_startup_raw_hid_devices(
-            startup_devices,
-            &sink,
-            &active_paths,
-            &modeled_keyboard_ids,
-            &requester,
-        );
-        enumerate_raw_hid_devices(&sink, &active_paths, &modeled_keyboard_ids, &requester);
+        let context = RawHidContext {
+            sink,
+            active_paths: Arc::new(Mutex::new(HashSet::new())),
+            active_keyboard_ids: Arc::new(Mutex::new(HashSet::new())),
+            models,
+            requester,
+        };
+        adopt_startup_raw_hid_devices(startup_devices, &context);
+        enumerate_raw_hid_devices(&context);
         loop {
             if requests.recv().is_err() {
                 return;
@@ -415,8 +482,8 @@ pub fn spawn_raw_hid_listener(
             // Give a newly announced keyboard time to become openable. Existing
             // readers remain alive and cannot lose releases during this grace.
             thread::sleep(RECONNECT_INTERVAL);
-            requester.begin_enumeration();
-            enumerate_raw_hid_devices(&sink, &active_paths, &modeled_keyboard_ids, &requester);
+            context.requester.begin_enumeration();
+            enumerate_raw_hid_devices(&context);
         }
     });
     handle
@@ -625,21 +692,47 @@ fn resolve_home_directory(
     home.or(user_profile)
 }
 
+struct RawHidContext<S> {
+    sink: S,
+    active_paths: Arc<Mutex<HashSet<String>>>,
+    active_keyboard_ids: Arc<Mutex<HashSet<u8>>>,
+    models: ModelStore,
+    requester: EnumerationRequester,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum DiscoveryResult {
+    Opened,
+    Skipped,
+    Retry,
+}
+
+impl<S: Clone> Clone for RawHidContext<S> {
+    fn clone(&self) -> Self {
+        Self {
+            sink: self.sink.clone(),
+            active_paths: Arc::clone(&self.active_paths),
+            active_keyboard_ids: Arc::clone(&self.active_keyboard_ids),
+            models: self.models.clone(),
+            requester: self.requester.clone(),
+        }
+    }
+}
+
 fn adopt_startup_raw_hid_devices<S: LayerEventSink + 'static>(
     mut startup_devices: Vec<StartupRawHidDevice>,
-    sink: &S,
-    active_paths: &Arc<Mutex<HashSet<String>>>,
-    modeled_keyboard_ids: &Arc<HashSet<u8>>,
-    requester: &EnumerationRequester,
+    context: &RawHidContext<S>,
 ) {
     for startup in &startup_devices {
-        active_paths
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(startup.path.clone());
+        register_active_raw_hid_device(
+            &context.active_paths,
+            &context.active_keyboard_ids,
+            &startup.path,
+            startup.keyboard_id,
+        );
     }
     replay_startup_layer_events(
-        sink,
+        &context.sink,
         startup_devices.iter_mut().map(|startup| {
             (
                 startup.keyboard_id,
@@ -653,10 +746,7 @@ fn adopt_startup_raw_hid_devices<S: LayerEventSink + 'static>(
             startup.device,
             startup.path,
             Some(startup.keyboard_id),
-            sink.clone(),
-            Arc::clone(active_paths),
-            Arc::clone(modeled_keyboard_ids),
-            requester.clone(),
+            context.clone(),
         );
     }
     if opened > 0 {
@@ -664,18 +754,39 @@ fn adopt_startup_raw_hid_devices<S: LayerEventSink + 'static>(
     }
 }
 
-/// Opens newly discovered Raw HID devices without interrupting active readers.
-fn enumerate_raw_hid_devices<S: LayerEventSink + 'static>(
-    sink: &S,
+fn register_active_raw_hid_device(
     active_paths: &Arc<Mutex<HashSet<String>>>,
-    modeled_keyboard_ids: &Arc<HashSet<u8>>,
-    requester: &EnumerationRequester,
+    active_keyboard_ids: &Arc<Mutex<HashSet<u8>>>,
+    path: &str,
+    keyboard_id: u8,
 ) {
-    let api = match HidApi::new().context("Failed to enumerate HID devices") {
+    active_paths
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(path.to_owned());
+    active_keyboard_ids
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(keyboard_id);
+}
+
+/// Opens newly discovered Raw HID devices without interrupting active readers.
+fn enumerate_raw_hid_devices<S: LayerEventSink + 'static>(context: &RawHidContext<S>) {
+    enumerate_raw_hid_devices_with_result(
+        HidApi::new().context("Failed to enumerate HID devices"),
+        context,
+    );
+}
+
+fn enumerate_raw_hid_devices_with_result<S: LayerEventSink + 'static>(
+    api: Result<HidApi>,
+    context: &RawHidContext<S>,
+) {
+    let api = match api {
         Ok(api) => api,
         Err(error) => {
             warn!("Raw HID enumeration failed: {error:#}");
-            requester.request();
+            context.requester.request();
             return;
         }
     };
@@ -685,70 +796,150 @@ fn enumerate_raw_hid_devices<S: LayerEventSink + 'static>(
         .device_list()
         .filter(|device| device.usage_page() == RAW_USAGE_PAGE && device.usage() == RAW_USAGE_ID)
     {
-        let path = device_info.path().to_string_lossy().into_owned();
-        if active_paths
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .contains(&path)
-        {
-            continue;
+        match discover_raw_hid_device(&api, device_info, context) {
+            DiscoveryResult::Opened => opened += 1,
+            DiscoveryResult::Retry => retry_needed = true,
+            DiscoveryResult::Skipped => {}
         }
-        let device = match device_info.open_device(&api) {
-            Ok(device) => device,
-            Err(error) => {
-                warn!(
-                    "Failed to open Raw HID device {:04x}:{:04x}: {error}",
-                    device_info.vendor_id(),
-                    device_info.product_id()
-                );
-                retry_needed = true;
-                continue;
-            }
-        };
-        active_paths
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(path.clone());
-        opened += 1;
-        spawn_raw_hid_reader(
-            device,
-            path,
-            None,
-            sink.clone(),
-            Arc::clone(active_paths),
-            Arc::clone(modeled_keyboard_ids),
-            requester.clone(),
-        );
     }
     if opened > 0 {
         info!("Listening on {opened} new Raw HID device(s)");
     }
     if retry_needed {
-        requester.request();
+        context.requester.request();
     }
 }
 
-fn spawn_raw_hid_reader(
+fn discover_raw_hid_device<S: LayerEventSink + 'static>(
+    api: &HidApi,
+    device_info: &DeviceInfo,
+    context: &RawHidContext<S>,
+) -> DiscoveryResult {
+    let path = device_info.path().to_string_lossy().into_owned();
+    if context
+        .active_paths
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains(&path)
+    {
+        return DiscoveryResult::Skipped;
+    }
+    discover_opened_raw_hid_device(
+        path,
+        device_info.vendor_id(),
+        device_info.product_id(),
+        device_info.open_device(api),
+        context,
+    )
+}
+
+fn discover_opened_raw_hid_device<S: LayerEventSink + 'static>(
+    path: String,
+    vendor_id: u16,
+    product_id: u16,
+    device: std::result::Result<HidDevice, hidapi::HidError>,
+    context: &RawHidContext<S>,
+) -> DiscoveryResult {
+    let device = match device {
+        Ok(device) => device,
+        Err(error) => {
+            warn!(
+                "Failed to open Raw HID device {:04x}:{:04x}: {error}",
+                vendor_id, product_id
+            );
+            return DiscoveryResult::Retry;
+        }
+    };
+    context
+        .active_paths
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(path.clone());
+    match start_arriving_raw_hid_reader(device, path.clone(), context) {
+        Ok(true) => DiscoveryResult::Opened,
+        Ok(false) => DiscoveryResult::Skipped,
+        Err(error) => {
+            warn!("Failed to read newly connected Vial device {path:?}: {error:#}");
+            context
+                .active_paths
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&path);
+            DiscoveryResult::Retry
+        }
+    }
+}
+
+fn start_arriving_raw_hid_reader<S: LayerEventSink + 'static>(
+    device: HidDevice,
+    path: String,
+    context: &RawHidContext<S>,
+) -> Result<bool> {
+    let mut connected = keymap_overlay_generator::read_connected_keyboard_model(
+        device,
+        path.clone(),
+        host_platform(),
+    )?;
+    let Some(generated) = connected.models.take() else {
+        info!("Ignoring Raw HID device without keymap overlay metadata");
+        spawn_raw_hid_reader(connected.device, connected.path, None, context.clone());
+        return Ok(true);
+    };
+    let keyboard_id = generated.keyboard_id;
+    if !context
+        .active_keyboard_ids
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(keyboard_id)
+    {
+        warn!(
+            "Ignoring newly connected Raw HID device because KEYBOARD_ID {keyboard_id} is already active"
+        );
+        context
+            .active_paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&path);
+        return Ok(false);
+    }
+    context.models.add_keyboard(generated);
+    replay_startup_layer_events(&context.sink, [(keyboard_id, connected.layer_events)]);
+    spawn_raw_hid_reader(
+        connected.device,
+        connected.path,
+        Some(keyboard_id),
+        context.clone(),
+    );
+    Ok(true)
+}
+
+fn spawn_raw_hid_reader<S: LayerEventSink + 'static>(
     device: HidDevice,
     path: String,
     keyboard_id: Option<u8>,
-    sink: impl LayerEventSink + 'static,
-    active_paths: Arc<Mutex<HashSet<String>>>,
-    modeled_keyboard_ids: Arc<HashSet<u8>>,
-    requester: EnumerationRequester,
+    context: RawHidContext<S>,
 ) {
     // HidDevice is Send but not Sync, so each reader owns its device.
     thread::spawn(move || {
         if let Err(error) =
-            receive_from_device(&device, &path, keyboard_id, &modeled_keyboard_ids, &sink)
+            receive_from_device(&device, &path, keyboard_id, &context.models, &context.sink)
         {
             warn!("Raw HID reader stopped: {error:#}");
         }
-        active_paths
+        context
+            .active_paths
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(&path);
-        requester.request();
+        if let Some(keyboard_id) = keyboard_id {
+            context
+                .active_keyboard_ids
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&keyboard_id);
+            context.models.remove_keyboard(keyboard_id);
+        }
+        context.requester.request();
     });
 }
 
@@ -756,7 +947,7 @@ fn receive_from_device(
     device: &HidDevice,
     path: &str,
     mut keyboard_id: Option<u8>,
-    modeled_keyboard_ids: &HashSet<u8>,
+    models: &ModelStore,
     sink: &impl LayerEventSink,
 ) -> Result<()> {
     let mut report = [0_u8; 33];
@@ -782,10 +973,10 @@ fn receive_from_device(
             }
             continue;
         };
-        if !layer_event_matches_startup(modeled_keyboard_ids, keyboard_id, event.keyboard_id) {
+        if !layer_event_matches_model(models, keyboard_id, event.keyboard_id) {
             if warned_keyboard_ids.insert(event.keyboard_id) {
                 warn!(
-                    "Ignoring layer events for keyboard {} because this HID device has no matching startup model",
+                    "Ignoring layer events for keyboard {} because this HID device has no matching model",
                     event.keyboard_id
                 );
             }
@@ -802,12 +993,12 @@ fn receive_from_device(
     }
 }
 
-fn layer_event_matches_startup(
-    modeled_keyboard_ids: &HashSet<u8>,
+fn layer_event_matches_model(
+    models: &ModelStore,
     keyboard_id: Option<u8>,
     event_keyboard_id: u8,
 ) -> bool {
-    modeled_keyboard_ids.contains(&event_keyboard_id)
+    models.contains_keyboard(event_keyboard_id)
         && keyboard_id.is_none_or(|expected| expected == event_keyboard_id)
 }
 
@@ -941,6 +1132,21 @@ mod tests {
         }
     }
 
+    fn generated_fixture(
+        keyboard_id: u8,
+        layer: u8,
+    ) -> keymap_overlay_generator::types::KeyboardModels {
+        let layers = simulation_models(keyboard_id, layer)
+            .expect("simulation fixture is valid")
+            .into_iter()
+            .map(|((_, layer), model)| (layer, model))
+            .collect();
+        keymap_overlay_generator::types::KeyboardModels {
+            keyboard_id,
+            layers,
+        }
+    }
+
     #[test]
     fn an_arrival_requests_enumeration() {
         let (sender, receiver) = mpsc::channel();
@@ -994,6 +1200,128 @@ mod tests {
     }
 
     #[test]
+    fn an_arriving_keyboard_becomes_composable_without_replacing_existing_models() {
+        let models = ModelStore::new(ModelCache::new());
+        let frontend_models = models.clone();
+
+        assert!(models.add_keyboard(generated_fixture(12, 3)));
+        assert!(frontend_models.compose(12, &[3]).is_some());
+        assert!(!models.add_keyboard(generated_fixture(12, 4)));
+        assert!(frontend_models.compose(12, &[3]).is_some());
+        assert!(frontend_models.compose(12, &[4]).is_none());
+    }
+
+    #[test]
+    fn disconnecting_a_keyboard_removes_only_its_shared_models() {
+        let mut cache = simulation_models(12, 3).expect("first fixture is valid");
+        cache.extend(simulation_models(13, 2).expect("second fixture is valid"));
+        let models = ModelStore::new(cache);
+        let frontend_models = models.clone();
+
+        models.remove_keyboard(12);
+
+        assert!(frontend_models.compose(12, &[3]).is_none());
+        assert!(frontend_models.compose(13, &[2]).is_some());
+    }
+
+    #[test]
+    fn model_store_identity_tracks_the_shared_cache() {
+        let models = ModelStore::new(ModelCache::new());
+
+        assert!(models == models.clone());
+        assert!(models != ModelStore::new(ModelCache::new()));
+    }
+
+    #[test]
+    fn startup_devices_register_their_path_and_keyboard_id() {
+        let active_paths = Arc::new(Mutex::new(HashSet::new()));
+        let active_keyboard_ids = Arc::new(Mutex::new(HashSet::new()));
+
+        register_active_raw_hid_device(&active_paths, &active_keyboard_ids, "fixture", 12);
+
+        assert_eq!(
+            *active_paths
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            HashSet::from(["fixture".to_owned()])
+        );
+        assert_eq!(
+            *active_keyboard_ids
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            HashSet::from([12])
+        );
+    }
+
+    #[test]
+    fn host_platform_matches_the_compilation_target() {
+        #[cfg(target_os = "macos")]
+        assert!(matches!(
+            host_platform(),
+            keymap_overlay_generator::labels::Platform::Macos
+        ));
+        #[cfg(target_os = "linux")]
+        assert!(matches!(
+            host_platform(),
+            keymap_overlay_generator::labels::Platform::Linux
+        ));
+        #[cfg(target_os = "windows")]
+        assert!(matches!(
+            host_platform(),
+            keymap_overlay_generator::labels::Platform::Windows
+        ));
+    }
+
+    #[test]
+    fn enumeration_failures_request_a_retry() {
+        let (event_sender, _event_receiver) = mpsc::channel();
+        let (request_sender, request_receiver) = mpsc::channel();
+        let context = RawHidContext {
+            sink: ChannelSink(event_sender),
+            active_paths: Arc::new(Mutex::new(HashSet::new())),
+            active_keyboard_ids: Arc::new(Mutex::new(HashSet::new())),
+            models: ModelStore::new(ModelCache::new()),
+            requester: EnumerationRequester::new(request_sender),
+        };
+
+        enumerate_raw_hid_devices_with_result(Err(anyhow::anyhow!("fixture failure")), &context);
+
+        assert_eq!(request_receiver.try_recv(), Ok(()));
+    }
+
+    #[test]
+    fn devices_that_cannot_be_opened_are_retried() {
+        let (event_sender, _event_receiver) = mpsc::channel();
+        let (request_sender, _request_receiver) = mpsc::channel();
+        let active_paths = Arc::new(Mutex::new(HashSet::new()));
+        let context = RawHidContext {
+            sink: ChannelSink(event_sender),
+            active_paths: Arc::clone(&active_paths),
+            active_keyboard_ids: Arc::new(Mutex::new(HashSet::new())),
+            models: ModelStore::new(ModelCache::new()),
+            requester: EnumerationRequester::new(request_sender),
+        };
+
+        let result = discover_opened_raw_hid_device(
+            "fixture".to_owned(),
+            0xfeed,
+            0x0001,
+            Err(hidapi::HidError::HidApiError {
+                message: "fixture failure".to_owned(),
+            }),
+            &context,
+        );
+
+        assert_eq!(result, DiscoveryResult::Retry);
+        assert!(
+            active_paths
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn a_simulated_source_immediately_presses_the_requested_layer() {
         let (sender, receiver) = mpsc::channel();
         let source = spawn_layer_event_source(
@@ -1003,7 +1331,7 @@ mod tests {
                 layer: 3,
             }),
             Vec::new(),
-            std::iter::empty(),
+            ModelStore::new(ModelCache::new()),
         );
 
         assert!(!source.uses_raw_hid());
@@ -1110,21 +1438,15 @@ mod tests {
     }
 
     #[test]
-    fn live_layer_events_require_a_matching_startup_model_and_device() {
-        let modeled_keyboard_ids = HashSet::from([2, 3]);
+    fn live_layer_events_require_a_matching_model_and_device() {
+        let mut models = simulation_models(2, 1).expect("first fixture is valid");
+        models.extend(simulation_models(3, 1).expect("second fixture is valid"));
+        let models = ModelStore::new(models);
 
-        assert!(layer_event_matches_startup(&modeled_keyboard_ids, None, 2));
-        assert!(layer_event_matches_startup(
-            &modeled_keyboard_ids,
-            Some(2),
-            2
-        ));
-        assert!(!layer_event_matches_startup(&modeled_keyboard_ids, None, 9));
-        assert!(!layer_event_matches_startup(
-            &modeled_keyboard_ids,
-            Some(2),
-            3
-        ));
+        assert!(layer_event_matches_model(&models, None, 2));
+        assert!(layer_event_matches_model(&models, Some(2), 2));
+        assert!(!layer_event_matches_model(&models, None, 9));
+        assert!(!layer_event_matches_model(&models, Some(2), 3));
     }
 
     #[test]

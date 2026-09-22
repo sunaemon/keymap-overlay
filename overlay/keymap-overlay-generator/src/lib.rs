@@ -60,6 +60,14 @@ pub struct ConnectedKeyboard {
     pub layer_events: Vec<StartupLayerEvent>,
 }
 
+/// One arriving Raw HID session and its optional self-describing model.
+pub struct ArrivingKeyboard {
+    pub models: Option<types::KeyboardModels>,
+    pub device: HidDevice,
+    pub path: String,
+    pub layer_events: Vec<StartupLayerEvent>,
+}
+
 /// One startup report tagged with its observation order across all devices.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StartupLayerEvent {
@@ -160,6 +168,39 @@ pub fn read_connected_keyboard_models(platform: Platform) -> Result<Vec<Connecte
     }))
 }
 
+/// Builds one arriving keyboard's models while retaining its open HID session.
+pub fn read_connected_keyboard_model(
+    device: HidDevice,
+    path: String,
+    platform: Platform,
+) -> Result<ArrivingKeyboard> {
+    let mut layer_events = Vec::new();
+    let mut sequence = 0;
+    let mut record_event = startup_event_recorder(&mut layer_events, &mut sequence);
+    let models =
+        device::read_self_describing_keyboard_models(&device, platform, &mut record_event)?;
+    drop(record_event);
+    Ok(ArrivingKeyboard {
+        models,
+        device,
+        path,
+        layer_events,
+    })
+}
+
+fn startup_event_recorder<'a>(
+    layer_events: &'a mut Vec<StartupLayerEvent>,
+    sequence: &'a mut u64,
+) -> impl FnMut(RawLayerEvent) + 'a {
+    move |event| {
+        layer_events.push(StartupLayerEvent {
+            sequence: *sequence,
+            event,
+        });
+        *sequence = sequence.wrapping_add(1);
+    }
+}
+
 fn coordinate_startup_handoff(
     reader_ready_rx: Receiver<()>,
     reader_count: usize,
@@ -247,5 +288,41 @@ mod tests {
         coordinate_startup_handoff(reader_ready_rx, 1, &finish_startup_handoff);
 
         assert!(finish_startup_handoff.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn arriving_keyboard_events_keep_their_observation_order() {
+        let mut events = Vec::new();
+        let mut sequence = 0;
+        let first = RawLayerEvent {
+            keyboard_id: 2,
+            layer: 1,
+            pressed: true,
+        };
+        let second = RawLayerEvent {
+            keyboard_id: 2,
+            layer: 3,
+            pressed: true,
+        };
+
+        let mut record = startup_event_recorder(&mut events, &mut sequence);
+        record(first);
+        record(second);
+        drop(record);
+
+        assert_eq!(
+            events,
+            vec![
+                StartupLayerEvent {
+                    sequence: 0,
+                    event: first,
+                },
+                StartupLayerEvent {
+                    sequence: 1,
+                    event: second,
+                },
+            ]
+        );
+        assert_eq!(sequence, 2);
     }
 }

@@ -50,12 +50,12 @@ keyboard's Vial definition; key bindings come from live Vial EEPROM.
 
 - When firmware or embedded overlay metadata changed, flash every affected test
   keyboard from the candidate.
-- Connect every keyboard needed for the run before starting the overlay. A
-  keyboard absent at startup has no model until the overlay is restarted.
+- Keep one keyboard disconnected when starting the overlay, then connect it
+  during `*-09` and verify its model becomes available without a restart.
 - Do not use a generated JSON model to make the test pass. The runtime must
   operate with no `--asset-dir` or `--keyboard-config-dir` argument.
-- Close the Vial application before starting the overlay so they do not contend
-  for the same Raw HID interface.
+- Close the Vial application before starting the overlay or connecting a new
+  keyboard so they do not contend for the same Raw HID interface.
 
 ## 1. Prepare the Candidate
 
@@ -291,15 +291,17 @@ model.
 9. For `*-09`, while a layer is visible, unplug the keyboard. The overlay must
    hide. Reconnect without restarting and verify events resume. Then stop the
    overlay, disconnect the keyboard, and start without it. Connecting afterward
-   must not display a model until the overlay restarts with the keyboard
-   present. This stays late because it requires a real cable or switched port.
+   must load the model, and the first layer press must work without restarting
+   the overlay. This stays late because it requires a real cable or switched
+   port.
 10. For `*-10`, sign out and back in with the keyboard connected. Without
     manually starting anything, verify the service and renderer start and the
     first physical layer press works. This is last because authentication and
     graphical-session creation are disruptive boundaries.
 
-Stop the overlay before opening Vial or starting the absent-at-startup test,
-then start it explicitly after closing Vial and reconnecting the keyboard:
+Stop the overlay before opening Vial or starting the absent-at-startup test.
+After closing Vial, start the overlay with the test keyboard still disconnected,
+then connect it:
 
 ```bash
 # macOS: stop, then start

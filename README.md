@@ -58,9 +58,10 @@ or [Windows](#3-install-the-released-windows-overlay). On Linux, first complete
 the source setup to install runtime dependencies and provide the
 `make install-udev-rules` command used below; you can skip flashing.
 
-Connect your keyboards before starting the overlay. Restart it after editing
-a keymap in Vial or connecting a keyboard that was absent at startup. Only
-momentary `MO(...)` layers trigger the overlay; toggle and layer-tap keys do not.
+The overlay reads connected keyboards at startup and automatically loads a
+compatible keyboard connected later. Restart it after editing a keymap in
+Vial. Only momentary `MO(...)` layers trigger the overlay; toggle and layer-tap
+keys do not.
 
 See [docs/design.md](docs/design.md) for the Raw HID protocol, data flow, layer
 composition rules, and native window design.
@@ -601,7 +602,8 @@ The release installer remains a separate PowerShell entry point because it
 downloads and verifies a published archive. The development script invokes
 Cargo, uv, Pester, and mise directly without a Unix compatibility layer. At
 startup, the overlay reads every connected self-describing Vial keyboard into
-memory; disconnected keyboards require a restart after they are connected.
+memory. Device-arrival notifications trigger the same in-memory read for a
+compatible keyboard connected later, without restarting the overlay.
 
 For the complete Windows verification and source-install workflows:
 
