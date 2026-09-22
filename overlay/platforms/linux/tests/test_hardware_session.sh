@@ -151,12 +151,16 @@ cleanup() {
   if ! restore_live_keymap; then
     restore_failed=true
   fi
-  stop_overlay
+  if ! stop_overlay; then
+    restore_failed=true
+  fi
   if [[ -n "$VIRTUAL_HID_PID" ]]; then
     kill "$VIRTUAL_HID_PID" 2>/dev/null
     wait "$VIRTUAL_HID_PID" 2>/dev/null
   fi
-  systemctl --user unset-environment QT_LINUX_ACCESSIBILITY_ALWAYS_ON
+  if ! systemctl --user unset-environment QT_LINUX_ACCESSIBILITY_ALWAYS_ON; then
+    restore_failed=true
+  fi
   if ! start_overlay; then
     restore_failed=true
   fi

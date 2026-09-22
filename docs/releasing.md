@@ -145,9 +145,10 @@ display inspection, pointer click-through, or login evidence.
 The person merging the release preparation PR owns the gate. It passes only
 when every required coverage row is recorded, every applicable item passes,
 every not-applicable global item has a reason, and the recorded PR head still
-matches the candidate. CI validates the candidate SHA, both global checks, all
-shared and renderer-specific checks, coverage, and lifecycle evidence before merge. The
-Release workflow validates the same PR evidence again before publishing and
-requires the tested PR head and published merge commit to have identical Git
-trees. A missing or failed applicable result is a no-go. Exclude hardware or a
-platform only by recording that scope decision in the PR and release notes.
+matches the candidate. CI validates the candidate SHA, all three global checks
+(`GLOBAL-01`, `GLOBAL-02`, and `GLOBAL-03`), all shared and renderer-specific
+checks, coverage, and lifecycle evidence before merge. The Release workflow
+validates the same PR evidence again before publishing and requires the tested
+PR head and published merge commit to have identical Git trees. A missing or
+failed applicable result is a no-go. Exclude hardware or a platform only by
+recording that scope decision in the PR and release notes.

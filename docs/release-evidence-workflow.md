@@ -44,7 +44,8 @@ The same entry point runs in native Windows PowerShell:
 uv run python -m installer.release.run_hardware_checks `
   --output "$env:USERPROFILE/kmo-evidence/current-attempt" `
   --tester 'Your name' `
-  --keyboard 'Insixty|1|actual firmware revision'
+  --keyboard 'Insixty|1|actual firmware revision' `
+  --keyboard 'DOIO KB16|2|actual firmware revision'
 ```
 
 Add `--plan` to preview the helper commands without running them or creating

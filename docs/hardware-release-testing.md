@@ -242,10 +242,11 @@ sections.
    numeric layer precedence, release the higher one
    and confirm the lower layer returns, then release the last key and confirm
    the overlay hides. HIL may supply this deterministic report-ordering proof.
-3. Except for the automated macOS live-Vial session above, for `*-03`, stop the
-   overlay, make one visible key-binding change in Vial, close Vial, and restart
-   the overlay. Verify the changed live binding, restore it, and restart once
-   more. This proves the intentional startup-only reread.
+3. Except for the applicable exact-head macOS, Linux, or Windows HIL session
+   above, for `*-03`, stop the overlay, make one visible key-binding change in
+   Vial, close Vial, and restart the overlay. Verify the changed live binding,
+   restore it, and restart once more. This proves the intentional startup-only
+   reread.
 4. Except for the automated macOS AppKit assertions above, for `*-04`, continue
    typing in a text editor while repeatedly showing the overlay, then click
    through it. Every character and click must reach the editor; focus and the

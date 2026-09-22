@@ -61,8 +61,12 @@ function Invoke-WindowsHardwareSession {
         Write-Output "Transcript: $transcript"
     }
     finally {
-        Restore-Session
-        Stop-Transcript | Out-Null
+        try {
+            Restore-Session
+        }
+        finally {
+            Stop-Transcript | Out-Null
+        }
     }
 }
 
@@ -211,19 +215,48 @@ function Restore-Keycode {
 
 function Restore-Session {
     Remove-Item Env:KEYMAP_OVERLAY_E2E_STATE_FILE -ErrorAction SilentlyContinue
+    $cleanupError = $null
     try {
-        Invoke-HilDriver @(
-            'layer', '--keyboard-id', $keyboardId, '--layer', $primaryLayer, '--state', 'release'
-        ) | Out-Null
-        Invoke-HilDriver @(
-            'layer', '--keyboard-id', $keyboardId, '--layer', $secondaryLayer, '--state', 'release'
-        ) | Out-Null
-        Stop-Overlay
-        Restore-Keycode
+        $cleanupSteps = @(
+            {
+                Invoke-HilDriver @(
+                    'layer', '--keyboard-id', $keyboardId, '--layer', $primaryLayer,
+                    '--state', 'release'
+                ) | Out-Null
+            },
+            {
+                Invoke-HilDriver @(
+                    'layer', '--keyboard-id', $keyboardId, '--layer', $secondaryLayer,
+                    '--state', 'release'
+                ) | Out-Null
+            },
+            { Stop-Overlay },
+            { Restore-Keycode }
+        )
+        foreach ($cleanupStep in $cleanupSteps) {
+            try {
+                & $cleanupStep
+            }
+            catch {
+                if ($null -eq $cleanupError) {
+                    $cleanupError = $_
+                }
+            }
+        }
     }
     finally {
-        Start-Process -FilePath $overlay `
-            -ArgumentList @('--log-out', $overlayLog) -WindowStyle Hidden
+        try {
+            Start-Process -FilePath $overlay `
+                -ArgumentList @('--log-out', $overlayLog) -WindowStyle Hidden
+        }
+        catch {
+            if ($null -eq $cleanupError) {
+                $cleanupError = $_
+            }
+        }
+    }
+    if ($null -ne $cleanupError) {
+        throw $cleanupError
     }
 }
 

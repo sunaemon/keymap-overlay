@@ -2,9 +2,10 @@
 
 Use the [maintainer evidence workflow](release-evidence-workflow.md) to collect
 and reconcile results across machines. Its import profiles cover only complete
-checks proven by the helpers: `MAC-01`–`MAC-04` and `LX-02`. Guided switch
-reports, KDE window-safety assertions, and macOS login probes remain partial
-evidence requiring the additional observations below.
+checks proven by the helpers: `GLOBAL-03`, `MAC-01`–`MAC-04`, `LX-02`, `LX-03`,
+`LX-08`, `WIN-02`, `WIN-03`, and `WIN-08`. KDE window-safety observations and
+macOS login probes remain partial evidence requiring the additional
+observations below.
 
 The hardware gate exists only for behavior that automated tests do not prove.
 This document maps every release-wide and platform-specific manual check to
@@ -72,7 +73,7 @@ their required hardware evidence.
 | `GLOBAL-03` physical `MO` events       | Guided macOS and Linux helpers capture ordered reports from every bundled physical `MO` switch                  | One exact-candidate physical run on either supported host                                         | A HIL keyboard matrix actuator                                                                            |
 | Platform `*-01` live startup model     | Linux virtual Vial integration and metadata/model unit tests cover the daemon startup protocol                  | Native service/renderer startup and clean logs on each physical host                              | Equivalent virtual Vial startup devices on macOS and Windows                                              |
 | Platform `*-02` held-layer precedence  | Unit tests plus macOS, Linux, and Windows HIL cover nested ordering and restoration                             | The end-to-end release-renderer scenario remains on GNOME                                         | Multi-report E2E scenarios using the release GNOME frontend                                               |
-| Platform `*-03` Vial edit and restart  | macOS and Windows HIL edit real Vial EEPROM and assert the changed model after process restart                  | The equivalent real-device restart sequence remains on Linux                                      | Stateful virtual Vial device changed between real process starts; HIL persistence remains in `GLOBAL-02`  |
+| Platform `*-03` Vial edit and restart  | macOS, Linux, and Windows HIL edit live Vial state and assert the changed model after process restart           | None for the exact-head HIL-supported release platforms                                           | HIL power-cycle persistence remains covered separately by `GLOBAL-02`                                     |
 | Platform `*-04` window safety          | macOS HIL covers all assertions; KDE HIL covers AT-SPI labels, non-focusability, and retained focus             | Pointer pass-through and window order on KDE; complete interactive coverage on GNOME and Windows  | Authorized Wayland pointer injection, active-window assertions, and screen capture                        |
 | Platform `*-05` geometry and labels    | Generator unit tests cover geometry, platform labels, custom labels, and transparency; Qt has one golden image  | Candidate firmware metadata and live Vial state render correctly on every frontend                | Virtual Vial fixtures plus golden/semantic assertions for AppKit, GNOME, Qt, and Win32                    |
 | Platform `*-06` displays and scaling   | One fixed-scale Qt offscreen golden image                                                                       | Real compositor placement, DPI, multi-monitor, Wayland layer role, and X11 behavior               | Nested/virtual desktops with multiple displays and scale factors, plus geometry and screenshot assertions |
