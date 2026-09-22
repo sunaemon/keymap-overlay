@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn renderer_state_serializes_visible_models_and_hides() {
-        let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
+        let models = ModelStore::new(HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]));
         let mut state = RendererState::default();
 
         let show = state
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn unchanged_states_are_not_published() {
-        let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
+        let models = ModelStore::new(HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]));
         let mut state = RendererState::default();
         let show = Transition::Show {
             keyboard_id: 2,
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn missing_models_hide_visible_state_once() {
-        let models = HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]);
+        let models = ModelStore::new(HashMap::from([((2, 0), model(0)), ((2, 3), model(3))]));
         let mut state = RendererState::default();
         state
             .update(
