@@ -153,10 +153,11 @@ def prepare_release(
         pull_request.head_sha,
         tested_sha,
     )
+    previous_release_tag = read_latest_release_tag(run, repository)
     try:
         changed_paths = parse_changed_paths(
             run(
-                changed_files_command(f"v{previous_version}", tested_sha),
+                changed_files_command(previous_release_tag, tested_sha),
                 True,
             ).stdout
         )
@@ -218,6 +219,14 @@ def validate_cargo_versions(version: str, metadata: CargoMetadata) -> None:
             "Cargo package versions do not match Python "
             f"{version}: {', '.join(mismatches)}"
         )
+
+
+def read_latest_release_tag(run: CommandRunner, repository: str) -> str:
+    """Return the tag of the latest release published before this one."""
+    tag = run(latest_release_command(repository), True).stdout.strip()
+    if not tag:
+        raise ReleasePreparationError("GitHub returned an empty latest release tag")
+    return tag
 
 
 def require_matching_release_tree(
@@ -293,6 +302,11 @@ def commit_tree_command(repository: str, sha: str) -> list[str]:
 def release_command(repository: str, tag: str) -> list[str]:
     """Return the command that looks up a GitHub release by tag."""
     return ["gh", "api", f"repos/{repository}/releases/tags/{tag}"]
+
+
+def latest_release_command(repository: str) -> list[str]:
+    """Return the command that reads the latest published release tag."""
+    return ["gh", "api", f"repos/{repository}/releases/latest", "--jq", ".tag_name"]
 
 
 def tag_command(repository: str, tag: str) -> list[str]:

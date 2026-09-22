@@ -15,6 +15,7 @@ from installer.release.prepare_release import (
     ReleasePreparationError,
     cargo_metadata_command,
     commit_tree_command,
+    latest_release_command,
     prepare_release,
     pull_requests_command,
     read_project_version,
@@ -38,6 +39,7 @@ class FakeRunner:
         *,
         current: str = "0.0.5",
         previous: str = "0.0.4",
+        latest_release_tag: str | None = None,
         evidence_tree: str = TREE_SHA,
         published_tree: str = TREE_SHA,
     ) -> None:
@@ -62,6 +64,9 @@ class FakeRunner:
                 stdout=project(previous)
             ),
             tuple(changed_files_command(f"v{previous}", TESTED_SHA)): completed(),
+            tuple(latest_release_command(REPOSITORY)): completed(
+                stdout=latest_release_tag or f"v{previous}"
+            ),
             tuple(commit_tree_command(REPOSITORY, HEAD_SHA)): completed(
                 stdout=evidence_tree
             ),
@@ -87,6 +92,21 @@ def test_a_version_bump_from_a_merged_pr_prepares_a_release(tmp_path: Path) -> N
         REPOSITORY,
         project_file=write_project(tmp_path, "0.0.5"),
         runner=FakeRunner(),
+    )
+
+    assert plan == ReleasePlan(should_release=True, tag="v0.0.5")
+
+
+def test_release_delta_starts_at_latest_published_release(tmp_path: Path) -> None:
+    """A failed prior release does not leave the next release without a base tag."""
+    runner = FakeRunner(previous="0.0.4", latest_release_tag="v0.0.3")
+    runner.results[tuple(changed_files_command("v0.0.3", TESTED_SHA))] = completed()
+
+    plan = prepare_release(
+        TESTED_SHA,
+        REPOSITORY,
+        project_file=write_project(tmp_path, "0.0.5"),
+        runner=runner,
     )
 
     assert plan == ReleasePlan(should_release=True, tag="v0.0.5")
@@ -250,6 +270,19 @@ def test_mismatched_cargo_versions_are_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ReleasePreparationError, match="keymap-core=0.0.4"):
+        prepare_release(
+            TESTED_SHA,
+            REPOSITORY,
+            project_file=write_project(tmp_path, "0.0.5"),
+            runner=runner,
+        )
+
+
+def test_an_empty_latest_release_tag_is_rejected(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    runner.results[tuple(latest_release_command(REPOSITORY))] = completed(stdout="\n")
+
+    with pytest.raises(ReleasePreparationError, match="empty latest release tag"):
         prepare_release(
             TESTED_SHA,
             REPOSITORY,
