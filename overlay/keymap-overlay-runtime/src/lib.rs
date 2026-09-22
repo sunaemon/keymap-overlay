@@ -714,16 +714,12 @@ fn adopt_startup_raw_hid_devices<S: LayerEventSink + 'static>(
     context: &RawHidContext<S>,
 ) {
     for startup in &startup_devices {
-        context
-            .active_paths
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(startup.path.clone());
-        context
-            .active_keyboard_ids
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(startup.keyboard_id);
+        register_active_raw_hid_device(
+            &context.active_paths,
+            &context.active_keyboard_ids,
+            &startup.path,
+            startup.keyboard_id,
+        );
     }
     replay_startup_layer_events(
         &context.sink,
@@ -746,6 +742,22 @@ fn adopt_startup_raw_hid_devices<S: LayerEventSink + 'static>(
     if opened > 0 {
         info!("Adopted {opened} startup Raw HID device(s)");
     }
+}
+
+fn register_active_raw_hid_device(
+    active_paths: &Arc<Mutex<HashSet<String>>>,
+    active_keyboard_ids: &Arc<Mutex<HashSet<u8>>>,
+    path: &str,
+    keyboard_id: u8,
+) {
+    active_paths
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(path.to_owned());
+    active_keyboard_ids
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(keyboard_id);
 }
 
 /// Opens newly discovered Raw HID devices without interrupting active readers.
@@ -1163,6 +1175,54 @@ mod tests {
         assert!(!models.add_keyboard(generated_fixture(12, 4)));
         assert!(frontend_models.compose(12, &[3]).is_some());
         assert!(frontend_models.compose(12, &[4]).is_none());
+    }
+
+    #[test]
+    fn model_store_identity_tracks_the_shared_cache() {
+        let models = ModelStore::new(ModelCache::new());
+
+        assert!(models == models.clone());
+        assert!(models != ModelStore::new(ModelCache::new()));
+    }
+
+    #[test]
+    fn startup_devices_register_their_path_and_keyboard_id() {
+        let active_paths = Arc::new(Mutex::new(HashSet::new()));
+        let active_keyboard_ids = Arc::new(Mutex::new(HashSet::new()));
+
+        register_active_raw_hid_device(&active_paths, &active_keyboard_ids, "fixture", 12);
+
+        assert_eq!(
+            *active_paths
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            HashSet::from(["fixture".to_owned()])
+        );
+        assert_eq!(
+            *active_keyboard_ids
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            HashSet::from([12])
+        );
+    }
+
+    #[test]
+    fn host_platform_matches_the_compilation_target() {
+        #[cfg(target_os = "macos")]
+        assert!(matches!(
+            host_platform(),
+            keymap_overlay_generator::labels::Platform::Macos
+        ));
+        #[cfg(target_os = "linux")]
+        assert!(matches!(
+            host_platform(),
+            keymap_overlay_generator::labels::Platform::Linux
+        ));
+        #[cfg(target_os = "windows")]
+        assert!(matches!(
+            host_platform(),
+            keymap_overlay_generator::labels::Platform::Windows
+        ));
     }
 
     #[test]

@@ -295,14 +295,7 @@ unsafe fn apply_transition(window: HWND) {
     if matches!(transition, Transition::Ignore) {
         return;
     }
-    let model = match &transition {
-        Transition::Show {
-            keyboard_id,
-            layers,
-        } => state.models.compose(*keyboard_id, layers),
-        Transition::Hide => None,
-        Transition::Ignore => unreachable!("handled before changing the window"),
-    };
+    let model = model_for_transition(&state.models, &transition);
     write_e2e_state(&transition, model.as_ref());
     if let Some(model) = model {
         if let Err(error) = unsafe { present_model(window, &model) } {
@@ -311,6 +304,17 @@ unsafe fn apply_transition(window: HWND) {
         }
     } else {
         unsafe { hide_window(window) };
+    }
+}
+
+fn model_for_transition(models: &ModelStore, transition: &Transition) -> Option<OverlayModel> {
+    match transition {
+        Transition::Show {
+            keyboard_id,
+            layers,
+        } => models.compose(*keyboard_id, layers),
+        Transition::Hide => None,
+        Transition::Ignore => unreachable!("handled before changing the window"),
     }
 }
 
@@ -1208,6 +1212,7 @@ unsafe fn state_from_window(window: HWND) -> &'static State {
 mod tests {
     use super::*;
     use keymap_overlay_runtime::{DisplayEncoder, DisplayKey, RawLayerEvent};
+    use std::collections::HashMap;
     use std::fs;
     use tempfile::TempDir;
 
@@ -1397,5 +1402,22 @@ mod tests {
                 layers: vec![1],
             }
         );
+    }
+
+    #[test]
+    fn show_transitions_compose_the_shared_model_store() {
+        let models = ModelStore::new(HashMap::from([((3, 0), model(180, 140, vec![], vec![]))]));
+
+        let composed = model_for_transition(
+            &models,
+            &Transition::Show {
+                keyboard_id: 3,
+                layers: vec![0],
+            },
+        )
+        .expect("show model");
+
+        assert_eq!(composed.width, 180);
+        assert!(model_for_transition(&models, &Transition::Hide).is_none());
     }
 }

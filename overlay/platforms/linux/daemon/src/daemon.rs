@@ -211,6 +211,10 @@ fn spawn_device_watcher(listener: LayerEventSourceHandle) {
             warn!("Stopped watching for keyboards: {error:#}");
         }
     });
+    wait_for_device_watcher_ready(ready_receiver);
+}
+
+fn wait_for_device_watcher_ready(ready_receiver: mpsc::Receiver<()>) {
     if ready_receiver.recv().is_err() {
         warn!("The keyboard arrival watcher stopped before becoming ready");
     }
@@ -332,6 +336,14 @@ mod tests {
                 layers: vec![2],
             }
         );
+    }
+
+    #[test]
+    fn a_stopped_device_watcher_does_not_block_daemon_startup() {
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(0);
+        drop(ready_sender);
+
+        wait_for_device_watcher_ready(ready_receiver);
     }
 
     #[test]
