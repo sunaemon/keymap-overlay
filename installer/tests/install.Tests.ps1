@@ -124,11 +124,15 @@ Describe 'install.ps1' {
     }
 
     It 'starts without selecting persistent model input' {
+        Mock New-Item
         Mock Set-ItemProperty
         Mock Start-Process
 
         Install-Autostart
 
+        Should -Invoke New-Item -Times 1 -ParameterFilter {
+            $ItemType -eq 'Directory' -and $Path -eq $runKey -and $Force
+        }
         Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
             $Value -eq "`"$binaryPath`"" -and
             $Value -notlike '*--asset-dir*' -and $Value -notlike '*--keyboard-config-dir*'
