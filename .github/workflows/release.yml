@@ -119,8 +119,14 @@ jobs:
           test "$(uname -m)" = arm64
           test "$(mise exec -- rustc -vV | sed -n 's/^host: //p')" = aarch64-apple-darwin
 
-      - name: Build release overlay
+      - name: Build release overlay on macOS or Linux
+        if: runner.os != 'Windows'
         run: make build-overlay
+
+      - name: Build release overlay on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tools/windows.ps1 -Task build
 
       - name: Package binary and notices
         id: package
