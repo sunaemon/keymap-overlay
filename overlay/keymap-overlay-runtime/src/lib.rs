@@ -312,6 +312,13 @@ impl ModelStore {
         );
         true
     }
+
+    fn remove_keyboard(&self, keyboard_id: u8) {
+        self.models
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|(cached_keyboard_id, _), _| *cached_keyboard_id != keyboard_id);
+    }
 }
 
 /// Coalesces platform arrival notifications into listener enumerations.
@@ -930,6 +937,7 @@ fn spawn_raw_hid_reader<S: LayerEventSink + 'static>(
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .remove(&keyboard_id);
+            context.models.remove_keyboard(keyboard_id);
         }
         context.requester.request();
     });
@@ -1201,6 +1209,19 @@ mod tests {
         assert!(!models.add_keyboard(generated_fixture(12, 4)));
         assert!(frontend_models.compose(12, &[3]).is_some());
         assert!(frontend_models.compose(12, &[4]).is_none());
+    }
+
+    #[test]
+    fn disconnecting_a_keyboard_removes_only_its_shared_models() {
+        let mut cache = simulation_models(12, 3).expect("first fixture is valid");
+        cache.extend(simulation_models(13, 2).expect("second fixture is valid"));
+        let models = ModelStore::new(cache);
+        let frontend_models = models.clone();
+
+        models.remove_keyboard(12);
+
+        assert!(frontend_models.compose(12, &[3]).is_none());
+        assert!(frontend_models.compose(13, &[2]).is_some());
     }
 
     #[test]

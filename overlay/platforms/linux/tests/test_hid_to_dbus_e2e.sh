@@ -125,8 +125,9 @@ stop_virtual_hid() {
 
 wait_for_log() {
   pattern=$1
+  expected_count=${2:-1}
   attempts=0
-  while ! grep -q "$pattern" "$TEST_DIRECTORY/daemon.log" 2>/dev/null; do
+  while [ "$(grep -c "$pattern" "$TEST_DIRECTORY/daemon.log" 2>/dev/null || true)" -lt "$expected_count" ]; do
     if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
       fail "daemon exited while waiting for log message: $pattern"
     fi
@@ -212,13 +213,14 @@ wait_for_virtual_hid_access 6
 wait_for_log 'KEYBOARD_ID 7 is already active'
 stop_virtual_hid "$duplicate_pid"
 
-# Disconnecting the accepted reader releases its identity. Reconnecting the
-# same keyboard then reuses the cached model and resumes events.
+# Disconnecting the accepted reader releases its identity and cached model.
+# Reconnecting the same keyboard reloads that model and resumes events.
 stop_virtual_hid "$late_arrival_pid"
 wait_for_log 'Raw HID reader stopped'
 start_virtual_hid reconnect --definition-slow "$VIAL_DEFINITION"
 wait_for_virtual_hid_access 5
-wait_for_state 'the reconnected keyboard to reuse its model' \
+wait_for_log 'Loaded overlay model for newly connected keyboard 7' 2
+wait_for_state 'the reconnected keyboard to reload its model' \
   ', true, '\''{"version":2,"layer":1'
 wait_for_state 'the reconnected keyboard release to hide the D-Bus state' \
   ", false, '')"
