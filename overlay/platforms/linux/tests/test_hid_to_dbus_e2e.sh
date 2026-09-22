@@ -183,6 +183,7 @@ sed 's/"keyboardId": 7/"keyboardId": 6/' \
   "$VIAL_DEFINITION" >"$STARTUP_VIAL_DEFINITION"
 start_virtual_hid startup --definition "$STARTUP_VIAL_DEFINITION"
 start_virtual_hid unsupported --definition-unsupported "$UNSUPPORTED_VIAL_DEFINITION"
+unsupported_pid=$fixture_pid
 start_virtual_hid invalid --definition-invalid "$VIAL_DEFINITION"
 start_virtual_hid handoff-failure --definition-invalid-handoff "$VIAL_DEFINITION"
 wait_for_virtual_hid_access 4
@@ -224,6 +225,11 @@ wait_for_state 'the reconnected keyboard to reload its model' \
   ', true, '\''{"version":2,"layer":1'
 wait_for_state 'the reconnected keyboard release to hide the D-Bus state' \
   ", false, '')"
+
+# A metadata-free reader has no keyboard identity or model to release, but its
+# disconnect still removes the device path and requests another enumeration.
+stop_virtual_hid "$unsupported_pid"
+wait_for_log 'Raw HID reader stopped' 2
 
 printf '%s\n' \
   'Linux late-arrival Vial HID-to-D-Bus integration test passed'

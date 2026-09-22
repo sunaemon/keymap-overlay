@@ -310,6 +310,8 @@ impl ModelStore {
                 .into_iter()
                 .map(|(layer, model)| ((keyboard_id, layer), model)),
         );
+        drop(models);
+        info!("Loaded overlay model for newly connected keyboard {keyboard_id}");
         true
     }
 
@@ -900,9 +902,7 @@ fn start_arriving_raw_hid_reader<S: LayerEventSink + 'static>(
             .remove(&path);
         return Ok(false);
     }
-    if context.models.add_keyboard(generated) {
-        info!("Loaded overlay model for newly connected keyboard {keyboard_id}");
-    }
+    context.models.add_keyboard(generated);
     replay_startup_layer_events(&context.sink, [(keyboard_id, connected.layer_events)]);
     spawn_raw_hid_reader(
         connected.device,
