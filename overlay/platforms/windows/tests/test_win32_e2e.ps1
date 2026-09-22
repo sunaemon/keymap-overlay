@@ -77,6 +77,7 @@ try {
         Fail-Test "legacy model generator must not be installed beside the Windows executable"
     }
     $env:KEYMAP_OVERLAY_E2E_STATE_FILE = $stateFile
+    $env:KEYMAP_OVERLAY_PREFERENCES_FILE = Join-Path $testDirectory "preferences.json"
 
     $process = Start-Process -FilePath $overlay `
         -ArgumentList "--simulate", "1:2" `
@@ -107,6 +108,7 @@ try {
     throw
 } finally {
     Remove-Item Env:KEYMAP_OVERLAY_E2E_STATE_FILE -ErrorAction SilentlyContinue
+    Remove-Item Env:KEYMAP_OVERLAY_PREFERENCES_FILE -ErrorAction SilentlyContinue
     if ($null -ne $process -and -not $process.HasExited) {
         Close-Overlay
     }

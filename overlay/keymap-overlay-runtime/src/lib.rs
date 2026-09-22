@@ -11,6 +11,7 @@ pub use keymap_core::{LayerEvent, RawLayerEvent};
 pub use keymap_overlay_generator::types::{DisplayEncoder, DisplayKey, OverlayModel};
 use keymap_overlay_generator::{StartupLayerEvent, contract::simulation_models};
 use log::{error, info, warn};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
@@ -19,10 +20,10 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Vendor-defined usage page carrying keymap overlay reports.
 pub const RAW_USAGE_PAGE: u16 = 0xFF60;
@@ -49,6 +50,369 @@ pub const LICENSE: &str = include_str!("../../../LICENSE.md");
 /// pre-commit hook and the CI `check-licenses` step already guarantee that, so
 /// nothing regenerates it here.
 pub const THIRD_PARTY_LICENSES: &str = include_str!("../../../THIRD-PARTY-LICENSES.html");
+
+/// User-controlled overlay presentation settings shared by every frontend.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OverlayPreferences {
+    #[serde(rename = "enabled", skip_serializing)]
+    legacy_enabled: Option<bool>,
+    pub position: OverlayPosition,
+    pub opacity_percent: u8,
+    pub scale_percent: u16,
+}
+
+impl Default for OverlayPreferences {
+    fn default() -> Self {
+        Self {
+            legacy_enabled: None,
+            position: OverlayPosition::Center,
+            opacity_percent: 100,
+            scale_percent: 100,
+        }
+    }
+}
+
+/// Vertical placement of the overlay on its active display.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OverlayPosition {
+    Top,
+    #[default]
+    Center,
+    Bottom,
+}
+
+impl OverlayPreferences {
+    pub const OPACITY_CHOICES: [u8; 4] = [50, 75, 90, 100];
+    pub const SCALE_CHOICES: [u16; 4] = [75, 100, 125, 150];
+
+    /// Reads preferences, returning defaults when they have not been created.
+    pub fn load() -> Result<Self> {
+        let path = preferences_file()?;
+        match fs::read(&path) {
+            Ok(contents) => {
+                let preferences: Self = serde_json::from_slice(&contents)
+                    .with_context(|| format!("Failed to parse preferences {}", path.display()))?;
+                preferences.validate()
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => {
+                Err(error).with_context(|| format!("Failed to read preferences {}", path.display()))
+            }
+        }
+    }
+
+    /// Persists preferences for the next process start.
+    pub fn save(self) -> Result<()> {
+        let preferences = self.validate()?;
+        let path = preferences_file()?;
+        let directory = path
+            .parent()
+            .context("The preferences path has no parent")?;
+        fs::create_dir_all(directory).with_context(|| {
+            format!(
+                "Failed to create preferences directory {}",
+                directory.display()
+            )
+        })?;
+        let contents = serde_json::to_vec_pretty(&preferences)
+            .context("Failed to serialize overlay preferences")?;
+        fs::write(&path, contents)
+            .with_context(|| format!("Failed to write preferences {}", path.display()))
+    }
+
+    fn validate(mut self) -> Result<Self> {
+        anyhow::ensure!(
+            Self::OPACITY_CHOICES.contains(&self.opacity_percent),
+            "Overlay opacity must be one of {:?}",
+            Self::OPACITY_CHOICES
+        );
+        anyhow::ensure!(
+            Self::SCALE_CHOICES.contains(&self.scale_percent),
+            "Overlay scale must be one of {:?}",
+            Self::SCALE_CHOICES
+        );
+        self.legacy_enabled = None;
+        Ok(self)
+    }
+}
+
+/// Location of the shared per-user preference file.
+pub fn preferences_file() -> Result<PathBuf> {
+    if let Some(path) = env::var_os("KEYMAP_OVERLAY_PREFERENCES_FILE") {
+        return Ok(PathBuf::from(path));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows_local_app_data(env::var_os("LOCALAPPDATA"), home_directory())
+            .map(|root| root.join("keymap-overlay/preferences.json"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        home_directory()
+            .map(PathBuf::from)
+            .map(|home| home.join("Library/Application Support/keymap-overlay/preferences.json"))
+            .context("No home directory is set")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(root) = env::var_os("XDG_CONFIG_HOME") {
+            return Ok(PathBuf::from(root).join("keymap-overlay/preferences.json"));
+        }
+        home_directory()
+            .map(PathBuf::from)
+            .map(|home| home.join(".config/keymap-overlay/preferences.json"))
+            .context("No home directory is set")
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub mod desktop_tray {
+    use super::{OverlayPosition, OverlayPreferences};
+    use anyhow::{Context, Result};
+    #[cfg(target_os = "windows")]
+    use tray_icon::menu::{CheckMenuItem, Submenu};
+    use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+    use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+
+    const SETTINGS: &str = "settings";
+    #[cfg(target_os = "windows")]
+    const LAUNCH_AT_LOGIN: &str = "launch-at-login";
+    #[cfg(target_os = "windows")]
+    const POSITION_TOP: &str = "position-top";
+    #[cfg(target_os = "windows")]
+    const POSITION_CENTER: &str = "position-center";
+    #[cfg(target_os = "windows")]
+    const POSITION_BOTTOM: &str = "position-bottom";
+    #[cfg(target_os = "windows")]
+    const OPACITY_PREFIX: &str = "opacity-";
+    #[cfg(target_os = "windows")]
+    const SCALE_PREFIX: &str = "scale-";
+    const RELOAD: &str = "reload";
+    const QUIT: &str = "quit";
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum TrayCommand {
+        OpenSettings,
+        ToggleLaunchAtLogin,
+        SetPosition(OverlayPosition),
+        SetOpacity(u8),
+        SetScale(u16),
+        Reload,
+        Quit,
+    }
+
+    pub struct DesktopTray {
+        _tray: TrayIcon,
+        #[cfg(target_os = "windows")]
+        launch_at_login: CheckMenuItem,
+        #[cfg(target_os = "windows")]
+        positions: [(OverlayPosition, CheckMenuItem); 3],
+        #[cfg(target_os = "windows")]
+        opacities: [(u8, CheckMenuItem); 4],
+        #[cfg(target_os = "windows")]
+        scales: [(u16, CheckMenuItem); 4],
+    }
+
+    impl DesktopTray {
+        pub fn new(
+            preferences: OverlayPreferences,
+            launch_at_login_enabled: bool,
+            handler: impl Fn(TrayCommand) + Send + Sync + 'static,
+        ) -> Result<Self> {
+            let reload = MenuItem::with_id(RELOAD, "Reload Keyboards", true, None);
+            let version = MenuItem::new(
+                format!("Keymap Overlay {}", env!("CARGO_PKG_VERSION")),
+                false,
+                None,
+            );
+            let quit = MenuItem::with_id(QUIT, "Quit", true, None);
+            let separator = PredefinedMenuItem::separator();
+            #[cfg(target_os = "macos")]
+            let menu = {
+                let settings = MenuItem::with_id(SETTINGS, "Settings…", true, None);
+                Menu::with_items(&[&settings, &separator, &reload, &version, &quit])?
+            };
+            #[cfg(target_os = "windows")]
+            let (menu, launch_at_login, positions, opacities, scales) = {
+                let launch_at_login = CheckMenuItem::with_id(
+                    LAUNCH_AT_LOGIN,
+                    "Launch at Login",
+                    true,
+                    launch_at_login_enabled,
+                    None,
+                );
+                let positions = [
+                    position_item(OverlayPosition::Top, "Top", preferences),
+                    position_item(OverlayPosition::Center, "Center", preferences),
+                    position_item(OverlayPosition::Bottom, "Bottom", preferences),
+                ];
+                let position_menu = percentage_menu("Position", &positions)?;
+                let opacities = OverlayPreferences::OPACITY_CHOICES.map(|value| {
+                    (
+                        value,
+                        CheckMenuItem::with_id(
+                            format!("{OPACITY_PREFIX}{value}"),
+                            format!("{value}%"),
+                            true,
+                            preferences.opacity_percent == value,
+                            None,
+                        ),
+                    )
+                });
+                let opacity_menu = percentage_menu("Opacity", &opacities)?;
+                let scales = OverlayPreferences::SCALE_CHOICES.map(|value| {
+                    (
+                        value,
+                        CheckMenuItem::with_id(
+                            format!("{SCALE_PREFIX}{value}"),
+                            format!("{value}%"),
+                            true,
+                            preferences.scale_percent == value,
+                            None,
+                        ),
+                    )
+                });
+                let scale_menu = percentage_menu("Scale", &scales)?;
+                let menu = Menu::with_items(&[
+                    &launch_at_login,
+                    &position_menu,
+                    &opacity_menu,
+                    &scale_menu,
+                    &separator,
+                    &reload,
+                    &version,
+                    &quit,
+                ])?;
+                (menu, launch_at_login, positions, opacities, scales)
+            };
+            MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+                let Some(command) = command_for_id(event.id().as_ref()) else {
+                    return;
+                };
+                handler(command);
+            }));
+            let tray = TrayIconBuilder::new()
+                .with_tooltip("Keymap Overlay")
+                .with_icon(tray_icon()?)
+                .with_icon_as_template(cfg!(target_os = "macos"))
+                .with_menu(Box::new(menu))
+                .build()
+                .context("Failed to create the system tray icon")?;
+            let mut tray = Self {
+                _tray: tray,
+                #[cfg(target_os = "windows")]
+                launch_at_login,
+                #[cfg(target_os = "windows")]
+                positions,
+                #[cfg(target_os = "windows")]
+                opacities,
+                #[cfg(target_os = "windows")]
+                scales,
+            };
+            tray.sync(preferences, launch_at_login_enabled);
+            Ok(tray)
+        }
+
+        pub fn sync(&mut self, preferences: OverlayPreferences, launch_at_login: bool) {
+            #[cfg(target_os = "windows")]
+            {
+                self.launch_at_login.set_checked(launch_at_login);
+                for (value, item) in &self.positions {
+                    item.set_checked(*value == preferences.position);
+                }
+                for (value, item) in &self.opacities {
+                    item.set_checked(*value == preferences.opacity_percent);
+                }
+                for (value, item) in &self.scales {
+                    item.set_checked(*value == preferences.scale_percent);
+                }
+            }
+            #[cfg(target_os = "macos")]
+            let _ = (preferences, launch_at_login);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn position_item(
+        position: OverlayPosition,
+        label: &str,
+        preferences: OverlayPreferences,
+    ) -> (OverlayPosition, CheckMenuItem) {
+        let id = match position {
+            OverlayPosition::Top => POSITION_TOP,
+            OverlayPosition::Center => POSITION_CENTER,
+            OverlayPosition::Bottom => POSITION_BOTTOM,
+        };
+        (
+            position,
+            CheckMenuItem::with_id(id, label, true, preferences.position == position, None),
+        )
+    }
+
+    #[cfg(target_os = "windows")]
+    fn percentage_menu<T>(label: &str, items: &[(T, CheckMenuItem)]) -> Result<Submenu> {
+        Ok(Submenu::with_items(
+            label,
+            true,
+            &items
+                .iter()
+                .map(|(_, item)| item as &dyn tray_icon::menu::IsMenuItem)
+                .collect::<Vec<_>>(),
+        )?)
+    }
+
+    fn command_for_id(id: &str) -> Option<TrayCommand> {
+        match id {
+            SETTINGS => Some(TrayCommand::OpenSettings),
+            #[cfg(target_os = "windows")]
+            LAUNCH_AT_LOGIN => Some(TrayCommand::ToggleLaunchAtLogin),
+            #[cfg(target_os = "windows")]
+            POSITION_TOP => Some(TrayCommand::SetPosition(OverlayPosition::Top)),
+            #[cfg(target_os = "windows")]
+            POSITION_CENTER => Some(TrayCommand::SetPosition(OverlayPosition::Center)),
+            #[cfg(target_os = "windows")]
+            POSITION_BOTTOM => Some(TrayCommand::SetPosition(OverlayPosition::Bottom)),
+            RELOAD => Some(TrayCommand::Reload),
+            QUIT => Some(TrayCommand::Quit),
+            #[cfg(target_os = "macos")]
+            _ => None,
+            #[cfg(target_os = "windows")]
+            _ => id
+                .strip_prefix(OPACITY_PREFIX)
+                .and_then(|value| value.parse().ok())
+                .map(TrayCommand::SetOpacity)
+                .or_else(|| {
+                    id.strip_prefix(SCALE_PREFIX)
+                        .and_then(|value| value.parse().ok())
+                        .map(TrayCommand::SetScale)
+                }),
+        }
+    }
+
+    fn tray_icon() -> Result<Icon> {
+        const SIDE: u32 = 20;
+        let mut rgba = vec![0_u8; (SIDE * SIDE * 4) as usize];
+        for y in 2..18 {
+            for x in 1..19 {
+                let pixel = ((y * SIDE + x) * 4) as usize;
+                rgba[pixel..pixel + 4].copy_from_slice(&[99, 72, 180, 255]);
+            }
+        }
+        for row in 0..2 {
+            for column in 0..3 {
+                for y in (5 + row * 6)..(9 + row * 6) {
+                    for x in (3 + column * 6)..(7 + column * 6) {
+                        let pixel = ((y * SIDE + x) * 4) as usize;
+                        rgba[pixel..pixel + 4].copy_from_slice(&[255, 255, 255, 255]);
+                    }
+                }
+            }
+        }
+        Icon::from_rgba(rgba, SIDE, SIDE).context("Failed to create the tray icon")
+    }
+}
 
 /// The overlay's command line.
 //
@@ -288,6 +652,17 @@ impl ModelStore {
         compose_model(&models, keyboard_id, layers)
     }
 
+    /// Lists keyboard and layer pairs available for an embedded preview.
+    pub fn preview_choices(&self) -> Vec<(u8, u8)> {
+        let models = self
+            .models
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut choices = models.keys().copied().collect::<Vec<_>>();
+        choices.sort_unstable();
+        choices
+    }
+
     fn contains_keyboard(&self, keyboard_id: u8) -> bool {
         self.models
             .read()
@@ -358,6 +733,8 @@ impl EnumerationRequester {
 #[derive(Clone)]
 pub struct RawHidListenerHandle {
     requester: EnumerationRequester,
+    reload_generation: Arc<AtomicU64>,
+    reload_requested: Arc<AtomicBool>,
 }
 
 /// A hardware listener, or a synthetic event source used for manual testing.
@@ -372,6 +749,14 @@ impl LayerEventSourceHandle {
     pub fn device_arrived(&self) -> bool {
         match self {
             Self::RawHid(listener) => listener.device_arrived(),
+            Self::Simulated => false,
+        }
+    }
+
+    /// Drops active readers and rereads every connected keyboard in-process.
+    pub fn reload_keyboards(&self) -> bool {
+        match self {
+            Self::RawHid(listener) => listener.reload_keyboards(),
             Self::Simulated => false,
         }
     }
@@ -453,6 +838,13 @@ impl RawHidListenerHandle {
     pub fn device_arrived(&self) -> bool {
         self.requester.request()
     }
+
+    /// Requests a fresh Vial model read for every connected keyboard.
+    pub fn reload_keyboards(&self) -> bool {
+        self.reload_generation.fetch_add(1, Ordering::AcqRel);
+        self.reload_requested.store(true, Ordering::Release);
+        self.requester.request()
+    }
 }
 
 pub fn spawn_raw_hid_listener(
@@ -462,8 +854,12 @@ pub fn spawn_raw_hid_listener(
 ) -> RawHidListenerHandle {
     let (wake, requests) = mpsc::channel();
     let requester = EnumerationRequester::new(wake);
+    let reload_generation = Arc::new(AtomicU64::new(0));
+    let reload_requested = Arc::new(AtomicBool::new(false));
     let handle = RawHidListenerHandle {
         requester: requester.clone(),
+        reload_generation: Arc::clone(&reload_generation),
+        reload_requested: Arc::clone(&reload_requested),
     };
     thread::spawn(move || {
         let context = RawHidContext {
@@ -472,6 +868,8 @@ pub fn spawn_raw_hid_listener(
             active_keyboard_ids: Arc::new(Mutex::new(HashSet::new())),
             models,
             requester,
+            reload_generation,
+            reload_requested,
         };
         adopt_startup_raw_hid_devices(startup_devices, &context);
         enumerate_raw_hid_devices(&context);
@@ -483,6 +881,9 @@ pub fn spawn_raw_hid_listener(
             // readers remain alive and cannot lose releases during this grace.
             thread::sleep(RECONNECT_INTERVAL);
             context.requester.begin_enumeration();
+            if context.reload_requested.swap(false, Ordering::AcqRel) {
+                wait_for_raw_hid_readers(&context.active_paths);
+            }
             enumerate_raw_hid_devices(&context);
         }
     });
@@ -698,6 +1099,8 @@ struct RawHidContext<S> {
     active_keyboard_ids: Arc<Mutex<HashSet<u8>>>,
     models: ModelStore,
     requester: EnumerationRequester,
+    reload_generation: Arc<AtomicU64>,
+    reload_requested: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -715,6 +1118,8 @@ impl<S: Clone> Clone for RawHidContext<S> {
             active_keyboard_ids: Arc::clone(&self.active_keyboard_ids),
             models: self.models.clone(),
             requester: self.requester.clone(),
+            reload_generation: Arc::clone(&self.reload_generation),
+            reload_requested: Arc::clone(&self.reload_requested),
         }
     }
 }
@@ -919,11 +1324,18 @@ fn spawn_raw_hid_reader<S: LayerEventSink + 'static>(
     keyboard_id: Option<u8>,
     context: RawHidContext<S>,
 ) {
+    let reload_generation = context.reload_generation.load(Ordering::Acquire);
     // HidDevice is Send but not Sync, so each reader owns its device.
     thread::spawn(move || {
-        if let Err(error) =
-            receive_from_device(&device, &path, keyboard_id, &context.models, &context.sink)
-        {
+        if let Err(error) = receive_from_device(
+            &device,
+            &path,
+            keyboard_id,
+            &context.models,
+            &context.sink,
+            reload_generation,
+            &context.reload_generation,
+        ) {
             warn!("Raw HID reader stopped: {error:#}");
         }
         context
@@ -949,10 +1361,16 @@ fn receive_from_device(
     mut keyboard_id: Option<u8>,
     models: &ModelStore,
     sink: &impl LayerEventSink,
+    reader_generation: u64,
+    reload_generation: &AtomicU64,
 ) -> Result<()> {
     let mut report = [0_u8; 33];
     let mut warned_keyboard_ids = HashSet::new();
     loop {
+        if reload_generation.load(Ordering::Acquire) != reader_generation {
+            sink.send(LayerEvent::Disconnected { keyboard_id });
+            return Ok(());
+        }
         let length = match device.read_timeout(&mut report, READ_TIMEOUT) {
             Ok(length) => length,
             Err(error) => {
@@ -990,6 +1408,18 @@ fn receive_from_device(
         if !sink.send(LayerEvent::Report(event)) {
             return Ok(());
         }
+    }
+}
+
+fn wait_for_raw_hid_readers(active_paths: &Mutex<HashSet<String>>) {
+    let deadline = Instant::now() + Duration::from_millis((READ_TIMEOUT as u64) * 2);
+    while !active_paths
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .is_empty()
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -1157,6 +1587,23 @@ mod tests {
     }
 
     #[test]
+    fn a_keyboard_reload_stops_readers_and_requests_enumeration() {
+        let (sender, receiver) = mpsc::channel();
+        let generation = Arc::new(AtomicU64::new(7));
+        let reload_requested = Arc::new(AtomicBool::new(false));
+        let listener = RawHidListenerHandle {
+            requester: EnumerationRequester::new(sender),
+            reload_generation: Arc::clone(&generation),
+            reload_requested: Arc::clone(&reload_requested),
+        };
+
+        assert!(listener.reload_keyboards());
+        assert_eq!(generation.load(Ordering::Acquire), 8);
+        assert!(reload_requested.load(Ordering::Acquire));
+        assert_eq!(receiver.try_recv(), Ok(()));
+    }
+
+    #[test]
     fn an_arrival_burst_is_coalesced() {
         let (sender, receiver) = mpsc::channel();
         let requester = EnumerationRequester::new(sender);
@@ -1233,6 +1680,18 @@ mod tests {
     }
 
     #[test]
+    fn preview_choices_are_sorted_by_keyboard_and_layer() {
+        let mut cache = simulation_models(13, 2).expect("second fixture is valid");
+        cache.extend(simulation_models(12, 3).expect("first fixture is valid"));
+        let models = ModelStore::new(cache);
+
+        assert_eq!(
+            models.preview_choices(),
+            vec![(12, 0), (12, 3), (13, 0), (13, 2)]
+        );
+    }
+
+    #[test]
     fn startup_devices_register_their_path_and_keyboard_id() {
         let active_paths = Arc::new(Mutex::new(HashSet::new()));
         let active_keyboard_ids = Arc::new(Mutex::new(HashSet::new()));
@@ -1282,6 +1741,8 @@ mod tests {
             active_keyboard_ids: Arc::new(Mutex::new(HashSet::new())),
             models: ModelStore::new(ModelCache::new()),
             requester: EnumerationRequester::new(request_sender),
+            reload_generation: Arc::new(AtomicU64::new(0)),
+            reload_requested: Arc::new(AtomicBool::new(false)),
         };
 
         enumerate_raw_hid_devices_with_result(Err(anyhow::anyhow!("fixture failure")), &context);
@@ -1300,6 +1761,8 @@ mod tests {
             active_keyboard_ids: Arc::new(Mutex::new(HashSet::new())),
             models: ModelStore::new(ModelCache::new()),
             requester: EnumerationRequester::new(request_sender),
+            reload_generation: Arc::new(AtomicU64::new(0)),
+            reload_requested: Arc::new(AtomicBool::new(false)),
         };
 
         let result = discover_opened_raw_hid_device(
@@ -1648,6 +2111,57 @@ mod tests {
     #[test]
     fn neither_variable_leaves_the_home_directory_unknown() {
         assert_eq!(resolve_home_directory(None, None), None);
+    }
+
+    #[test]
+    fn overlay_preferences_have_stable_defaults() {
+        assert_eq!(
+            OverlayPreferences::default(),
+            OverlayPreferences {
+                legacy_enabled: None,
+                position: OverlayPosition::Center,
+                opacity_percent: 100,
+                scale_percent: 100,
+            }
+        );
+    }
+
+    #[test]
+    fn overlay_preferences_ignore_the_removed_enabled_setting() {
+        let preferences: OverlayPreferences = serde_json::from_str(
+            r#"{"enabled":false,"position":"bottom","opacity_percent":75,"scale_percent":125}"#,
+        )
+        .expect("legacy preferences parse");
+
+        assert_eq!(
+            preferences.validate().expect("legacy preferences validate"),
+            OverlayPreferences {
+                position: OverlayPosition::Bottom,
+                opacity_percent: 75,
+                scale_percent: 125,
+                ..OverlayPreferences::default()
+            }
+        );
+    }
+
+    #[test]
+    fn overlay_preferences_reject_values_the_menus_cannot_represent() {
+        assert!(
+            OverlayPreferences {
+                opacity_percent: 42,
+                ..OverlayPreferences::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            OverlayPreferences {
+                scale_percent: 101,
+                ..OverlayPreferences::default()
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[cfg(target_os = "windows")]

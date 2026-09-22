@@ -22,18 +22,22 @@ def test_bump_version_updates_manifests_and_regenerates_derived_files(
         '[project]\nversion = "0.0.4"\n\n[tool.example]\nversion = "9.9.9"\n',
         encoding="utf-8",
     )
+    gnome_metadata = tmp_path / "metadata.json"
+    gnome_metadata.write_text('{"version-name": "0.0.4"}\n', encoding="utf-8")
     commands: list[list[str]] = []
 
     bump_version(
         "0.0.5",
         cargo_manifest=cargo_manifest,
         python_project=python_project,
+        gnome_metadata=gnome_metadata,
         runner=record_commands(commands),
     )
 
     assert '[package]\nversion = "9.9.9"' in cargo_manifest.read_text()
     assert '[workspace.package]\nversion = "0.0.5"' in cargo_manifest.read_text()
     assert '[project]\nversion = "0.0.5"' in python_project.read_text()
+    assert '"version-name": "0.0.5"' in gnome_metadata.read_text()
     assert '[tool.example]\nversion = "9.9.9"' in python_project.read_text()
     assert commands == [
         ["cargo", "check", "--workspace"],
@@ -49,12 +53,15 @@ def test_mismatched_manifest_versions_are_rejected_before_writes(
     cargo_manifest.write_text('[workspace.package]\nversion = "0.0.4"\n')
     python_project = tmp_path / "pyproject.toml"
     python_project.write_text('[project]\nversion = "0.0.3"\n')
+    gnome_metadata = tmp_path / "metadata.json"
+    gnome_metadata.write_text('{"version-name": "0.0.4"}\n')
 
     with pytest.raises(VersionBumpError, match="do not match"):
         bump_version(
             "0.0.5",
             cargo_manifest=cargo_manifest,
             python_project=python_project,
+            gnome_metadata=gnome_metadata,
         )
 
     assert 'version = "0.0.4"' in cargo_manifest.read_text()
@@ -69,12 +76,15 @@ def test_non_release_or_non_increasing_versions_are_rejected(
     cargo_manifest.write_text('[workspace.package]\nversion = "0.0.4"\n')
     python_project = tmp_path / "pyproject.toml"
     python_project.write_text('[project]\nversion = "0.0.4"\n')
+    gnome_metadata = tmp_path / "metadata.json"
+    gnome_metadata.write_text('{"version-name": "0.0.4"}\n')
 
     with pytest.raises(VersionBumpError):
         bump_version(
             version,
             cargo_manifest=cargo_manifest,
             python_project=python_project,
+            gnome_metadata=gnome_metadata,
         )
 
 

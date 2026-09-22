@@ -1,15 +1,23 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const BUS_NAME = 'com.sunaemon.KeymapOverlay';
 const OBJECT_PATH = '/com/sunaemon/KeymapOverlay';
 const RENDERER_INTERFACE = 'com.sunaemon.KeymapOverlay.Renderer1';
 const INTERFACE_SCHEMA = 'org.gnome.desktop.interface';
+const DEFAULT_PREFERENCES = {
+  position: 'center',
+  opacity_percent: 100,
+  scale_percent: 100,
+};
 const RENDERER_XML = `
 <node>
   <interface name="${RENDERER_INTERFACE}">
@@ -32,6 +40,9 @@ export default class KeymapOverlayExtension extends Extension {
     this._enabled = true;
     this._generation = -1;
     this._overlay = null;
+    this._preferences = this._loadPreferences();
+    this._buildIndicator();
+    this._watchPreferences();
     this._interfaceSettings = new Gio.Settings({ schema_id: INTERFACE_SCHEMA });
     this._colorSchemeId = this._interfaceSettings.connect(
       'changed::color-scheme',
@@ -55,7 +66,11 @@ export default class KeymapOverlayExtension extends Extension {
         this._ownerSignalId = proxy.connect('notify::g-name-owner', () => {
           this._generation = -1;
           if (proxy.g_name_owner) this._refreshState();
-          else this._hide();
+          else {
+            this._lastVisible = false;
+            this._lastModelJson = '';
+            this._hide();
+          }
         });
         if (proxy.g_name_owner) this._refreshState();
       },
@@ -78,6 +93,10 @@ export default class KeymapOverlayExtension extends Extension {
     this._interfaceSettings = null;
     this._colorSchemeId = 0;
     this._destroyOverlay();
+    if (this._preferencesMonitor) this._preferencesMonitor.cancel();
+    this._preferencesMonitor = null;
+    if (this._indicator) this._indicator.destroy();
+    this._indicator = null;
   }
 
   _refreshState() {
@@ -96,6 +115,8 @@ export default class KeymapOverlayExtension extends Extension {
     generation = Number(generation);
     if (generation <= this._generation) return;
     this._generation = generation;
+    this._lastVisible = visible;
+    this._lastModelJson = modelJson;
     if (!visible) {
       this._hide();
       return;
@@ -135,6 +156,13 @@ export default class KeymapOverlayExtension extends Extension {
       visible: false,
     });
     overlay.set_size(model.width + horizontalPadding * 2, model.height);
+    overlay.set_scale(
+      this._preferences.scale_percent / 100,
+      this._preferences.scale_percent / 100
+    );
+    overlay.opacity = Math.round(
+      (this._preferences.opacity_percent / 100) * 255
+    );
     const content = new St.Widget({ reactive: false, can_focus: false });
     content.set_position(horizontalPadding, 0);
     content.set_size(model.width, model.height);
@@ -152,9 +180,15 @@ export default class KeymapOverlayExtension extends Extension {
     });
     const monitor =
       Main.layoutManager.currentMonitor ?? Main.layoutManager.primaryMonitor;
+    const scaledWidth = overlay.width * overlay.scale_x;
+    const scaledHeight = overlay.height * overlay.scale_y;
+    let y = monitor.y + Math.round((monitor.height - scaledHeight) / 2);
+    if (this._preferences.position === 'top') y = monitor.y;
+    if (this._preferences.position === 'bottom')
+      y = monitor.y + monitor.height - scaledHeight;
     overlay.set_position(
-      monitor.x + Math.round((monitor.width - overlay.width) / 2),
-      monitor.y + Math.round((monitor.height - model.height) / 2)
+      monitor.x + Math.round((monitor.width - scaledWidth) / 2),
+      y
     );
     overlay.show();
     this._overlay = overlay;
@@ -291,6 +325,233 @@ export default class KeymapOverlayExtension extends Extension {
 
   _hide() {
     this._destroyOverlay();
+  }
+
+  _preferencesFile() {
+    return Gio.File.new_for_path(
+      GLib.build_filenamev([
+        GLib.get_user_config_dir(),
+        'keymap-overlay',
+        'preferences.json',
+      ])
+    );
+  }
+
+  _loadPreferences() {
+    try {
+      const [, contents] = this._preferencesFile().load_contents(null);
+      const parsed = JSON.parse(new TextDecoder().decode(contents));
+      delete parsed.enabled;
+      return { ...DEFAULT_PREFERENCES, ...parsed };
+    } catch (error) {
+      if (!error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+        console.error(
+          `Keymap Overlay: cannot read preferences: ${error.message}`
+        );
+      return { ...DEFAULT_PREFERENCES };
+    }
+  }
+
+  _savePreferences() {
+    const file = this._preferencesFile();
+    GLib.mkdir_with_parents(file.get_parent().get_path(), 0o700);
+    file.replace_contents(
+      new TextEncoder().encode(JSON.stringify(this._preferences, null, 2)),
+      null,
+      false,
+      Gio.FileCreateFlags.REPLACE_DESTINATION,
+      null
+    );
+  }
+
+  _watchPreferences() {
+    try {
+      const directory = this._preferencesFile().get_parent();
+      GLib.mkdir_with_parents(directory.get_path(), 0o700);
+      this._preferencesMonitor = directory.monitor_directory(
+        Gio.FileMonitorFlags.NONE,
+        null
+      );
+      this._preferencesMonitor.connect('changed', (_monitor, file) => {
+        if (file.get_basename() !== 'preferences.json') return;
+        this._preferences = this._loadPreferences();
+        this._syncIndicator();
+        this._refreshVisibleOverlay();
+      });
+    } catch (error) {
+      console.error(
+        `Keymap Overlay: cannot watch preferences: ${error.message}`
+      );
+    }
+  }
+
+  _buildIndicator() {
+    this._indicator = new PanelMenu.Button(0, 'Keymap Overlay', false);
+    this._indicator.add_child(
+      new St.Icon({
+        icon_name: 'input-keyboard-symbolic',
+        style_class: 'system-status-icon',
+      })
+    );
+    this._launchAtLoginItem = new PopupMenu.PopupSwitchMenuItem(
+      'Launch at Login',
+      this._launchAtLoginEnabled()
+    );
+    this._launchAtLoginItem.connect('toggled', (_item, enabled) =>
+      this._setLaunchAtLogin(enabled)
+    );
+    this._indicator.menu.addMenuItem(this._launchAtLoginItem);
+    this._positionItems = this._addChoiceMenu(
+      'Position',
+      [
+        ['Top', 'top'],
+        ['Center', 'center'],
+        ['Bottom', 'bottom'],
+      ],
+      (value) => this._updatePreferences({ position: value })
+    );
+    this._opacityItems = this._addChoiceMenu(
+      'Opacity',
+      [50, 75, 90, 100].map((value) => [`${value}%`, value]),
+      (value) => this._updatePreferences({ opacity_percent: value })
+    );
+    this._scaleItems = this._addChoiceMenu(
+      'Scale',
+      [75, 100, 125, 150].map((value) => [`${value}%`, value]),
+      (value) => this._updatePreferences({ scale_percent: value })
+    );
+    this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    const reload = new PopupMenu.PopupMenuItem('Reload Keyboards');
+    reload.connect('activate', () =>
+      Gio.DBus.session.call(
+        BUS_NAME,
+        OBJECT_PATH,
+        RENDERER_INTERFACE,
+        'ReloadKeyboards',
+        null,
+        null,
+        Gio.DBusCallFlags.NONE,
+        -1,
+        null,
+        null
+      )
+    );
+    this._indicator.menu.addMenuItem(reload);
+    const version = new PopupMenu.PopupMenuItem(
+      `Keymap Overlay ${this.metadata['version-name'] ?? this.metadata.version}`,
+      {
+        reactive: false,
+      }
+    );
+    this._indicator.menu.addMenuItem(version);
+    const quit = new PopupMenu.PopupMenuItem('Quit');
+    quit.connect('activate', () => {
+      Gio.DBus.session.call(
+        'org.freedesktop.systemd1',
+        '/org/freedesktop/systemd1',
+        'org.freedesktop.systemd1.Manager',
+        'StopUnit',
+        new GLib.Variant('(ss)', ['keymap-overlay.service', 'replace']),
+        null,
+        Gio.DBusCallFlags.NONE,
+        -1,
+        null,
+        null
+      );
+      this.disable();
+    });
+    this._indicator.menu.addMenuItem(quit);
+    Main.panel.addToStatusArea('keymap-overlay', this._indicator);
+    this._syncIndicator();
+  }
+
+  _addChoiceMenu(title, choices, activate) {
+    const submenu = new PopupMenu.PopupSubMenuMenuItem(title);
+    const items = new Map();
+    for (const [label, value] of choices) {
+      const item = new PopupMenu.PopupMenuItem(label);
+      item.connect('activate', () => activate(value));
+      submenu.menu.addMenuItem(item);
+      items.set(value, item);
+    }
+    this._indicator.menu.addMenuItem(submenu);
+    return items;
+  }
+
+  _syncIndicator() {
+    this._syncChoice(this._positionItems, this._preferences.position);
+    this._syncChoice(this._opacityItems, this._preferences.opacity_percent);
+    this._syncChoice(this._scaleItems, this._preferences.scale_percent);
+  }
+
+  _launchAtLoginEnabled() {
+    try {
+      return Gio.Subprocess.new(
+        [
+          'systemctl',
+          '--user',
+          'is-enabled',
+          '--quiet',
+          'keymap-overlay.service',
+        ],
+        Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE
+      ).wait_check(null);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  _setLaunchAtLogin(enabled) {
+    const process = Gio.Subprocess.new(
+      [
+        'systemctl',
+        '--user',
+        enabled ? 'enable' : 'disable',
+        'keymap-overlay.service',
+      ],
+      Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_PIPE
+    );
+    process.wait_check_async(null, (source, result) => {
+      try {
+        source.wait_check_finish(result);
+      } catch (error) {
+        console.error(
+          `Keymap Overlay: cannot change launch at login: ${error.message}`
+        );
+        this._launchAtLoginItem?.setToggleState(!enabled);
+      }
+    });
+  }
+
+  _syncChoice(items, selected) {
+    for (const [value, item] of items ?? [])
+      item.setOrnament(
+        value === selected ? PopupMenu.Ornament.CHECK : PopupMenu.Ornament.NONE
+      );
+  }
+
+  _updatePreferences(change) {
+    const previous = { ...this._preferences };
+    Object.assign(this._preferences, change);
+    try {
+      this._savePreferences();
+    } catch (error) {
+      this._preferences = previous;
+      console.error(
+        `Keymap Overlay: cannot save preferences: ${error.message}`
+      );
+    }
+    this._syncIndicator();
+    this._refreshVisibleOverlay();
+  }
+
+  _refreshVisibleOverlay() {
+    if (this._lastVisible && this._lastModelJson) {
+      this._generation--;
+      this._applyState(this._generation + 1, true, this._lastModelJson);
+    } else {
+      this._hide();
+    }
   }
 
   _syncColorScheme() {

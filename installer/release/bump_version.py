@@ -1,5 +1,6 @@
 # Copyright 2026 sunaemon
 # SPDX-License-Identifier: MIT
+import json
 import logging
 import re
 import subprocess
@@ -20,6 +21,9 @@ CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 DEFAULT_CARGO_MANIFEST = Path("Cargo.toml")
 DEFAULT_PYTHON_PROJECT = Path("pyproject.toml")
+DEFAULT_GNOME_METADATA = Path(
+    "overlay/platforms/linux/gnome-shell/keymap-overlay@sunaemon/metadata.json"
+)
 RELEASE_VERSION_PATTERN = re.compile(
     r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
 )
@@ -49,19 +53,33 @@ def bump_version(
     *,
     cargo_manifest: Path = DEFAULT_CARGO_MANIFEST,
     python_project: Path = DEFAULT_PYTHON_PROJECT,
+    gnome_metadata: Path = DEFAULT_GNOME_METADATA,
     runner: CommandRunner | None = None,
 ) -> None:
     """Bump manifests, refresh lockfiles, and regenerate license notices."""
     target = parse_release_version(version)
     cargo_content = cargo_manifest.read_text(encoding="utf-8")
     python_content = python_project.read_text(encoding="utf-8")
+    gnome_content = gnome_metadata.read_text(encoding="utf-8")
     cargo_version = read_section_version(cargo_content, "workspace.package")
     python_version = read_section_version(python_content, "project")
+    try:
+        gnome_manifest = json.loads(gnome_content)
+        gnome_version = gnome_manifest["version-name"]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise VersionBumpError(
+            "GNOME extension metadata has no valid version-name"
+        ) from error
 
     if cargo_version != python_version:
         raise VersionBumpError(
             "Cargo.toml and pyproject.toml versions do not match: "
             f"{cargo_version} != {python_version}"
+        )
+    if cargo_version != gnome_version:
+        raise VersionBumpError(
+            "Cargo.toml and GNOME extension versions do not match: "
+            f"{cargo_version} != {gnome_version}"
         )
     if target <= parse_release_version(cargo_version):
         raise VersionBumpError(
@@ -74,6 +92,11 @@ def bump_version(
     )
     python_project.write_text(
         replace_section_version(python_content, "project", version),
+        encoding="utf-8",
+    )
+    gnome_manifest["version-name"] = version
+    gnome_metadata.write_text(
+        json.dumps(gnome_manifest, indent=2) + "\n",
         encoding="utf-8",
     )
 

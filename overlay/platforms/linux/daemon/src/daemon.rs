@@ -140,13 +140,16 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
         models.clone(),
     );
     if source.uses_raw_hid() {
-        spawn_device_watcher(source);
+        spawn_device_watcher(source.clone());
     }
     let connection =
         Connection::session().context("Failed to connect to the user D-Bus session")?;
     connection
         .object_server()
-        .at(OBJECT_PATH, RendererService::new(state_store.clone()))
+        .at(
+            OBJECT_PATH,
+            RendererService::new(state_store.clone(), move || source.reload_keyboards()),
+        )
         .context("Failed to register the renderer state object")?;
     connection
         .request_name(BUS_NAME)
