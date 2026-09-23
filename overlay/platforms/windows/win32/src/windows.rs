@@ -234,8 +234,6 @@ pub(crate) fn run() -> Result<()> {
                 .send(command)
                 .context("Failed to queue a Windows E2E tray command")?;
         }
-        unsafe { PostMessageW(Some(window), WM_TRAY_COMMAND, WPARAM(0), LPARAM(0)) }
-            .context("Failed to wake the Windows E2E tray command handler")?;
     }
     let event_window = Arc::new(AtomicIsize::new(window.0 as isize));
     let listener = spawn_layer_event_source(
@@ -248,6 +246,9 @@ pub(crate) fn run() -> Result<()> {
         models,
     );
     let _ = LISTENER.set(listener);
+    if env::var_os("KEYMAP_OVERLAY_E2E_EXERCISE_TRAY").is_some_and(|value| value == "1") {
+        unsafe { apply_tray_commands(window) };
+    }
     message_loop()
 }
 
