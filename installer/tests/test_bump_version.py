@@ -68,6 +68,41 @@ def test_mismatched_manifest_versions_are_rejected_before_writes(
     assert 'version = "0.0.3"' in python_project.read_text()
 
 
+@pytest.mark.parametrize("metadata", ["not json", "{}", '{"version-name": null}'])
+def test_invalid_gnome_version_is_rejected(tmp_path: Path, metadata: str) -> None:
+    cargo_manifest = tmp_path / "Cargo.toml"
+    cargo_manifest.write_text('[workspace.package]\nversion = "0.0.4"\n')
+    python_project = tmp_path / "pyproject.toml"
+    python_project.write_text('[project]\nversion = "0.0.4"\n')
+    gnome_metadata = tmp_path / "metadata.json"
+    gnome_metadata.write_text(metadata)
+
+    with pytest.raises(VersionBumpError, match="no valid version-name"):
+        bump_version(
+            "0.0.5",
+            cargo_manifest=cargo_manifest,
+            python_project=python_project,
+            gnome_metadata=gnome_metadata,
+        )
+
+
+def test_mismatched_gnome_version_is_rejected(tmp_path: Path) -> None:
+    cargo_manifest = tmp_path / "Cargo.toml"
+    cargo_manifest.write_text('[workspace.package]\nversion = "0.0.4"\n')
+    python_project = tmp_path / "pyproject.toml"
+    python_project.write_text('[project]\nversion = "0.0.4"\n')
+    gnome_metadata = tmp_path / "metadata.json"
+    gnome_metadata.write_text('{"version-name": "0.0.3"}\n')
+
+    with pytest.raises(VersionBumpError, match="GNOME extension versions do not match"):
+        bump_version(
+            "0.0.5",
+            cargo_manifest=cargo_manifest,
+            python_project=python_project,
+            gnome_metadata=gnome_metadata,
+        )
+
+
 def test_manifest_write_failure_restores_every_original(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

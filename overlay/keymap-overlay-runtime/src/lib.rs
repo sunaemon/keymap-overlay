@@ -423,6 +423,54 @@ pub mod desktop_tray {
         }
         Icon::from_rgba(rgba, SIDE, SIDE).context("Failed to create the tray icon")
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn common_tray_commands_have_stable_ids() {
+            assert_eq!(command_for_id(SETTINGS), Some(TrayCommand::OpenSettings));
+            assert_eq!(command_for_id(RELOAD), Some(TrayCommand::Reload));
+            assert_eq!(command_for_id(QUIT), Some(TrayCommand::Quit));
+            assert_eq!(command_for_id("unknown"), None);
+        }
+
+        #[cfg(target_os = "windows")]
+        #[test]
+        fn windows_tray_commands_parse_their_ids() {
+            assert_eq!(
+                command_for_id(LAUNCH_AT_LOGIN),
+                Some(TrayCommand::ToggleLaunchAtLogin)
+            );
+            assert_eq!(
+                command_for_id(POSITION_TOP),
+                Some(TrayCommand::SetPosition(OverlayPosition::Top))
+            );
+            assert_eq!(
+                command_for_id(POSITION_CENTER),
+                Some(TrayCommand::SetPosition(OverlayPosition::Center))
+            );
+            assert_eq!(
+                command_for_id(POSITION_BOTTOM),
+                Some(TrayCommand::SetPosition(OverlayPosition::Bottom))
+            );
+            assert_eq!(
+                command_for_id("opacity-75"),
+                Some(TrayCommand::SetOpacity(75))
+            );
+            assert_eq!(
+                command_for_id("scale-125"),
+                Some(TrayCommand::SetScale(125))
+            );
+            assert_eq!(command_for_id("opacity-invalid"), None);
+        }
+
+        #[test]
+        fn tray_icon_pixels_form_a_valid_native_icon() {
+            assert!(tray_icon().is_ok());
+        }
+    }
 }
 
 /// The overlay's command line.
@@ -1817,6 +1865,15 @@ mod tests {
                 pressed: true,
             }))
         );
+    }
+
+    #[test]
+    fn a_simulated_source_ignores_hardware_refresh_requests() {
+        let source = LayerEventSourceHandle::Simulated;
+
+        assert!(!source.device_arrived());
+        assert!(!source.reload_keyboards());
+        assert!(!source.uses_raw_hid());
     }
 
     #[test]

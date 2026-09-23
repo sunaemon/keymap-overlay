@@ -791,6 +791,7 @@ fn resolved_color(color: Retained<NSColor>) -> Retained<NSColor> {
 
 impl OverlayApp {
     fn exercise_settings_for_e2e(&mut self) {
+        self.rebuild_settings();
         self.apply_tray_command(TrayCommand::OpenSettings);
         if let Some(tabs) = self
             .settings
@@ -800,11 +801,15 @@ impl OverlayApp {
             tabs.selectTabViewItemAtIndex(1);
         }
         self.rebuild_settings();
+        self.apply_settings_action(11);
+        self.apply_settings_action(12);
         self.apply_settings_action(10);
         self.apply_settings_action(175);
         self.apply_settings_action(425);
         self.apply_settings_action(1_001);
         self.apply_settings_action(2_002);
+        self.apply_settings_action(-1);
+        self.apply_tray_command(TrayCommand::Reload);
         let state = self.settings.as_ref().map(|settings| {
             let selected_tab = settings
                 .tab_view

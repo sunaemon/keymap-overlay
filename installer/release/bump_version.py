@@ -66,6 +66,8 @@ def bump_version(
     try:
         gnome_manifest = json.loads(gnome_content)
         gnome_version = gnome_manifest["version-name"]
+        if not isinstance(gnome_version, str):
+            raise TypeError("version-name must be a string")
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         raise VersionBumpError(
             "GNOME extension metadata has no valid version-name"
