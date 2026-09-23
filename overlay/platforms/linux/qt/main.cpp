@@ -523,6 +523,9 @@ public:
 
 private:
   void rebuild() {
+    for (auto *submenu :
+         menu_->findChildren<QMenu *>(Qt::FindDirectChildrenOnly))
+      submenu->deleteLater();
     menu_->clear();
     auto preferences = renderer_.preferences();
     auto *launch_at_login = menu_->addAction(QStringLiteral("Launch at Login"));
