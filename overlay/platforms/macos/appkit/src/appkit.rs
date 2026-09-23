@@ -222,6 +222,13 @@ pub(crate) fn run(startup: StartupModels, simulated: Option<SimulatedLayer>) -> 
     application.finishLaunching();
     overlay.window.orderFrontRegardless();
     OVERLAY_APP.with(|app| app.replace(Some(overlay)));
+    if std::env::var_os("KEYMAP_OVERLAY_E2E_EXERCISE_SETTINGS").is_some_and(|value| value == "1") {
+        OVERLAY_APP.with(|app| {
+            if let Some(app) = app.borrow_mut().as_mut() {
+                app.exercise_settings_for_e2e();
+            }
+        });
+    }
     let tray_sender = sender.clone();
     Queue::main().exec_async(move || install_desktop_tray(tray_sender));
     application.run();
@@ -783,6 +790,42 @@ fn resolved_color(color: Retained<NSColor>) -> Retained<NSColor> {
 }
 
 impl OverlayApp {
+    fn exercise_settings_for_e2e(&mut self) {
+        self.apply_tray_command(TrayCommand::OpenSettings);
+        if let Some(tabs) = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.tab_view.as_ref())
+        {
+            tabs.selectTabViewItemAtIndex(1);
+        }
+        self.rebuild_settings();
+        self.apply_settings_action(10);
+        self.apply_settings_action(175);
+        self.apply_settings_action(425);
+        self.apply_settings_action(1_001);
+        self.apply_settings_action(2_002);
+        let state = self.settings.as_ref().map(|settings| {
+            let selected_tab = settings
+                .tab_view
+                .as_ref()
+                .and_then(|tabs| tabs.selectedTabViewItem())
+                .map(|item| item.label().to_string())
+                .unwrap_or_default();
+            format!(
+                "settings tab={selected_tab} keyboard={:?} layer={:?} position={:?} opacity={} scale={}",
+                settings.keyboard_id,
+                settings.layer,
+                self.preferences.position,
+                self.preferences.opacity_percent,
+                self.preferences.scale_percent,
+            )
+        });
+        if let Some(state) = state {
+            self.record_e2e_state(&state);
+        }
+    }
+
     fn process_listener_events(&mut self) {
         self.update_screen_frame();
 
