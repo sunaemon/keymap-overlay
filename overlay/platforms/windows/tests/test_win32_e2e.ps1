@@ -78,16 +78,17 @@ try {
     }
     $env:KEYMAP_OVERLAY_E2E_STATE_FILE = $stateFile
     $env:KEYMAP_OVERLAY_PREFERENCES_FILE = Join-Path $testDirectory "preferences.json"
+    $env:KEYMAP_OVERLAY_E2E_EXERCISE_TRAY = "1"
 
     $process = Start-Process -FilePath $overlay `
         -ArgumentList "--simulate", "1:2" `
         -RedirectStandardOutput $outputFile -RedirectStandardError $errorFile -PassThru
 
     Wait-ForState "the composed layer to be attached" `
-        "show keyboard=1 layers=[2] size=162x122 keys=2 encoders=0 held=1"
+        "show keyboard=1 layers=[2] size=202x152 keys=2 encoders=0 held=1"
     Wait-ForState "the simulated release to detach and hide the layer" "hide size=1x1"
     Wait-ForState "the next simulated press to attach the layer again" `
-        "show keyboard=1 layers=[2] size=162x122 keys=2 encoders=0 held=1" 2
+        "show keyboard=1 layers=[2] size=202x152 keys=2 encoders=0 held=1" 2
 
     if ($process.HasExited) {
         Fail-Test "overlay exited while processing Windows state transitions"
@@ -109,6 +110,7 @@ try {
 } finally {
     Remove-Item Env:KEYMAP_OVERLAY_E2E_STATE_FILE -ErrorAction SilentlyContinue
     Remove-Item Env:KEYMAP_OVERLAY_PREFERENCES_FILE -ErrorAction SilentlyContinue
+    Remove-Item Env:KEYMAP_OVERLAY_E2E_EXERCISE_TRAY -ErrorAction SilentlyContinue
     if ($null -ne $process -and -not $process.HasExited) {
         Close-Overlay
     }

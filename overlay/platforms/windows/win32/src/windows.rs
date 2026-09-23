@@ -194,6 +194,7 @@ pub(crate) fn run() -> Result<()> {
     let launch_at_login = launch_at_login_enabled();
     let pending = Arc::new(Mutex::new(PendingTransition::default()));
     let (tray_sender, tray_commands) = mpsc::channel();
+    let e2e_tray_sender = tray_sender.clone();
     let state = Box::new(State {
         models: models.clone(),
         pending: Arc::clone(&pending),
@@ -222,6 +223,20 @@ pub(crate) fn run() -> Result<()> {
         .tray
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(tray);
+    if env::var_os("KEYMAP_OVERLAY_E2E_EXERCISE_TRAY").is_some_and(|value| value == "1") {
+        for command in [
+            TrayCommand::SetPosition(OverlayPosition::Top),
+            TrayCommand::SetOpacity(75),
+            TrayCommand::SetScale(125),
+            TrayCommand::Reload,
+        ] {
+            e2e_tray_sender
+                .send(command)
+                .context("Failed to queue a Windows E2E tray command")?;
+        }
+        unsafe { PostMessageW(Some(window), WM_TRAY_COMMAND, WPARAM(0), LPARAM(0)) }
+            .context("Failed to wake the Windows E2E tray command handler")?;
+    }
     let event_window = Arc::new(AtomicIsize::new(window.0 as isize));
     let listener = spawn_layer_event_source(
         Sink {
