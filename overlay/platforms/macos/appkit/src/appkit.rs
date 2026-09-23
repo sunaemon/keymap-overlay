@@ -18,15 +18,16 @@ use keymap_overlay_runtime::{
 };
 use log::{info, warn};
 use objc2::rc::{Allocated, Retained};
-use objc2::{MainThreadMarker, MainThreadOnly, define_class, extern_methods};
+use objc2::runtime::Sel;
+use objc2::{MainThreadMarker, MainThreadOnly, define_class, extern_methods, sel};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
     NSAutoresizingMaskOptions, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSButtonType,
     NSColor, NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSFont, NSGlassEffectView,
-    NSGlassEffectViewStyle, NSMainMenuWindowLevel, NSScreen, NSTabView, NSTabViewItem,
-    NSTextAlignment, NSTextField, NSView, NSViewController, NSVisualEffectBlendingMode,
-    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
-    NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSGlassEffectViewStyle, NSMainMenuWindowLevel, NSScreen, NSScrollView, NSTabView,
+    NSTabViewItem, NSTextAlignment, NSTextField, NSView, NSViewController,
+    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_foundation::{NSPoint, NSPointInRect, NSProcessInfo, NSRect, NSSize, NSString};
 use std::cell::RefCell;
@@ -82,8 +83,8 @@ define_class!(
     struct SettingsButton;
 
     impl SettingsButton {
-        #[unsafe(method(mouseDown:))]
-        fn mouse_down(&self, _event: &NSEvent) {
+        #[unsafe(method(settingsAction:))]
+        fn settings_action(&self, _sender: &NSButton) {
             OVERLAY_APP.with(|app| {
                 if let Some(app) = app.borrow_mut().as_mut() {
                     app.apply_settings_action(self.tag());
@@ -97,6 +98,12 @@ impl SettingsButton {
     extern_methods!(
         #[unsafe(method(initWithFrame:))]
         fn init_with_frame(this: Allocated<Self>, frame: NSRect) -> Retained<Self>;
+
+        #[unsafe(method(setTarget:))]
+        fn set_settings_target(&self, target: Option<&SettingsButton>);
+
+        #[unsafe(method(setAction:))]
+        fn set_settings_action(&self, action: Option<Sel>);
     );
 }
 
@@ -516,6 +523,8 @@ fn add_settings_button(
     let button = SettingsButton::init_with_frame(mtm.alloc(), frame);
     button.setTitle(&NSString::from_str(title));
     button.setTag(tag);
+    button.set_settings_target(Some(&button));
+    button.set_settings_action(Some(sel!(settingsAction:)));
     root.addSubview(&button);
 }
 
@@ -536,6 +545,8 @@ fn add_settings_checkbox(
         NSControlStateValueOff
     });
     button.setTag(tag);
+    button.set_settings_target(Some(&button));
+    button.set_settings_action(Some(sel!(settingsAction:)));
     root.addSubview(&button);
 }
 
@@ -556,7 +567,47 @@ fn add_settings_radio(
         NSControlStateValueOff
     });
     button.setTag(tag);
+    button.set_settings_target(Some(&button));
+    button.set_settings_action(Some(sel!(settingsAction:)));
     root.addSubview(&button);
+}
+
+fn add_scrolling_choices(
+    root: &NSView,
+    choices: &[(String, isize, bool)],
+    y: f64,
+    button_width: f64,
+    mtm: MainThreadMarker,
+) {
+    let visible_width = 748.0;
+    let spacing = 6.0;
+    let content_width = choice_content_width(choices.len(), button_width, visible_width, spacing);
+    let document = NSView::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(content_width, 34.0)),
+    );
+    let mut x = 0.0;
+    for (title, tag, selected) in choices {
+        add_settings_button(
+            &document,
+            &format!("{}{title}", if *selected { "✓ " } else { "" }),
+            *tag,
+            NSRect::new(NSPoint::new(x, 2.0), NSSize::new(button_width, 30.0)),
+            mtm,
+        );
+        x += button_width + spacing;
+    }
+    let scroll = NSScrollView::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(120.0, y), NSSize::new(visible_width, 42.0)),
+    );
+    scroll.setHasHorizontalScroller(content_width > visible_width);
+    scroll.setDocumentView(Some(&document));
+    root.addSubview(&scroll);
+}
+
+fn choice_content_width(count: usize, item_width: f64, visible_width: f64, spacing: f64) -> f64 {
+    ((item_width + spacing) * count as f64).max(visible_width) - spacing
 }
 
 fn add_choice_row(
@@ -929,7 +980,16 @@ impl OverlayApp {
             settings.window.makeKeyAndOrderFront(None);
         }
         if let Some(mtm) = MainThreadMarker::new() {
-            NSApplication::sharedApplication(mtm).activate();
+            let application = NSApplication::sharedApplication(mtm);
+            if uses_cooperative_activation(
+                NSProcessInfo::processInfo()
+                    .operatingSystemVersion()
+                    .majorVersion,
+            ) {
+                application.activate();
+            } else {
+                activate_legacy(&application);
+            }
         }
     }
 
@@ -1011,7 +1071,6 @@ impl OverlayApp {
             mtm,
         );
         let choices = self.models.preview_choices();
-        let mut x = 120.0;
         add_settings_label(
             &preview_root,
             "Keyboard",
@@ -1021,21 +1080,17 @@ impl OverlayApp {
         );
         let mut keyboards = choices.iter().map(|choice| choice.0).collect::<Vec<_>>();
         keyboards.dedup();
-        for choice_keyboard_id in keyboards {
-            let selected = keyboard_id == Some(choice_keyboard_id);
-            add_settings_button(
-                &preview_root,
-                &format!(
-                    "{}Keyboard {choice_keyboard_id}",
-                    if selected { "✓ " } else { "" }
-                ),
-                1_000 + isize::from(choice_keyboard_id),
-                NSRect::new(NSPoint::new(x, 558.0), NSSize::new(110.0, 32.0)),
-                mtm,
-            );
-            x += 116.0;
-        }
-        x = 120.0;
+        let keyboard_choices = keyboards
+            .into_iter()
+            .map(|choice| {
+                (
+                    format!("Keyboard {choice}"),
+                    1_000 + isize::from(choice),
+                    keyboard_id == Some(choice),
+                )
+            })
+            .collect::<Vec<_>>();
+        add_scrolling_choices(&preview_root, &keyboard_choices, 552.0, 110.0, mtm);
         add_settings_label(
             &preview_root,
             "Layer",
@@ -1044,21 +1099,19 @@ impl OverlayApp {
             mtm,
         );
         if let Some(keyboard_id) = keyboard_id {
-            for (_, choice_layer) in choices
+            let layer_choices = choices
                 .iter()
                 .copied()
                 .filter(|choice| choice.0 == keyboard_id)
-            {
-                let selected = layer == Some(choice_layer);
-                add_settings_button(
-                    &preview_root,
-                    &format!("{}Layer {choice_layer}", if selected { "✓ " } else { "" }),
-                    2_000 + isize::from(choice_layer),
-                    NSRect::new(NSPoint::new(x, 520.0), NSSize::new(88.0, 32.0)),
-                    mtm,
-                );
-                x += 94.0;
-            }
+                .map(|(_, choice)| {
+                    (
+                        format!("Layer {choice}"),
+                        2_000 + isize::from(choice),
+                        layer == Some(choice),
+                    )
+                })
+                .collect::<Vec<_>>();
+            add_scrolling_choices(&preview_root, &layer_choices, 510.0, 88.0, mtm);
         }
         let preview_frame = NSRect::new(NSPoint::new(24.0, 60.0), NSSize::new(872.0, 440.0));
         let preview_box = NSBox::initWithFrame(mtm.alloc(), preview_frame);
@@ -1226,6 +1279,15 @@ impl OverlayApp {
     }
 }
 
+fn uses_cooperative_activation(major_version: isize) -> bool {
+    major_version >= 14
+}
+
+#[allow(deprecated)]
+fn activate_legacy(application: &NSApplication) {
+    application.activateIgnoringOtherApps(true);
+}
+
 fn positioned_frame(size: NSSize, position: OverlayPosition) -> NSRect {
     let Some(screen) = current_screen_frame() else {
         return NSRect::new(NSPoint::new(0.0, 0.0), size);
@@ -1314,13 +1376,25 @@ fn launchd_domain() -> Result<String> {
 fn current_screen_frame() -> Option<NSRect> {
     let mtm = MainThreadMarker::new()?;
     let mouse_location = NSEvent::mouseLocation();
-    frame_containing_point(
+    visible_frame_containing_point(
         mouse_location,
-        NSScreen::screens(mtm).iter().map(|screen| screen.frame()),
+        NSScreen::screens(mtm)
+            .iter()
+            .map(|screen| (screen.frame(), screen.visibleFrame())),
     )
-    .or_else(|| NSScreen::mainScreen(mtm).map(|screen| screen.frame()))
+    .or_else(|| NSScreen::mainScreen(mtm).map(|screen| screen.visibleFrame()))
 }
 
+fn visible_frame_containing_point(
+    point: NSPoint,
+    frames: impl IntoIterator<Item = (NSRect, NSRect)>,
+) -> Option<NSRect> {
+    frames
+        .into_iter()
+        .find_map(|(full, visible)| NSPointInRect(point, full).then_some(visible))
+}
+
+#[cfg(test)]
 fn frame_containing_point(
     point: NSPoint,
     frames: impl IntoIterator<Item = NSRect>,
@@ -1384,6 +1458,29 @@ mod tests {
         assert!(!supports_liquid_glass_major_version(25));
         assert!(supports_liquid_glass_major_version(26));
         assert!(supports_liquid_glass_major_version(27));
+    }
+
+    #[test]
+    fn cooperative_activation_requires_macos_14() {
+        assert!(!uses_cooperative_activation(13));
+        assert!(uses_cooperative_activation(14));
+    }
+
+    #[test]
+    fn overflowing_preview_choices_get_scrollable_content_width() {
+        assert_eq!(choice_content_width(2, 110.0, 748.0, 6.0), 742.0);
+        assert!(choice_content_width(8, 110.0, 748.0, 6.0) > 748.0);
+    }
+
+    #[test]
+    fn screen_selection_returns_the_usable_frame() {
+        let full = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1_600.0, 900.0));
+        let visible = NSRect::new(NSPoint::new(0.0, 40.0), NSSize::new(1_600.0, 820.0));
+
+        assert_eq!(
+            visible_frame_containing_point(NSPoint::new(800.0, 880.0), [(full, visible)]),
+            Some(visible)
+        );
     }
 
     #[test]

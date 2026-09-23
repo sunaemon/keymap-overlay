@@ -86,19 +86,27 @@ def bump_version(
             f"new version {version} must be greater than current version {cargo_version}"
         )
 
-    cargo_manifest.write_text(
-        replace_section_version(cargo_content, "workspace.package", version),
-        encoding="utf-8",
-    )
-    python_project.write_text(
-        replace_section_version(python_content, "project", version),
-        encoding="utf-8",
-    )
     gnome_manifest["version-name"] = version
-    gnome_metadata.write_text(
-        json.dumps(gnome_manifest, indent=2) + "\n",
-        encoding="utf-8",
+    originals = (
+        (cargo_manifest, cargo_content),
+        (python_project, python_content),
+        (gnome_metadata, gnome_content),
     )
+    updates = (
+        (
+            cargo_manifest,
+            replace_section_version(cargo_content, "workspace.package", version),
+        ),
+        (python_project, replace_section_version(python_content, "project", version)),
+        (gnome_metadata, json.dumps(gnome_manifest, indent=2) + "\n"),
+    )
+    try:
+        for path, content in updates:
+            path.write_text(content, encoding="utf-8")
+    except OSError:
+        for path, content in originals:
+            path.write_text(content, encoding="utf-8")
+        raise
 
     run = runner or run_command
     for command in (

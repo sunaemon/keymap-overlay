@@ -341,6 +341,38 @@ export default class KeymapOverlayExtension extends Extension {
     try {
       const [, contents] = this._preferencesFile().load_contents(null);
       const parsed = JSON.parse(new TextDecoder().decode(contents));
+      if (
+        parsed === null ||
+        Array.isArray(parsed) ||
+        typeof parsed !== 'object'
+      )
+        throw new Error('preferences must be a JSON object');
+      const allowed = new Set([
+        'position',
+        'opacity_percent',
+        'scale_percent',
+        'enabled',
+      ]);
+      for (const key of Object.keys(parsed))
+        if (!allowed.has(key)) throw new Error(`unknown preference: ${key}`);
+      if (
+        'position' in parsed &&
+        (typeof parsed.position !== 'string' ||
+          !['top', 'center', 'bottom'].includes(parsed.position))
+      )
+        throw new Error('position must be top, center, or bottom');
+      if (
+        'opacity_percent' in parsed &&
+        (typeof parsed.opacity_percent !== 'number' ||
+          ![50, 75, 90, 100].includes(parsed.opacity_percent))
+      )
+        throw new Error('opacity_percent must be 50, 75, 90, or 100');
+      if (
+        'scale_percent' in parsed &&
+        (typeof parsed.scale_percent !== 'number' ||
+          ![75, 100, 125, 150].includes(parsed.scale_percent))
+      )
+        throw new Error('scale_percent must be 75, 100, 125, or 150');
       delete parsed.enabled;
       return { ...DEFAULT_PREFERENCES, ...parsed };
     } catch (error) {

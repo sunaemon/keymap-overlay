@@ -118,7 +118,7 @@ impl OverlayPreferences {
         })?;
         let contents = serde_json::to_vec_pretty(&preferences)
             .context("Failed to serialize overlay preferences")?;
-        fs::write(&path, contents)
+        write_file_atomically(&path, &contents)
             .with_context(|| format!("Failed to write preferences {}", path.display()))
     }
 
@@ -136,6 +136,17 @@ impl OverlayPreferences {
         self.legacy_enabled = None;
         Ok(self)
     }
+}
+
+fn write_file_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let directory = path
+        .parent()
+        .ok_or_else(|| io::Error::other("The preferences path has no parent"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+    temporary.write_all(contents)?;
+    temporary.as_file_mut().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }
 
 /// Location of the shared per-user preference file.
@@ -2161,6 +2172,23 @@ mod tests {
             }
             .validate()
             .is_err()
+        );
+    }
+
+    #[test]
+    fn atomic_write_replaces_contents_without_leaving_a_temporary_file() {
+        let directory = TempDir::new().expect("temporary directory is available");
+        let path = directory.path().join("preferences.json");
+        fs::write(&path, b"old").expect("fixture can be written");
+
+        write_file_atomically(&path, b"new").expect("atomic write succeeds");
+
+        assert_eq!(fs::read(&path).expect("preferences can be read"), b"new");
+        assert_eq!(
+            fs::read_dir(directory.path())
+                .expect("directory can be read")
+                .count(),
+            1
         );
     }
 

@@ -27,6 +27,7 @@
 #include <QQuickWindow>
 #include <QSaveFile>
 #include <QScreen>
+#include <QSet>
 #include <QStandardPaths>
 #include <QString>
 #include <QStringList>
@@ -76,6 +77,24 @@ Preferences load_preferences() {
   if (error.error != QJsonParseError::NoError || !document.isObject())
     throw std::runtime_error("Failed to parse overlay preferences");
   const auto object = document.object();
+  const QSet<QString> allowed{
+      QStringLiteral("position"), QStringLiteral("opacity_percent"),
+      QStringLiteral("scale_percent"), QStringLiteral("enabled")};
+  for (auto iterator = object.begin(); iterator != object.end(); ++iterator)
+    if (!allowed.contains(iterator.key()))
+      throw std::runtime_error(QStringLiteral("Unknown overlay preference: %1")
+                                   .arg(iterator.key())
+                                   .toStdString());
+  if (object.contains(QStringLiteral("position")) &&
+      !object.value(QStringLiteral("position")).isString())
+    throw std::runtime_error("Overlay preference position must be a string");
+  for (const auto &field :
+       {QStringLiteral("opacity_percent"), QStringLiteral("scale_percent")})
+    if (object.contains(field) && !object.value(field).isDouble())
+      throw std::runtime_error(
+          QStringLiteral("Overlay preference %1 must be a number")
+              .arg(field)
+              .toStdString());
   preferences.position = object.value(QStringLiteral("position"))
                              .toString(QStringLiteral("center"));
   preferences.opacity_percent =
@@ -592,15 +611,19 @@ private:
       rebuild();
     } catch (const std::exception &error) {
       qCritical() << error.what();
+      rebuild();
     }
   }
 
   static bool is_launch_at_login_enabled() {
-    return QProcess::execute(QStringLiteral("systemctl"),
-                             {QStringLiteral("--user"),
-                              QStringLiteral("is-enabled"),
-                              QStringLiteral("--quiet"),
-                              QStringLiteral("keymap-overlay.service")}) == 0;
+    const auto enabled = [](const QString &unit) {
+      return QProcess::execute(QStringLiteral("systemctl"),
+                               {QStringLiteral("--user"),
+                                QStringLiteral("is-enabled"),
+                                QStringLiteral("--quiet"), unit}) == 0;
+    };
+    return enabled(QStringLiteral("keymap-overlay.service")) &&
+           enabled(QStringLiteral("keymap-overlay-qt.service"));
   }
 
   RendererClient &renderer_;
