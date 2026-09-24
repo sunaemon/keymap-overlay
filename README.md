@@ -348,9 +348,9 @@ keyboard connected while the overlay runs.
 
 ### Edit a keymap in Vial
 
-Edit the connected keyboard in the Vial app, then
-[restart the overlay](#restart-the-overlay) to display the changes. Vial edits
-persist across keyboard restarts; no firmware build is needed.
+Edit the connected keyboard in the Vial app, then choose **Reload Keyboards**
+from the tray menu to display the changes. Vial edits persist across keyboard
+restarts; no firmware build is needed.
 
 ### Update firmware or the source keymap
 
@@ -372,6 +372,20 @@ firmware resets Vial's EEPROM-backed configuration and initializes the dynamic
 keymap from `keymap.c`; live Vial edits are therefore replaced by the source
 keymap. On Windows, build and flash in WSL (or copy the built `.uf2` from WSL
 to the bootloader volume in Explorer). Restart the overlay afterward.
+
+### Configure the overlay
+
+Use the keyboard icon in the macOS menu bar, Windows notification area, KDE or
+other desktop system tray, or GNOME top panel. Its menu can control whether the
+overlay launches at login, place it at the top, centre, or bottom of the active
+display, choose 50–100% opacity, choose 75–150% scale, reload connected
+keyboards, and quit. The installed version is shown in the same menu.
+
+Presentation choices persist per user. **Launch at Login** updates the same
+launchd, systemd, or Windows Run entry created by the installer without
+stopping the current session. **Reload Keyboards** rereads connected devices in
+the running process so current Vial EEPROM state appears immediately after a
+live edit.
 
 ### Restart the overlay
 
@@ -456,7 +470,7 @@ legacy model cache. Rotated logs are retained.
 The installed overlay reads the keymap currently stored in the connected
 keyboard's Vial EEPROM at startup, including edits made in the Vial app.
 It reads the device without writing to it or polling for keymap changes.
-[Restart the overlay](#restart-the-overlay) after making live edits.
+Choose **Reload Keyboards** from the tray menu after making live edits.
 
 To make `keymap.c` the keyboard's live keymap, use `make flash`; the firmware's
 fresh EEPROM epoch resets Vial state and initializes it from the compiled

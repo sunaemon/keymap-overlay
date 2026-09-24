@@ -2,11 +2,13 @@
 
 //! Production Windows frontend using the stable Win32 API through windows-rs.
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use keymap_overlay_runtime::{
-    Arguments, LayerEvent, LayerEventSink, LogDestination, ModelStore, OverlayModel, Parser as _,
-    PendingTransition, Transition, default_log_file, initialize_logging, spawn_layer_event_source,
-    startup_models, write_notice,
+    Arguments, LayerEvent, LayerEventSink, LogDestination, ModelStore, OverlayModel,
+    OverlayPosition, OverlayPreferences, Parser as _, PendingTransition, Transition,
+    default_log_file,
+    desktop_tray::{DesktopTray, TrayCommand},
+    initialize_logging, spawn_layer_event_source, startup_models, write_notice,
 };
 use std::env;
 use std::ffi::OsString;
@@ -14,7 +16,10 @@ use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write as _;
+use std::os::windows::process::CommandExt as _;
+use std::process::Command;
 use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex, OnceLock};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -47,14 +52,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetMessageW, GetWindowLongPtrW, HMENU, HWND_TOPMOST, IDC_ARROW, LoadCursorW, MSG,
     PostMessageW, PostQuitMessage, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
     SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, ULW_ALPHA, UpdateLayeredWindow,
-    WM_APP, WM_CREATE, WM_DESTROY, WM_DEVICECHANGE, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    WM_APP, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DEVICECHANGE, WNDCLASSW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
 const WINDOW_CLASS: PCWSTR = w!("KeymapOverlayWindow");
 const WINDOW_TITLE: PCWSTR = w!("Keymap Overlay");
 const WM_OVERLAY_TRANSITION: u32 = WM_APP + 1;
+const WM_TRAY_COMMAND: u32 = WM_APP + 2;
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 const DBT_DEVNODES_CHANGED: usize = 0x0007;
 const WINDOW_EDGE: i32 = 1;
 const OUTER_CORNER_RADIUS: f32 = 16.0;
@@ -79,6 +86,11 @@ struct State {
     models: ModelStore,
     pending: Arc<Mutex<PendingTransition>>,
     window: AtomicIsize,
+    preferences: Mutex<OverlayPreferences>,
+    launch_at_login: Mutex<bool>,
+    tray: Mutex<Option<DesktopTray>>,
+    tray_commands: Mutex<Receiver<TrayCommand>>,
+    visible_model: Mutex<Option<OverlayModel>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -178,15 +190,51 @@ pub(crate) fn run() -> Result<()> {
     let _gdi_plus = start_gdi_plus()?;
     let startup = startup_models(simulated)?;
     let models = ModelStore::new(startup.models);
+    let preferences = OverlayPreferences::load()?;
+    let launch_at_login = launch_at_login_enabled();
     let pending = Arc::new(Mutex::new(PendingTransition::default()));
+    let (tray_sender, tray_commands) = mpsc::channel();
+    let e2e_tray_sender = tray_sender.clone();
     let state = Box::new(State {
         models: models.clone(),
         pending: Arc::clone(&pending),
         window: AtomicIsize::new(0),
+        preferences: Mutex::new(preferences),
+        launch_at_login: Mutex::new(launch_at_login),
+        tray: Mutex::new(None),
+        tray_commands: Mutex::new(tray_commands),
+        visible_model: Mutex::new(None),
     });
     let window = create_window(Box::into_raw(state))?;
     let state = unsafe { state_from_window(window) };
     state.window.store(window.0 as isize, Ordering::Release);
+    let tray_window = window.0 as isize;
+    let tray = DesktopTray::new(preferences, launch_at_login, move |command| {
+        if tray_sender.send(command).is_ok() {
+            let window = HWND(tray_window as *mut _);
+            if let Err(error) =
+                unsafe { PostMessageW(Some(window), WM_TRAY_COMMAND, WPARAM(0), LPARAM(0)) }
+            {
+                log::error!("Failed to wake the Windows tray menu: {error}");
+            }
+        }
+    })?;
+    *state
+        .tray
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(tray);
+    if env::var_os("KEYMAP_OVERLAY_E2E_EXERCISE_TRAY").is_some_and(|value| value == "1") {
+        for command in [
+            TrayCommand::SetPosition(OverlayPosition::Top),
+            TrayCommand::SetOpacity(75),
+            TrayCommand::SetScale(125),
+            TrayCommand::Reload,
+        ] {
+            e2e_tray_sender
+                .send(command)
+                .context("Failed to queue a Windows E2E tray command")?;
+        }
+    }
     let event_window = Arc::new(AtomicIsize::new(window.0 as isize));
     let listener = spawn_layer_event_source(
         Sink {
@@ -198,6 +246,9 @@ pub(crate) fn run() -> Result<()> {
         models,
     );
     let _ = LISTENER.set(listener);
+    if env::var_os("KEYMAP_OVERLAY_E2E_EXERCISE_TRAY").is_some_and(|value| value == "1") {
+        unsafe { apply_tray_commands(window) };
+    }
     message_loop()
 }
 
@@ -276,6 +327,10 @@ unsafe extern "system" fn window_proc(
         unsafe { apply_transition(window) };
         return LRESULT(0);
     }
+    if message == WM_TRAY_COMMAND {
+        unsafe { apply_tray_commands(window) };
+        return LRESULT(0);
+    }
     if message == WM_DEVICECHANGE
         && parameter.0 == DBT_DEVNODES_CHANGED
         && let Some(listener) = LISTENER.get()
@@ -297,14 +352,158 @@ unsafe fn apply_transition(window: HWND) {
     }
     let model = model_for_transition(&state.models, &transition);
     write_e2e_state(&transition, model.as_ref());
+    *state
+        .visible_model
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = model.clone();
+    let preferences = *state
+        .preferences
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(model) = model {
-        if let Err(error) = unsafe { present_model(window, &model) } {
+        if let Err(error) = unsafe { present_model(window, &model, preferences) } {
             log::error!("Failed to render the Windows overlay: {error:#}");
             unsafe { hide_window(window) };
         }
     } else {
         unsafe { hide_window(window) };
     }
+}
+
+unsafe fn apply_tray_commands(window: HWND) {
+    let state = unsafe { state_from_window(window) };
+    let commands = state
+        .tray_commands
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .try_iter()
+        .collect::<Vec<_>>();
+    for command in commands {
+        if matches!(command, TrayCommand::Reload) {
+            if let Some(listener) = LISTENER.get()
+                && listener.reload_keyboards()
+            {
+                log::info!("Reloading connected keyboard models");
+            }
+            continue;
+        }
+        if matches!(command, TrayCommand::Quit) {
+            let _ = unsafe { PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+            return;
+        }
+        if matches!(command, TrayCommand::ToggleLaunchAtLogin) {
+            let mut launch_at_login = state
+                .launch_at_login
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let enabled = !*launch_at_login;
+            if let Err(error) = set_launch_at_login(enabled) {
+                log::error!("Failed to change the launch-at-login setting: {error:#}");
+            } else {
+                *launch_at_login = enabled;
+            }
+            if let Some(tray) = state
+                .tray
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .as_mut()
+            {
+                let preferences = *state
+                    .preferences
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                tray.sync(preferences, *launch_at_login);
+            }
+            continue;
+        }
+        let preferences = {
+            let mut preferences = state
+                .preferences
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let next = command
+                .updated_preferences(*preferences)
+                .expect("action commands are handled before preference updates");
+            if let Err(error) = next.save() {
+                log::error!("Failed to save overlay preferences: {error:#}");
+                if let Some(tray) = state
+                    .tray
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .as_mut()
+                {
+                    let launch_at_login = *state
+                        .launch_at_login
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    tray.sync(*preferences, launch_at_login);
+                }
+                continue;
+            }
+            *preferences = next;
+            next
+        };
+        if let Some(tray) = state
+            .tray
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_mut()
+        {
+            let launch_at_login = *state
+                .launch_at_login
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            tray.sync(preferences, launch_at_login);
+        }
+        let model = state
+            .visible_model
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if let Some(model) = model {
+            if let Err(error) = unsafe { present_model(window, &model, preferences) } {
+                log::error!("Failed to apply Windows overlay preferences: {error:#}");
+                unsafe { hide_window(window) };
+            }
+        } else {
+            unsafe { hide_window(window) };
+        }
+    }
+}
+
+fn launch_at_login_enabled() -> bool {
+    let mut command = Command::new("reg.exe");
+    command.creation_flags(CREATE_NO_WINDOW).args([
+        "query",
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+        "/v",
+        "KeymapOverlay",
+    ]);
+    command.status().is_ok_and(|status| status.success())
+}
+
+fn set_launch_at_login(enabled: bool) -> Result<()> {
+    let mut command = Command::new("reg.exe");
+    command.creation_flags(CREATE_NO_WINDOW).args([
+        if enabled { "add" } else { "delete" },
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+        "/v",
+        "KeymapOverlay",
+    ]);
+    if enabled {
+        let executable = env::current_exe().context("Failed to find the overlay executable")?;
+        command
+            .args(["/t", "REG_SZ", "/d"])
+            .arg(format!("\"{}\"", executable.display()))
+            .arg("/f");
+    } else {
+        command.arg("/f");
+    }
+    let status = command
+        .status()
+        .context("Failed to update the Windows startup registry value")?;
+    anyhow::ensure!(status.success(), "reg.exe failed to update launch at login");
+    Ok(())
 }
 
 fn model_for_transition(models: &ModelStore, transition: &Transition) -> Option<OverlayModel> {
@@ -325,8 +524,12 @@ unsafe fn hide_window(window: HWND) {
     }
 }
 
-unsafe fn present_model(window: HWND, model: &OverlayModel) -> Result<()> {
-    let bounds = visible_window_bounds(model);
+unsafe fn present_model(
+    window: HWND,
+    model: &OverlayModel,
+    preferences: OverlayPreferences,
+) -> Result<()> {
+    let bounds = visible_window_bounds(model, preferences);
     let surface = unsafe { RenderSurface::new(bounds.width, bounds.height)? };
     unsafe { draw_model(surface.graphics, model, bounds.scale)? };
 
@@ -342,7 +545,7 @@ unsafe fn present_model(window: HWND, model: &OverlayModel) -> Result<()> {
     let blend = BLENDFUNCTION {
         BlendOp: AC_SRC_OVER as u8,
         BlendFlags: 0,
-        SourceConstantAlpha: 255,
+        SourceConstantAlpha: ((u16::from(preferences.opacity_percent) * 255) / 100) as u8,
         AlphaFormat: AC_SRC_ALPHA as u8,
     };
     unsafe {
@@ -1069,16 +1272,17 @@ fn write_rectangle_snapshot(snapshot: &mut String, rectangle: RectF) {
     .expect("write to string");
 }
 
-fn visible_window_bounds(model: &OverlayModel) -> WindowBounds {
+fn visible_window_bounds(model: &OverlayModel, preferences: OverlayPreferences) -> WindowBounds {
     let (logical_width, logical_height) = window_size(model);
+    let preference_scale = f32::from(preferences.scale_percent) / 100.0;
     let mut cursor = POINT::default();
     if unsafe { GetCursorPos(&mut cursor) }.is_err() {
         return WindowBounds {
             x: 0,
             y: 0,
-            width: logical_width,
-            height: logical_height,
-            scale: 1.0,
+            width: (logical_width as f32 * preference_scale).round() as i32,
+            height: (logical_height as f32 * preference_scale).round() as i32,
+            scale: preference_scale,
         };
     }
     let monitor = unsafe { MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST) };
@@ -1090,34 +1294,65 @@ fn visible_window_bounds(model: &OverlayModel) -> WindowBounds {
         return WindowBounds {
             x: 0,
             y: 0,
-            width: logical_width,
-            height: logical_height,
-            scale: 1.0,
+            width: (logical_width as f32 * preference_scale).round() as i32,
+            height: (logical_height as f32 * preference_scale).round() as i32,
+            scale: preference_scale,
         };
     }
     let mut dpi_x = 96;
     let mut dpi_y = 96;
-    let scale = if unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) }
-        .is_ok()
+    let dpi_scale = if unsafe {
+        GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y)
+    }
+    .is_ok()
     {
         dpi_x as f32 / 96.0
     } else {
         1.0
     };
-    centered_window_bounds(info.rcWork, logical_width, logical_height, scale)
+    let scale = dpi_scale * preference_scale;
+    positioned_window_bounds(
+        info.rcWork,
+        logical_width,
+        logical_height,
+        scale,
+        preferences.position,
+    )
 }
 
+#[cfg(test)]
 fn centered_window_bounds(
     work_area: RECT,
     logical_width: i32,
     logical_height: i32,
     scale: f32,
 ) -> WindowBounds {
+    positioned_window_bounds(
+        work_area,
+        logical_width,
+        logical_height,
+        scale,
+        OverlayPosition::Center,
+    )
+}
+
+fn positioned_window_bounds(
+    work_area: RECT,
+    logical_width: i32,
+    logical_height: i32,
+    scale: f32,
+    position: OverlayPosition,
+) -> WindowBounds {
     let width = (logical_width as f32 * scale).round() as i32;
     let height = (logical_height as f32 * scale).round() as i32;
+    let y = match position {
+        OverlayPosition::Top => work_area.top,
+        OverlayPosition::Center => work_area.top + (work_area.bottom - work_area.top - height) / 2,
+        OverlayPosition::Bottom => work_area.bottom - height,
+    };
     WindowBounds {
         x: work_area.left + (work_area.right - work_area.left - width) / 2,
-        y: work_area.top + (work_area.bottom - work_area.top - height) / 2,
+        y,
         width,
         height,
         scale,
@@ -1336,6 +1571,25 @@ mod tests {
                 height: 213,
                 scale: 1.5,
             }
+        );
+    }
+
+    #[test]
+    fn window_bounds_honor_top_and_bottom_placement() {
+        let work_area = RECT {
+            left: 100,
+            top: 50,
+            right: 1_300,
+            bottom: 850,
+        };
+
+        assert_eq!(
+            positioned_window_bounds(work_area, 400, 200, 1.0, OverlayPosition::Top).y,
+            50
+        );
+        assert_eq!(
+            positioned_window_bounds(work_area, 400, 200, 1.0, OverlayPosition::Bottom).y,
+            650
         );
     }
 

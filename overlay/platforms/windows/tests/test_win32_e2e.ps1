@@ -8,6 +8,7 @@ $overlay = if ($env:KEYMAP_OVERLAY_E2E_OVERLAY) {
 }
 $testDirectory = Join-Path ([IO.Path]::GetTempPath()) ("keymap-overlay-e2e-" + [guid]::NewGuid())
 $stateFile = Join-Path $testDirectory "state"
+$preferencesFile = Join-Path $testDirectory "preferences.json"
 $outputFile = Join-Path $testDirectory "overlay.out.log"
 $errorFile = Join-Path $testDirectory "overlay.err.log"
 $process = $null
@@ -77,6 +78,8 @@ try {
         Fail-Test "legacy model generator must not be installed beside the Windows executable"
     }
     $env:KEYMAP_OVERLAY_E2E_STATE_FILE = $stateFile
+    $env:KEYMAP_OVERLAY_PREFERENCES_FILE = $preferencesFile
+    $env:KEYMAP_OVERLAY_E2E_EXERCISE_TRAY = "1"
 
     $process = Start-Process -FilePath $overlay `
         -ArgumentList "--simulate", "1:2" `
@@ -87,6 +90,13 @@ try {
     Wait-ForState "the simulated release to detach and hide the layer" "hide size=1x1"
     Wait-ForState "the next simulated press to attach the layer again" `
         "show keyboard=1 layers=[2] size=162x122 keys=2 encoders=0 held=1" 2
+
+    $preferences = Get-Content -Raw $preferencesFile | ConvertFrom-Json
+    if ($preferences.position -ne "top" -or
+        $preferences.opacity_percent -ne 75 -or
+        $preferences.scale_percent -ne 125) {
+        Fail-Test "tray commands did not persist the expected preferences"
+    }
 
     if ($process.HasExited) {
         Fail-Test "overlay exited while processing Windows state transitions"
@@ -107,6 +117,8 @@ try {
     throw
 } finally {
     Remove-Item Env:KEYMAP_OVERLAY_E2E_STATE_FILE -ErrorAction SilentlyContinue
+    Remove-Item Env:KEYMAP_OVERLAY_PREFERENCES_FILE -ErrorAction SilentlyContinue
+    Remove-Item Env:KEYMAP_OVERLAY_E2E_EXERCISE_TRAY -ErrorAction SilentlyContinue
     if ($null -ne $process -and -not $process.HasExited) {
         Close-Overlay
     }
