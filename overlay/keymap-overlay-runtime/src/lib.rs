@@ -89,37 +89,12 @@ impl OverlayPreferences {
 
     /// Reads preferences, returning defaults when they have not been created.
     pub fn load() -> Result<Self> {
-        let path = preferences_file()?;
-        match fs::read(&path) {
-            Ok(contents) => {
-                let preferences: Self = serde_json::from_slice(&contents)
-                    .with_context(|| format!("Failed to parse preferences {}", path.display()))?;
-                preferences.validate()
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(error) => {
-                Err(error).with_context(|| format!("Failed to read preferences {}", path.display()))
-            }
-        }
+        load_preferences(&preferences_file()?)
     }
 
     /// Persists preferences for the next process start.
     pub fn save(self) -> Result<()> {
-        let preferences = self.validate()?;
-        let path = preferences_file()?;
-        let directory = path
-            .parent()
-            .context("The preferences path has no parent")?;
-        fs::create_dir_all(directory).with_context(|| {
-            format!(
-                "Failed to create preferences directory {}",
-                directory.display()
-            )
-        })?;
-        let contents = serde_json::to_vec_pretty(&preferences)
-            .context("Failed to serialize overlay preferences")?;
-        write_file_atomically(&path, &contents)
-            .with_context(|| format!("Failed to write preferences {}", path.display()))
+        save_preferences(preferences_file()?, self)
     }
 
     fn validate(mut self) -> Result<Self> {
@@ -136,6 +111,37 @@ impl OverlayPreferences {
         self.legacy_enabled = None;
         Ok(self)
     }
+}
+
+fn load_preferences(path: &Path) -> Result<OverlayPreferences> {
+    match fs::read(path) {
+        Ok(contents) => {
+            let preferences: OverlayPreferences = serde_json::from_slice(&contents)
+                .with_context(|| format!("Failed to parse preferences {}", path.display()))?;
+            preferences.validate()
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(OverlayPreferences::default()),
+        Err(error) => {
+            Err(error).with_context(|| format!("Failed to read preferences {}", path.display()))
+        }
+    }
+}
+
+fn save_preferences(path: PathBuf, preferences: OverlayPreferences) -> Result<()> {
+    let preferences = preferences.validate()?;
+    let directory = path
+        .parent()
+        .context("The preferences path has no parent")?;
+    fs::create_dir_all(directory).with_context(|| {
+        format!(
+            "Failed to create preferences directory {}",
+            directory.display()
+        )
+    })?;
+    let contents = serde_json::to_vec_pretty(&preferences)
+        .context("Failed to serialize overlay preferences")?;
+    write_file_atomically(&path, &contents)
+        .with_context(|| format!("Failed to write preferences {}", path.display()))
 }
 
 fn write_file_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
@@ -212,6 +218,24 @@ pub mod desktop_tray {
         SetScale(u16),
         Reload,
         Quit,
+    }
+
+    impl TrayCommand {
+        /// Returns updated preferences for commands that change overlay presentation.
+        pub fn updated_preferences(
+            self,
+            mut preferences: OverlayPreferences,
+        ) -> Option<OverlayPreferences> {
+            match self {
+                Self::SetPosition(position) => preferences.position = position,
+                Self::SetOpacity(opacity) => preferences.opacity_percent = opacity,
+                Self::SetScale(scale) => preferences.scale_percent = scale,
+                Self::OpenSettings | Self::ToggleLaunchAtLogin | Self::Reload | Self::Quit => {
+                    return None;
+                }
+            }
+            Some(preferences)
+        }
     }
 
     pub struct DesktopTray {
@@ -469,6 +493,47 @@ pub mod desktop_tray {
         #[test]
         fn tray_icon_pixels_form_a_valid_native_icon() {
             assert!(tray_icon().is_ok());
+        }
+
+        #[test]
+        fn presentation_commands_update_only_the_selected_preference() {
+            let preferences = OverlayPreferences::default();
+            assert_eq!(
+                TrayCommand::SetPosition(OverlayPosition::Bottom).updated_preferences(preferences),
+                Some(OverlayPreferences {
+                    position: OverlayPosition::Bottom,
+                    ..preferences
+                })
+            );
+            assert_eq!(
+                TrayCommand::SetOpacity(75).updated_preferences(preferences),
+                Some(OverlayPreferences {
+                    opacity_percent: 75,
+                    ..preferences
+                })
+            );
+            assert_eq!(
+                TrayCommand::SetScale(125).updated_preferences(preferences),
+                Some(OverlayPreferences {
+                    scale_percent: 125,
+                    ..preferences
+                })
+            );
+        }
+
+        #[test]
+        fn action_commands_do_not_mutate_preferences() {
+            for command in [
+                TrayCommand::OpenSettings,
+                TrayCommand::ToggleLaunchAtLogin,
+                TrayCommand::Reload,
+                TrayCommand::Quit,
+            ] {
+                assert_eq!(
+                    command.updated_preferences(OverlayPreferences::default()),
+                    None
+                );
+            }
         }
     }
 }
@@ -2247,6 +2312,37 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn preferences_round_trip_and_missing_files_use_defaults() {
+        let directory = TempDir::new().expect("temporary directory is available");
+        let path = directory.path().join("nested/preferences.json");
+        assert_eq!(
+            load_preferences(&path).expect("missing preferences use defaults"),
+            OverlayPreferences::default()
+        );
+        let expected = OverlayPreferences {
+            position: OverlayPosition::Top,
+            opacity_percent: 90,
+            scale_percent: 150,
+            ..OverlayPreferences::default()
+        };
+
+        save_preferences(path.clone(), expected).expect("preferences save");
+
+        assert_eq!(load_preferences(&path).expect("preferences load"), expected);
+    }
+
+    #[test]
+    fn malformed_preferences_report_their_path() {
+        let directory = TempDir::new().expect("temporary directory is available");
+        let path = directory.path().join("preferences.json");
+        fs::write(&path, b"not json").expect("fixture can be written");
+
+        let error = load_preferences(&path).expect_err("invalid JSON must fail");
+
+        assert!(error.to_string().contains(path.to_string_lossy().as_ref()));
     }
 
     #[cfg(target_os = "windows")]

@@ -10,6 +10,8 @@ use block2::StackBlock;
 use dispatch::Queue;
 use iohidmanager::async_api::ManagerDeviceMatchingStream;
 use iohidmanager::{HidManager, HidUsage};
+#[cfg(test)]
+use keymap_overlay_runtime::DisplayKey;
 use keymap_overlay_runtime::{
     DisplayEncoder, LayerEvent, LayerEventSink, LayerEventSourceHandle, ModelStore, OverlayModel,
     OverlayPosition, OverlayPreferences, PendingTransition, RAW_USAGE_ID, RAW_USAGE_PAGE,
@@ -944,7 +946,6 @@ impl OverlayApp {
     }
 
     fn apply_tray_command(&mut self, command: TrayCommand) {
-        let mut next = self.preferences;
         match command {
             TrayCommand::OpenSettings => {
                 self.open_settings();
@@ -963,9 +964,8 @@ impl OverlayApp {
                 self.rebuild_settings();
                 return;
             }
-            TrayCommand::SetPosition(position) => next.position = position,
-            TrayCommand::SetOpacity(opacity) => next.opacity_percent = opacity,
-            TrayCommand::SetScale(scale) => next.scale_percent = scale,
+            TrayCommand::SetPosition(_) | TrayCommand::SetOpacity(_) | TrayCommand::SetScale(_) => {
+            }
             TrayCommand::Reload => {
                 if self.listener.reload_keyboards() {
                     info!("Reloading connected keyboard models");
@@ -979,6 +979,9 @@ impl OverlayApp {
                 return;
             }
         }
+        let next = command
+            .updated_preferences(self.preferences)
+            .expect("presentation commands update preferences");
         if let Err(error) = next.save() {
             log::error!("Failed to save overlay preferences: {error:#}");
             if let Some(tray) = &mut self.tray {
@@ -1540,5 +1543,48 @@ mod tests {
             r#""com.sunaemon.keymap-overlay" => enabled"#
         ));
         assert!(launchd_overrides_allow_login("disabled services = {}"));
+    }
+
+    #[test]
+    fn scales_keys_and_encoders_with_the_model() {
+        let mut model = OverlayModel {
+            version: 2,
+            layer: 1,
+            width: 200,
+            height: 100,
+            header_font_size: 16.0,
+            key_font_size: 12.0,
+            encoder_font_size: 10.0,
+            keys: vec![DisplayKey {
+                x: 20,
+                y: 10,
+                width: 40,
+                height: 30,
+                label: vec!["A".to_owned()],
+                held: false,
+                transparent: false,
+                momentary_layer: None,
+            }],
+            encoders: vec![DisplayEncoder {
+                x: 100,
+                y: 40,
+                size: 20,
+                counter_clockwise: vec!["Left".to_owned()],
+                clockwise: vec!["Right".to_owned()],
+                press: "Press".to_owned(),
+                held: false,
+                counter_clockwise_transparent: false,
+                clockwise_transparent: false,
+                press_transparent: false,
+                momentary_layer: None,
+            }],
+        };
+
+        scale_model(&mut model, 150);
+
+        assert_eq!((model.width, model.height), (300, 150));
+        assert_eq!((model.keys[0].x, model.keys[0].height), (30, 45));
+        assert_eq!((model.encoders[0].x, model.encoders[0].size), (150, 30));
+        assert_eq!(model.header_font_size, 24.0);
     }
 }

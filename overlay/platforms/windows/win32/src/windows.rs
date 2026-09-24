@@ -421,18 +421,9 @@ unsafe fn apply_tray_commands(window: HWND) {
                 .preferences
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let mut next = *preferences;
-            match command {
-                TrayCommand::SetPosition(position) => next.position = position,
-                TrayCommand::SetOpacity(opacity) => next.opacity_percent = opacity,
-                TrayCommand::SetScale(scale) => next.scale_percent = scale,
-                TrayCommand::OpenSettings
-                | TrayCommand::ToggleLaunchAtLogin
-                | TrayCommand::Reload
-                | TrayCommand::Quit => {
-                    unreachable!()
-                }
-            }
+            let next = command
+                .updated_preferences(*preferences)
+                .expect("action commands are handled before preference updates");
             if let Err(error) = next.save() {
                 log::error!("Failed to save overlay preferences: {error:#}");
                 if let Some(tray) = state
