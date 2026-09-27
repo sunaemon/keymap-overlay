@@ -31,18 +31,31 @@ impl RendererStateStore {
     }
 }
 
-pub struct RendererService(RendererStateStore);
+pub struct RendererService {
+    state: RendererStateStore,
+    reload_keyboards: Box<dyn Fn() -> bool + Send + Sync>,
+}
 
 impl RendererService {
-    pub fn new(state: RendererStateStore) -> Self {
-        Self(state)
+    pub fn new(
+        state: RendererStateStore,
+        reload_keyboards: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            state,
+            reload_keyboards: Box::new(reload_keyboards),
+        }
     }
 }
 
 #[zbus::interface(name = "com.sunaemon.KeymapOverlay.Renderer1")]
 impl RendererService {
     fn get_state(&self) -> RendererState {
-        self.0.get()
+        self.state.get()
+    }
+
+    fn reload_keyboards(&self) -> bool {
+        (self.reload_keyboards)()
     }
 }
 
@@ -72,6 +85,7 @@ pub fn decode_state(signal: &StateChanged) -> zbus::Result<RendererState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
     fn contract_names_are_stable() {
@@ -84,10 +98,27 @@ mod tests {
     #[test]
     fn state_store_is_shared_with_the_service() {
         let store = RendererStateStore::new((1, false, String::new()));
-        let _service = RendererService::new(store.clone());
+        let service = RendererService::new(store.clone(), || true);
 
         store.set((2, true, "{\"version\":1}".into()));
 
         assert_eq!(store.get(), (2, true, "{\"version\":1}".into()));
+        assert!(service.reload_keyboards());
+    }
+
+    #[test]
+    fn reload_method_calls_the_daemon_requester() {
+        let called = Arc::new(AtomicBool::new(false));
+        let callback_called = Arc::clone(&called);
+        let service = RendererService::new(
+            RendererStateStore::new((1, false, String::new())),
+            move || {
+                callback_called.store(true, Ordering::Release);
+                true
+            },
+        );
+
+        assert!(service.reload_keyboards());
+        assert!(called.load(Ordering::Acquire));
     }
 }

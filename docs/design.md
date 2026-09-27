@@ -48,6 +48,17 @@ held layers use QMK's numeric precedence and transparent keys fall through the
 other active layers before the base layer. Between keyboards, the most recently
 used keyboard owns the overlay. It hides once no momentary layers remain held.
 
+Each native frontend also owns a persistent tray or menu-bar control. macOS and
+Windows share a safe Rust menu implementation, Qt uses `QSystemTrayIcon`, and
+the GNOME extension adds a Shell panel indicator. On macOS the tray opens a
+separate settings window rather than carrying configuration controls itself.
+That window previews every loaded keyboard and layer with the same semantic
+model used by the overlay. The frontends write the same per-user presentation
+preferences (vertical position, opacity, and scale) and apply changes without
+polling. The launch-at-login control updates the platform service registration
+installed by the project. The tray also reports the installed version, rereads
+live keyboard models through the existing listener, and quits the overlay.
+
 ### Startup Read
 
 Before the listener starts (never on the keypress hot path above), the runtime
@@ -58,9 +69,10 @@ processes. A compatible keyboard connected later is read once in the arrival
 worker before its normal layer-event reader begins.
 
 Vial does not send an external-change notification when its web application
-writes EEPROM. A Vial edit therefore appears at the next startup read; the
-user restarts the overlay after making a live edit. The runtime never polls or
-writes the keymap itself.
+writes EEPROM. A Vial edit therefore appears after the user chooses **Reload
+Keyboards** or at the next startup read. An explicit reload stops the active
+reader threads, rereads the connected devices, and resumes those readers in
+the same process. The runtime never polls or writes the keymap itself.
 
 ## Raw HID Protocol
 
@@ -114,8 +126,8 @@ from udev, macOS receives usage-filtered notifications from `IOHIDManager`, and
 Windows forwards `WM_DEVICECHANGE` from the mapped Rust window. The arrival
 worker reads an unseen keyboard's self-describing model into the shared
 in-memory store, replays layer reports observed during that read, and then
-starts its normal reader. Reconnecting a previously modeled keyboard retains
-the startup model; a Vial edit still requires an explicit overlay restart.
+starts its normal reader. An explicit reload uses the same worker after active
+readers release their device handles.
 
 For hardware-free manual testing, `--simulate KEYBOARD_ID:LAYER` replaces the
 HID listener with a synthetic source at the `LayerEventSink` boundary. It holds

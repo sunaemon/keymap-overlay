@@ -73,18 +73,22 @@ run_case() {
   LOG_FILE="$TEST_DIRECTORY/$name.log"
 
   KEYMAP_OVERLAY_E2E_STATE_FILE="$STATE_FILE" \
+    KEYMAP_OVERLAY_PREFERENCES_FILE="$TEST_DIRECTORY/preferences.json" \
+    KEYMAP_OVERLAY_E2E_EXERCISE_SETTINGS=1 \
     KEYMAP_OVERLAY_E2E_EXIT_AFTER_SHOWS=2 \
     KEYMAP_OVERLAY_E2E_FORCE_VISUAL_EFFECT="$force_visual_effect" \
     "$OVERLAY" --simulate 1:2 \
     >"$LOG_FILE" 2>&1 &
   OVERLAY_PID=$!
 
+  wait_for_state 'the settings preview to render and accept its controls' \
+    'settings tab=Preview keyboard=Some(1) layer=Some(2) position=Top opacity=75 scale=125'
   wait_for_state 'the composed layer to be attached' \
-    'show keyboard=1 layers=[2] size=160x120 subviews=1 native_subviews=5'
+    'show keyboard=1 layers=[2] size=200x150 subviews=1 native_subviews=5'
   wait_for_state 'the simulated release to detach and hide the layer' \
     'hide size=1x1 subviews=0'
   wait_for_state 'the next simulated press to attach the layer again' \
-    'show keyboard=1 layers=[2] size=160x120 subviews=1 native_subviews=5' 2
+    'show keyboard=1 layers=[2] size=200x150 subviews=1 native_subviews=5' 2
 
   wait_for_exit "processing the $name AppKit state transitions"
 }
