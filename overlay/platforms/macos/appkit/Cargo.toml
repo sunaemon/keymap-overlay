@@ -16,7 +16,7 @@ workspace = true
 anyhow = "1.0"
 block2 = "0.6.2"
 dispatch = "0.2.0"
-iohidmanager = { version = "0.10.4", default-features = false, features = [
+iohidmanager = { version = "0.11.0", default-features = false, features = [
   "async",
 ] }
 keymap-overlay-runtime = { path = "../../../keymap-overlay-runtime" }
