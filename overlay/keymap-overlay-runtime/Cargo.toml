@@ -23,7 +23,7 @@ tempfile = "3.27.0"
 # macOS opens the same device from several processes; VIAL tools and the
 # overlay share the keyboard's Raw HID interface.
 hidapi = { version = "2.6.6", features = ["macos-shared-device"] }
-tray-icon = { version = "0.25.1", default-features = false }
+tray-icon = { version = "0.26.0", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # The pure-Rust Windows backend rather than hidapi's bundled C one keeps the
@@ -32,7 +32,7 @@ tray-icon = { version = "0.25.1", default-features = false }
 hidapi = { version = "2.6.6", default-features = false, features = [
   "windows-native",
 ] }
-tray-icon = { version = "0.25.1", default-features = false }
+tray-icon = { version = "0.26.0", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # hidraw, not the default libusb backend: libusb detaches the kernel driver,
