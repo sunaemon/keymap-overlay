@@ -95,7 +95,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes libudev-dev liblzma-dev cmake dbus-x11 fonts-noto-core imagemagick libglib2.0-bin "linux-modules-extra-$(uname -r)" qt6-base-dev qt6-declarative-dev qml6-module-qtqml-workerscript qml6-module-qtquick qml6-module-qtquick-window
 
       - name: Install mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
           # PR caches are isolated to that PR. Restore main's cache everywhere,
           # but save the reusable copy only after a change reaches main.
@@ -193,7 +193,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
@@ -268,7 +268,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
@@ -336,7 +336,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
